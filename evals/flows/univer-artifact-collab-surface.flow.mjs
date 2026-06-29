@@ -140,6 +140,30 @@ async function ensureSessionAndSidePanel(ctx) {
   );
 }
 
+async function openWorkspaceFilesPopover(ctx) {
+  const alreadyOpen = await ctx.eval(`Boolean(document.querySelector('input[placeholder="Search files"]'))`);
+  if (alreadyOpen) {
+    return;
+  }
+
+  const clicked = await ctx.waitFor(`(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((item) => item.getAttribute("aria-label") === "Workspace files" && !item.disabled);
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`, {
+    timeoutMs: 30_000,
+    label: "workspace files popover button",
+  });
+  ctx.assert(clicked === true, "Could not click the workspace files popover button.");
+
+  await ctx.waitFor(`Boolean(document.querySelector('input[placeholder="Search files"]'))`, {
+    timeoutMs: 30_000,
+    label: "workspace file tree search input",
+  });
+}
+
 export default {
   id: "univer-artifact-collab-surface",
   title: "Native .univer artifacts open in the embedded Univer collab surface",
@@ -267,6 +291,69 @@ export default {
           screenshot: {
             name: "univer-collab-surface-embedded",
             rejectText: ["Failed to open Univer preview", "Setup incomplete", "remote workspaces only"],
+          },
+        });
+      },
+    },
+    {
+      name: "Open cowork context from the Files popover",
+      run: async (ctx) => {
+        await ctx.prove("The Files popover shows Univer units and worktrees while the file tree remains available", {
+          action: async () => {
+            await openWorkspaceFilesPopover(ctx);
+            await ctx.waitFor(`(() => {
+              const panel = document.querySelector('[data-testid="workspace-cowork-panel"]');
+              if (!panel) return false;
+              const text = panel.textContent || "";
+              return text.includes("Main worktree")
+                && text.includes("Active changes")
+                && text.includes("Ready for review")
+                && !text.includes("Opening Univer surface")
+                && !text.includes("Loading Univer workspace")
+                && !text.includes("Failed to open Univer surface")
+                && !text.includes("Failed to load Univer workspace");
+            })()`, {
+              timeoutMs: 60_000,
+              label: "loaded workspace cowork panel",
+            });
+          },
+          assert: async () => {
+            const result = await ctx.eval(`(() => {
+              const panel = document.querySelector('[data-testid="workspace-cowork-panel"]');
+              if (!panel) return { ok: false, reason: "cowork panel missing" };
+              const text = panel.textContent || "";
+              const unitRow = Array.from(panel.querySelectorAll('[data-cowork-row="unit"]'))
+                .find((row) => row.getAttribute("data-unit-id") === ${JSON.stringify(latestDeepLink.unitId)});
+              const selectedWorktree = Array.from(panel.querySelectorAll("[data-worktree-id]"))
+                .find((row) =>
+                  row.getAttribute("data-worktree-id") === ${JSON.stringify(latestDeepLink.worktreeId)} &&
+                  row.getAttribute("aria-pressed") === "true"
+                );
+              const fileTreeSearch = document.querySelector('input[placeholder="Search files"]');
+              return {
+                ok: true,
+                hasMainWorktree: text.includes("Main worktree"),
+                hasActiveChanges: text.includes("Active changes"),
+                hasReadyForReview: text.includes("Ready for review"),
+                hasUnitRow: Boolean(unitRow),
+                hasSelectedWorktree: Boolean(selectedWorktree),
+                selectedWorktreeLabel: selectedWorktree?.getAttribute("aria-label") || "",
+                hasFileTree: Boolean(fileTreeSearch),
+                errorVisible: /Failed to open Univer surface|Failed to load Univer workspace/i.test(text),
+              };
+            })()`);
+            ctx.assert(result.ok, result.reason || "Cowork panel was not found.");
+            ctx.assert(result.hasMainWorktree && result.hasActiveChanges && result.hasReadyForReview, "Cowork sections are incomplete.");
+            ctx.assert(result.hasUnitRow, `Cowork units did not include deep-linked unit ${latestDeepLink.unitId}.`);
+            ctx.assert(result.hasSelectedWorktree, `Cowork worktrees did not select deep-linked worktree ${latestDeepLink.worktreeId}.`);
+            ctx.assert(result.hasFileTree, "The workspace file tree disappeared when cowork context mounted.");
+            ctx.assert(!result.errorVisible, "Cowork panel displayed an error state.");
+            ctx.log(`Selected cowork worktree row: ${result.selectedWorktreeLabel}`);
+          },
+          screenshot: {
+            name: "univer-cowork-files-popover",
+            requireText: ["Main worktree", "Active changes", "Ready for review"],
+            rejectText: ["Failed to open Univer surface", "Failed to load Univer workspace"],
           },
         });
       },

@@ -6,6 +6,7 @@ import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { WorkspaceCoworkPanel } from "./workspace-cowork-panel";
 import { WorkspaceFileTree } from "./workspace-file-tree";
 
 type WorkspaceFileTreePopoverProps = {
@@ -48,16 +49,27 @@ export function WorkspaceFileTreePopover({
           </Button>
         )}
       />
-      <PopoverContent align="end" sideOffset={8} className="h-[min(70vh,560px)] w-[380px] gap-0 overflow-hidden rounded-xl p-0">
+      <PopoverContent align="end" sideOffset={8} className="h-[min(78vh,680px)] w-[420px] gap-0 overflow-hidden rounded-xl p-0">
         {sessionId ? (
-          <WorkspaceFileTree
-            sessionId={sessionId}
-            client={client}
-            workspaceId={workspaceId}
-            workspaceRoot={workspaceRoot}
-            isRemoteWorkspace={isRemoteWorkspace}
-            onArtifactOpen={onArtifactOpen}
-          />
+          <div className="flex h-full min-h-0 flex-col bg-background">
+            <div className="min-h-0 flex-1">
+              <WorkspaceFileTree
+                sessionId={sessionId}
+                client={client}
+                workspaceId={workspaceId}
+                workspaceRoot={workspaceRoot}
+                isRemoteWorkspace={isRemoteWorkspace}
+                onArtifactOpen={onArtifactOpen}
+              />
+            </div>
+            <WorkspaceCoworkPanel
+              sessionId={sessionId}
+              client={client}
+              workspaceId={workspaceId}
+              isRemoteWorkspace={isRemoteWorkspace}
+              onArtifactOpen={onArtifactOpen}
+            />
+          </div>
         ) : null}
       </PopoverContent>
     </Popover>

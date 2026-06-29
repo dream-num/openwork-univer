@@ -13,6 +13,7 @@ import { formatFileSize } from "@/lib/utils";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { openUniverSurface, type UniverOpenSurface, univerSurfaceQueryKey } from "./univer-surface";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -48,16 +49,6 @@ type ArtifactQueryState =
 
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
 
-type UniverOpenSurface = {
-  url: string;
-  viewerUrl: string;
-  univerfile: string;
-  worktreeId?: string;
-  unitId?: string;
-};
-
-const UNIVER_CLI_EXTENSION_ID = "univer-cli";
-
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
   const cleanPath = path.trim().replace(/^\.\//, "");
@@ -67,36 +58,6 @@ function absoluteWorkspacePath(root: string, path: string) {
 
 function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requiredString(value: Record<string, unknown>, key: string): string {
-  const field = value[key];
-  if (typeof field !== "string" || !field.trim()) {
-    throw new Error(`Univer surface response is missing ${key}.`);
-  }
-  return field;
-}
-
-function optionalString(value: Record<string, unknown>, key: string): string | undefined {
-  const field = value[key];
-  return typeof field === "string" && field.trim() ? field : undefined;
-}
-
-function readUniverOpenSurface(value: unknown): UniverOpenSurface {
-  if (!isRecord(value)) {
-    throw new Error("Univer surface response is invalid.");
-  }
-  return {
-    url: requiredString(value, "url"),
-    viewerUrl: requiredString(value, "viewerUrl"),
-    univerfile: requiredString(value, "univerfile"),
-    worktreeId: optionalString(value, "worktreeId"),
-    unitId: optionalString(value, "unitId"),
-  };
 }
 
 export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
@@ -444,29 +405,8 @@ interface UniverCollabSurfaceProps {
 
 function UniverCollabSurface({ client, workspaceId, target, isRemoteWorkspace }: UniverCollabSurfaceProps) {
   const { data, error, isError, isLoading } = useQuery<UniverOpenSurface>({
-    queryKey: ["univer-collab-surface", workspaceId, target.id, target.value, target.worktreeId ?? "", target.unitId ?? ""],
-    queryFn: async () => {
-      if (isRemoteWorkspace) {
-        throw new Error("Embedded Univer preview is available for local workspaces only.");
-      }
-      if (target.kind !== "file") {
-        throw new Error("Univer preview requires a workspace file.");
-      }
-      const response = await client.callExtensionAction({
-        extensionId: UNIVER_CLI_EXTENSION_ID,
-        action: "open_surface",
-        args: {
-          workspaceId,
-          path: target.value,
-          ...(target.worktreeId ? { worktreeId: target.worktreeId } : {}),
-          ...(target.unitId ? { unitId: target.unitId } : {}),
-        },
-        context: {
-          workspaceId,
-        },
-      });
-      return readUniverOpenSurface(response.result);
-    },
+    queryKey: univerSurfaceQueryKey(workspaceId, target),
+    queryFn: async () => openUniverSurface(client, workspaceId, target, isRemoteWorkspace),
     enabled: target.kind === "file",
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
