@@ -47,6 +47,14 @@ Alternative considered: rely on a global `npm install -g univer-cli` or whicheve
 
 Alternative considered: bundle and ship a signed `univer` binary with OpenWork. That may become desirable later, but it adds packaging, update, and platform-signing complexity before the integration shape is proven.
 
+### Report and update managed executable versions
+
+The extension settings page will show the resolved executable source, executable path, detected command version, managed npm package version, managed install root, registry latest version, and update availability. Managed installs use the npm registry package spec `univer-cli@latest`, so release builds resolve formal published versions. Manual update explicitly refreshes the managed npm install and reruns setup health checks. Opt-in automatic update checks the npm registry for managed installs and applies an update when a newer version is available.
+
+Development overrides remain visible but outside OpenWork's update ownership. If `OPENWORK_UNIVER_EXECUTABLE` or a user-provided executable path resolves first, OpenWork reports that source and does not overwrite it during managed update checks. This keeps local `univer-cli` development convenient while preserving a registry-backed release path.
+
+Alternative considered: silently update on every setup status check. That would hide writes behind a diagnostic action and could disrupt local debugging, so update remains explicit unless the user enables automatic managed updates.
+
 ### Treat readiness as atomic
 
 The extension will be ready only when the complete skill package is installed, the managed or override executable is resolved, and required health checks pass for the active workspace/runtime. Partial success should remain visible as setup diagnostics, but OpenWork must keep the extension incomplete until every required part is healthy.
@@ -79,9 +87,9 @@ Alternative considered: require dedicated OpenWork "new sheet/doc/slide" actions
 
 ### Treat import/export as exchange, not identity
 
-The Native Office Target Adapter should keep one explicit `.univer` target path as the durable work object. Creating new spreadsheet, document, or slide work chooses or creates a `.univer` path first, then lets the agent/CLI populate the requested units through public `univer-cli` surfaces. The adapter may return `unitId` and `worktreeId` route metadata when those are known, but the artifact identity remains the `.univer` file.
+For the current OpenWork shape, this is an agent-facing native office policy rather than a separate user-operated file-creation UI. OpenWork should keep one explicit `.univer` target path as the durable work object. Creating new spreadsheet, document, or slide work chooses or creates a `.univer` path first, then lets the agent/CLI populate the requested units through public `univer-cli` surfaces. The agent should report `unitId` and `worktreeId` route metadata when those are known, but the artifact identity remains the `.univer` file.
 
-Existing `.xlsx`, `.docx`, `.pptx`, and `.csv` files are exchange sources. When a user asks OpenWork to work on one of those files, the adapter should import the source into a `.univer` target using `univer import --file <source> <target.univer>`, preserve the original source as provenance, and continue subsequent reads/writes/review against the `.univer` target. The imported source should not become the active working artifact merely because it was the starting file.
+Existing `.xlsx`, `.docx`, `.pptx`, and `.csv` files are exchange sources. When a user asks OpenWork to work on one of those files, the agent should import the source into a `.univer` target using `univer import --file <source> <target.univer>`, preserve the original source as provenance, and continue subsequent reads/writes/review against the `.univer` target. The imported source should not become the active working artifact merely because it was the starting file.
 
 External handoff files are exchange outputs. OpenWork should export from the `.univer` target only when the user explicitly requests a handoff format or another integration requires one. The export result may appear as a secondary artifact, but it should not replace the `.univer` target as the session's primary office artifact. If a requested import/export path is unsupported by the installed Univer capability, OpenWork should report that exchange limitation and leave the native `.univer` target intact.
 
@@ -113,7 +121,7 @@ Alternative considered: always open the gateway view URL in the user's browser. 
 
 ### Keep CLI operations behind a narrow adapter
 
-OpenWork will call `univer` through a Univer CLI Adapter that returns structured results and artifacts. The adapter should expose high-level OpenWork actions such as install status, create native target, import exchange source, export exchange output, inspect, apply, verify, and open target.
+OpenWork will call `univer` through the installed skill and managed executable first. A future Univer CLI Adapter can wrap those public CLI surfaces into structured OpenWork actions when a non-agent UI needs them, but the native office default does not require a manual "new spreadsheet/document/slide" entry point.
 
 Alternative considered: expose a generic command runner for arbitrary `univer` commands. That would duplicate shell access while making permissions, output parsing, and user-facing errors harder to control.
 

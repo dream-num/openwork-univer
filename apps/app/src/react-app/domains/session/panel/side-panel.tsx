@@ -401,25 +401,6 @@ export function SidePanel({
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
 
-  const workspaceInfoControlAction = React.useMemo<OpenworkControlAction | null>(() => {
-    if (!import.meta.env.DEV) return null;
-
-    return {
-      id: "eval.workspace.info",
-      label: "Read current workspace info",
-      description: "Return the mounted session workspace identity for eval setup.",
-      sideEffect: "none",
-      disabled: !workspaceId,
-      execute: () => ({
-        ok: true,
-        workspaceId,
-        workspaceRoot,
-        isRemoteWorkspace,
-      }),
-    };
-  }, [isRemoteWorkspace, workspaceId, workspaceRoot]);
-  useControlAction(workspaceInfoControlAction);
-
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 

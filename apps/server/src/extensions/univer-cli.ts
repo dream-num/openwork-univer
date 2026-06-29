@@ -32,6 +32,8 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
       properties: {
         workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
         executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
+        checkForUpdates: { type: "boolean", description: "When true, checks the npm registry for the latest managed univer-cli version." },
+        autoUpdate: { type: "boolean", description: "When true, updates the managed executable if the registry check finds a newer version." },
       },
       additionalProperties: false,
     },
@@ -80,6 +82,20 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   },
   {
     extensionId: UNIVER_CLI_EXTENSION_ID,
+    action: "setup_update",
+    title: "Update Univer CLI",
+    description: "Update the OpenWork-managed univer-cli executable from the npm registry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
+        checkForUpdates: { type: "boolean", description: "When true, checks the npm registry after updating." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    extensionId: UNIVER_CLI_EXTENSION_ID,
     action: "open_surface",
     title: "Open Univer surface",
     description: "Start the local Univer collab gateway if needed and return an embedded collab-client URL for a workspace .univer file.",
@@ -98,10 +114,11 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   },
 ];
 
-type SetupAction = "setup_status" | "setup_install" | "setup_retry" | "setup_repair";
+type SetupAction = "setup_status" | "setup_install" | "setup_retry" | "setup_repair" | "setup_update";
 type SurfaceAction = "open_surface";
 type ProbeStatus = "ok" | "missing" | "failed" | "skipped";
 type ExecutableSource = "managed" | "override" | "system" | "unresolved";
+type RegistryCheckStatus = "not_checked" | "ok" | "failed" | "skipped";
 
 type CommandResult = {
   ok: boolean;
@@ -118,6 +135,17 @@ type ProbeResult = {
   detail?: string;
   stdout?: string;
   stderr?: string;
+};
+
+type ExecutableVersionStatus = {
+  commandVersion: string | null;
+  commandOutput: string | null;
+  packageVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean | null;
+  checkedAt: string | null;
+  registryStatus: RegistryCheckStatus;
+  registryDetail: string | null;
 };
 
 type SkillStatus = {
@@ -140,6 +168,7 @@ type ExecutableStatus = {
   managedBinPath: string;
   packageName: string;
   installRoot: string;
+  version: ExecutableVersionStatus;
 };
 
 type HealthStatus = {
@@ -212,6 +241,29 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
+}
+
+function readBooleanField(value: unknown, key: string): boolean {
+  if (!isRecord(value)) return false;
+  return value[key] === true;
+}
+
+function emptyExecutableVersionStatus(): ExecutableVersionStatus {
+  return {
+    commandVersion: null,
+    commandOutput: null,
+    packageVersion: null,
+    latestVersion: null,
+    updateAvailable: null,
+    checkedAt: null,
+    registryStatus: "not_checked",
+    registryDetail: null,
+  };
+}
+
+function parseVersionText(value: string): string | null {
+  const match = value.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
+  return match?.[0] ?? null;
 }
 
 function normalizedWorkspace(workspace: WorkspaceInfo): WorkspaceInfo {
@@ -423,6 +475,7 @@ async function resolveExecutable(config: ServerConfig, args: Record<string, unkn
       managedBinPath,
       packageName: UNIVER_NPM_PACKAGE,
       installRoot,
+      version: emptyExecutableVersionStatus(),
     };
   }
 
@@ -435,6 +488,7 @@ async function resolveExecutable(config: ServerConfig, args: Record<string, unkn
       managedBinPath,
       packageName: UNIVER_NPM_PACKAGE,
       installRoot,
+      version: emptyExecutableVersionStatus(),
     };
   }
 
@@ -447,6 +501,7 @@ async function resolveExecutable(config: ServerConfig, args: Record<string, unkn
       managedBinPath,
       packageName: UNIVER_NPM_PACKAGE,
       installRoot,
+      version: emptyExecutableVersionStatus(),
     };
   }
 
@@ -457,6 +512,7 @@ async function resolveExecutable(config: ServerConfig, args: Record<string, unkn
     managedBinPath,
     packageName: UNIVER_NPM_PACKAGE,
     installRoot,
+    version: emptyExecutableVersionStatus(),
   };
 }
 
@@ -616,6 +672,90 @@ async function healthStatus(workspace: WorkspaceInfo, executable: ExecutableStat
   };
 }
 
+async function readManagedPackageVersion(config: ServerConfig): Promise<string | null> {
+  const packageJsonPath = join(managedNpmInstallRoot(config), "node_modules", UNIVER_NPM_PACKAGE, "package.json");
+  const raw = await readFile(packageJsonPath, "utf8").catch(() => "");
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+    const version = parsed.version;
+    return typeof version === "string" && version.trim() ? version.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseNpmVersion(stdout: string): string | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
+  } catch {
+    // Fall through to plain npm output parsing.
+  }
+  return parseVersionText(trimmed);
+}
+
+async function checkRegistryLatestVersion(workspace: WorkspaceInfo): Promise<Pick<
+  ExecutableVersionStatus,
+  "latestVersion" | "checkedAt" | "registryStatus" | "registryDetail"
+>> {
+  const checkedAt = new Date().toISOString();
+  const result = await runCommand("npm", ["view", UNIVER_NPM_PACKAGE, "version", "--json"], workspace.path);
+  if (!result.ok) {
+    const detail = result.error ?? (result.stderr.trim() || result.stdout.trim() || `Exit ${result.exitCode ?? "unknown"}`);
+    return {
+      latestVersion: null,
+      checkedAt,
+      registryStatus: "failed",
+      registryDetail: detail,
+    };
+  }
+  const latestVersion = parseNpmVersion(result.stdout);
+  return {
+    latestVersion,
+    checkedAt,
+    registryStatus: latestVersion ? "ok" : "failed",
+    registryDetail: latestVersion ? null : "npm registry response did not include a version.",
+  };
+}
+
+async function executableVersionStatus(
+  config: ServerConfig,
+  workspace: WorkspaceInfo,
+  executable: ExecutableStatus,
+  health: HealthStatus,
+  checkForUpdates: boolean,
+): Promise<ExecutableVersionStatus> {
+  const commandOutput = health.executable.stdout?.trim() || null;
+  const packageVersion = await readManagedPackageVersion(config);
+  const commandVersion = commandOutput ? parseVersionText(commandOutput) : null;
+  const checked = checkForUpdates
+    ? await checkRegistryLatestVersion(workspace)
+    : {
+        latestVersion: null,
+        checkedAt: null,
+        registryStatus: "not_checked" as const,
+        registryDetail: null,
+      };
+  const currentManagedVersion = executable.source === "managed" ? packageVersion ?? commandVersion : null;
+  const updateAvailable = checked.latestVersion && currentManagedVersion
+    ? checked.latestVersion !== currentManagedVersion
+    : null;
+  return {
+    commandVersion,
+    commandOutput,
+    packageVersion,
+    latestVersion: checked.latestVersion,
+    updateAvailable,
+    checkedAt: checked.checkedAt,
+    registryStatus: checked.registryStatus,
+    registryDetail: checked.registryDetail,
+  };
+}
+
 function setupIssues(skill: SkillStatus, executable: ExecutableStatus, health: HealthStatus): string[] {
   const issues: string[] = [];
   if (!skill.complete) issues.push("The univer-cli skill package is incomplete.");
@@ -632,7 +772,15 @@ export async function univerCliSetupStatus(config: ServerConfig, args: Record<st
   const skill = await inspectUniverSkillPackage(workspace.path);
   const executable = await resolveExecutable(config, args);
   const health = await healthStatus(workspace, executable);
-  const issues = setupIssues(skill, executable, health);
+  const version = await executableVersionStatus(
+    config,
+    workspace,
+    executable,
+    health,
+    readBooleanField(args, "checkForUpdates") || readBooleanField(args, "autoUpdate"),
+  );
+  const executableWithVersion: ExecutableStatus = { ...executable, version };
+  const issues = setupIssues(skill, executableWithVersion, health);
   return {
     ready: issues.length === 0,
     workspace: {
@@ -640,7 +788,7 @@ export async function univerCliSetupStatus(config: ServerConfig, args: Record<st
       path: workspace.path,
     },
     skill,
-    executable,
+    executable: executableWithVersion,
     health,
     issues,
   };
@@ -679,7 +827,8 @@ async function writeExecutableShim(config: ServerConfig, targetBinPath: string):
 async function installManagedExecutable(config: ServerConfig): Promise<InstallResult["executable"]> {
   const installRoot = managedNpmInstallRoot(config);
   await mkdir(installRoot, { recursive: true });
-  const npmResult = await runCommand("npm", ["install", "--prefix", installRoot, "--no-audit", "--no-fund", UNIVER_NPM_PACKAGE], installRoot, NPM_INSTALL_TIMEOUT_MS);
+  const packageSpec = `${UNIVER_NPM_PACKAGE}@latest`;
+  const npmResult = await runCommand("npm", ["install", "--prefix", installRoot, "--no-audit", "--no-fund", packageSpec], installRoot, NPM_INSTALL_TIMEOUT_MS);
   if (!npmResult.ok) {
     throw new ApiError(502, "univer_npm_install_failed", "Failed to install univer-cli with npm.", {
       stdout: npmResult.stdout,
@@ -741,8 +890,16 @@ async function installSetup(config: ServerConfig, workspace: WorkspaceInfo, args
   return { skill, executable };
 }
 
+async function updateManagedSetup(config: ServerConfig): Promise<InstallResult> {
+  if (config.readOnly) {
+    throw new ApiError(403, "read_only", "OpenWork is running read-only; Univer CLI setup cannot update files.");
+  }
+  const executable = await installManagedExecutable(config);
+  return { executable };
+}
+
 function isSetupAction(action: string): action is SetupAction {
-  return action === "setup_status" || action === "setup_install" || action === "setup_retry" || action === "setup_repair";
+  return action === "setup_status" || action === "setup_install" || action === "setup_retry" || action === "setup_repair" || action === "setup_update";
 }
 
 function isSurfaceAction(action: string): action is SurfaceAction {
@@ -871,8 +1028,20 @@ export async function callUniverCliExtensionAction(
   let install: InstallResult | undefined;
   if (action === "setup_install" || action === "setup_repair") {
     install = await installSetup(config, workspace, args, action === "setup_repair");
+  } else if (action === "setup_update") {
+    install = await updateManagedSetup(config);
   }
-  const result = await univerCliSetupStatus(config, args, { ...context, workspaceId: workspace.id });
+  const statusArgs = action === "setup_update" ? { ...args, checkForUpdates: true } : args;
+  let result = await univerCliSetupStatus(config, statusArgs, { ...context, workspaceId: workspace.id });
+  if (
+    action === "setup_status" &&
+    readBooleanField(args, "autoUpdate") &&
+    result.executable.source === "managed" &&
+    result.executable.version.updateAvailable === true
+  ) {
+    install = await updateManagedSetup(config);
+    result = await univerCliSetupStatus(config, { ...args, checkForUpdates: true, autoUpdate: false }, { ...context, workspaceId: workspace.id });
+  }
   return {
     ok: true,
     extensionId: UNIVER_CLI_EXTENSION_ID,

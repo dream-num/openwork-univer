@@ -5,7 +5,7 @@ import type { McpDirectoryInfo } from "../../../app/constants";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
 import type { OpenworkServerClient } from "../../../app/lib/openwork-server";
 import type { McpServerEntry } from "../../../app/types";
-import { getExtensionConfigSlot, getExtensionConnected, type ExtensionConfigContext } from "./extension-registry";
+import { getExtensionConfigSlot, getExtensionConnected, type ExtensionConfigContext, type UniverCliVersionInfo } from "./extension-registry";
 import type { LocalProviderInstallInput } from "./openai-image-extension";
 
 type ProviderLike = {
@@ -46,10 +46,16 @@ type SettingsExtensionControllerInput = {
     busy: boolean;
     status: string | null;
     error: string | null;
-    ready: boolean;
+    ready: boolean | null;
+    checking: boolean;
+    versionInfo: UniverCliVersionInfo | null;
+    autoUpdate: boolean;
     onCheck: () => void | Promise<void>;
+    onCheckUpdates: () => void | Promise<void>;
     onInstall: () => void | Promise<void>;
+    onUpdate: () => void | Promise<void>;
     onRepair: () => void | Promise<void>;
+    onAutoUpdateChange: (enabled: boolean) => void | Promise<void>;
   };
   localProvider: {
     busy: boolean;
@@ -74,7 +80,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
       "google-workspace": input.googleWorkspaceConnected,
-      "univer-cli": input.univerCli.ready,
+      "univer-cli": input.univerCli.ready === true,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
@@ -111,15 +117,21 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       openworkServerClient: input.openworkServerClient,
       extensionConnections: {
         "google-workspace": input.googleWorkspaceConnected,
-        "univer-cli": input.univerCli.ready,
+        "univer-cli": input.univerCli.ready === true,
       },
     });
     return runtimeConnected ?? false;
+  }, [input]);
+
+  const isChecking = useCallback((entry: McpDirectoryInfo) => {
+    const id = entry.extensionManifest?.id ?? entry.serverName ?? entry.name;
+    return id === "univer-cli" ? input.univerCli.checking : false;
   }, [input]);
 
   return {
     configContextForEntry,
     configSlotForEntry,
     isConnected,
+    isChecking,
   };
 }

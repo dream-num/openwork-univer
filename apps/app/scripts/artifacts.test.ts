@@ -73,6 +73,45 @@ describe("getArtifactsFromMessages", () => {
     ]);
   });
 
+  it("lists Chinese-named artifacts mentioned in Chinese assistant text", () => {
+    const messages: UIMessage[] = [{
+      id: "msg_payroll",
+      role: "assistant",
+      parts: [{
+        type: "text",
+        text: "中国大陆工资表已创建完成。文件位置：`artifacts/工资表.univer` 和 `artifacts/工资表.xlsx`。",
+        state: "done",
+      }],
+    }];
+    const targets: OpenTarget[] = [
+      {
+        id: "file:artifacts/工资表.univer",
+        kind: "file",
+        value: "artifacts/工资表.univer",
+        name: "工资表.univer",
+        preview: "univer",
+        confidence: 65,
+        reason: "message",
+        exists: true,
+      },
+      {
+        id: "file:artifacts/工资表.xlsx",
+        kind: "file",
+        value: "artifacts/工资表.xlsx",
+        name: "工资表.xlsx",
+        preview: "sheet",
+        confidence: 65,
+        reason: "message",
+        exists: true,
+      },
+    ];
+
+    expect(getArtifactsFromMessages(messages, targets, { includeTargetFallbacks: false }).map((artifact) => artifact.path)).toEqual([
+      "artifacts/工资表.xlsx",
+      "artifacts/工资表.univer",
+    ]);
+  });
+
   it("orders verified artifacts by newest update time and marks unsupported previews", () => {
     const messages: UIMessage[] = [{
       id: "msg_order",

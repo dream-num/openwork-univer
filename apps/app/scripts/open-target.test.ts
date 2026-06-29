@@ -123,6 +123,25 @@ describe("deriveOpenTargets", () => {
     expect(univer ? isCollectibleArtifactTarget({ ...univer, exists: true }) : false).toBe(true);
   });
 
+  it("extracts Chinese-named artifacts from Chinese assistant summaries", () => {
+    const targets = deriveOpenTargets([
+      message(
+        "msg_1",
+        "assistant",
+        "中国大陆工资表已创建完成。文件位置：`artifacts/工资表.univer` 和 `artifacts/工资表.xlsx`。",
+      ),
+    ]);
+
+    expect(targets.find((target) => target.value === "artifacts/工资表.univer")).toMatchObject({
+      preview: "univer",
+      confidence: 65,
+    });
+    expect(targets.find((target) => target.value === "artifacts/工资表.xlsx")).toMatchObject({
+      preview: "sheet",
+      confidence: 65,
+    });
+  });
+
   it("extracts artifact paths from OpenWork extension call metadata", () => {
     const targets = deriveOpenTargets([
       toolMessage("msg_tool", "openwork_extension_call", {

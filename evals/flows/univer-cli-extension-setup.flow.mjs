@@ -53,18 +53,21 @@ export default {
       run: async (ctx) => {
         await ctx.clickText("Univer CLI", { timeoutMs: 15_000 });
         await ctx.expectText("Univer CLI setup", { timeoutMs: 15_000 });
-        await ctx.prove("Univer CLI detail exposes setup status, install, and repair controls", {
+        await ctx.prove("Univer CLI detail exposes setup status, install, version check, update, and repair controls", {
           action: async () => {
             await ctx.expectText("Univer CLI setup");
           },
           assert: async () => {
             await ctx.expectText("Check setup");
+            await ctx.expectText("Check update");
             await ctx.expectText("Install");
+            await ctx.expectText("Update");
             await ctx.expectText("Repair");
+            await ctx.expectText("Auto-update managed CLI");
           },
           screenshot: {
             name: "univer-cli-setup-panel",
-            requireText: ["Univer CLI setup", "Check setup", "Install", "Repair"],
+            requireText: ["Univer CLI setup", "Check setup", "Check update", "Install", "Update", "Repair", "Auto-update managed CLI"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -73,7 +76,6 @@ export default {
     {
       name: "Existing install is detected under new id",
       run: async (ctx) => {
-        await ctx.clickText("Check setup", { timeoutMs: 15_000 });
         await ctx.expectText("Univer CLI is ready for this workspace.", { timeoutMs: 30_000 });
         await ctx.prove("The renamed Univer CLI extension detects the existing local install without reinstalling", {
           action: async () => {
@@ -82,10 +84,14 @@ export default {
           assert: async () => {
             await ctx.expectText("Ready");
             await ctx.expectText("Univer CLI is ready for this workspace.");
+            await ctx.expectText("Version");
+            await ctx.expectText("Source");
+            await ctx.expectText("Command");
+            await ctx.expectText("Executable");
           },
           screenshot: {
             name: "univer-cli-existing-install-ready",
-            requireText: ["Univer CLI setup", "Ready", "Univer CLI is ready for this workspace."],
+            requireText: ["Univer CLI setup", "Ready", "Univer CLI is ready for this workspace.", "Version", "Source", "Command", "Executable"],
             rejectText: ["Setup failed", "Failed to fetch hub file"],
           },
         });

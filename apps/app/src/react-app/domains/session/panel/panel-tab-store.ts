@@ -290,7 +290,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const mergedTabs: PanelTab[] = [];
 
         for (const tab of session.tabs) {
-          if (tab.type === "artifact") {
+          if (tab.type !== "browser") {
             mergedTabs.push(tab);
             continue;
           }

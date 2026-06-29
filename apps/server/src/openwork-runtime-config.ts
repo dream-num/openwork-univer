@@ -59,11 +59,20 @@ Hard rule: never copy private memory into repo files. Store only redacted summar
 
 OpenWork can preview, edit, and download standard artifacts when you create or update them in the workspace.
 
-- Prefer standard output files for user-visible deliverables: Markdown (.md), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL).
-- After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/artifact-eval.md or reports/artifact-eval.xlsx.
+- Prefer standard output files for user-visible deliverables: Markdown (.md), native Univer office files (.univer), and browser previews (index.html or a local http://localhost:<port> URL).
+- Do not create secondary export files such as .xlsx, .csv, .docx, or .pptx unless the user explicitly asks for that format, asks for an external handoff file, or provides an existing exchange-format file that must be updated in place.
+- After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/artifact-eval.md or reports/artifact-eval.univer.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
-- For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
+
+## Native Office Work
+
+For spreadsheet, document, and slide work, treat .univer as OpenWork's native office artifact.
+
+- Use the installed univer-cli skill and the \`univer\` executable for semantic office operations. Do not hand-edit .univer internals with ad hoc scripts.
+- When the user asks for a new spreadsheet, document, or slide deck without explicitly requesting .xlsx, .csv, .docx, or .pptx, create or update a .univer file and report that .univer path as the primary result.
+- Treat .xlsx, .csv, .docx, and .pptx files as exchange formats. Import them into .univer before continuing office work, and export from .univer only when the user explicitly asks for an external handoff file.
+- When a reviewable office change is useful, use univer-cli worktree flows so OpenWork can open the .univer artifact with worktree or unit context.`;
 
 export async function buildOpenworkRuntimeConfigObject(
   config?: ServerConfig,
