@@ -59,11 +59,11 @@ The v1 required health checks are: executable version/help succeeds, the complet
 
 Alternative considered: run a full workbook smoke during installation. That would provide stronger end-to-end confidence but would make setup slower, more stateful, and more failure-prone than an installer health check should be.
 
-### Keep first-slice extension actions installer-scoped
+### Keep extension actions narrow
 
-The first implementation slice will expose extension actions only for setup status, install, retry, and repair. Office workflow actions such as import, export, inspect, apply, verify, and open remain part of the later Native Office Target and Univer CLI Adapter design.
+The setup slice exposes extension actions for setup status, install, retry, and repair. The native surface slice adds one narrow `open_surface` handoff action that starts or reuses the local collab gateway and returns a local gateway-served collab-client URL for OpenWork to embed. Semantic office workflow actions such as import, export, inspect, apply, verify, and arbitrary open remain behind the Native Office Target and Univer CLI Adapter design.
 
-Alternative considered: expose workflow actions immediately after installation. That would give a richer action surface earlier, but it would force the installer slice to settle the full `.univer` workflow interface before the native surface is designed.
+Alternative considered: expose workflow actions immediately after installation. That would give a richer action surface earlier, but it would force the installer and surface slices to settle the full `.univer` workflow interface before the native target model is designed.
 
 ### Make `.univer` native-first
 
@@ -76,6 +76,16 @@ Alternative considered: treat external Office formats as primary and convert thr
 OpenWork does not need to require the first CLI operation for "new spreadsheet/document/slides" to create a typed unit immediately. Agent workflows can use `univer new`, SaC, import, or other public `univer-cli` surfaces to create and populate the requested `.univer` target; the user-facing contract is that the final artifact is a native `.univer` result containing the requested office work.
 
 Alternative considered: require dedicated OpenWork "new sheet/doc/slide" actions to create typed units as the first operation. That would over-specify implementation order and expose a CLI primitive concern that agents can already handle.
+
+### Treat import/export as exchange, not identity
+
+The Native Office Target Adapter should keep one explicit `.univer` target path as the durable work object. Creating new spreadsheet, document, or slide work chooses or creates a `.univer` path first, then lets the agent/CLI populate the requested units through public `univer-cli` surfaces. The adapter may return `unitId` and `worktreeId` route metadata when those are known, but the artifact identity remains the `.univer` file.
+
+Existing `.xlsx`, `.docx`, `.pptx`, and `.csv` files are exchange sources. When a user asks OpenWork to work on one of those files, the adapter should import the source into a `.univer` target using `univer import --file <source> <target.univer>`, preserve the original source as provenance, and continue subsequent reads/writes/review against the `.univer` target. The imported source should not become the active working artifact merely because it was the starting file.
+
+External handoff files are exchange outputs. OpenWork should export from the `.univer` target only when the user explicitly requests a handoff format or another integration requires one. The export result may appear as a secondary artifact, but it should not replace the `.univer` target as the session's primary office artifact. If a requested import/export path is unsupported by the installed Univer capability, OpenWork should report that exchange limitation and leave the native `.univer` target intact.
+
+Alternative considered: mirror every external source and output as the primary artifact. That would preserve familiar Office extensions in the UI, but it would make `.univer` look like an implementation detail instead of the durable native target and would complicate worktree review.
 
 ### Wrap the collab gateway/client surface
 

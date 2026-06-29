@@ -15,16 +15,16 @@
 
 ## 3. Native Univer Artifacts
 
-- [ ] 3.1 Register `.univer` as a first-class OpenWork office artifact.
-- [ ] 3.2 Route `.univer` artifact open actions to a Univer-specific target path instead of the lightweight generic spreadsheet editor.
+- [x] 3.1 Register `.univer` as a first-class OpenWork office artifact.
+- [x] 3.2 Route `.univer` artifact open actions to a Univer-specific target path instead of the lightweight generic spreadsheet editor.
 - [ ] 3.3 Add native office creation actions for new spreadsheet, document, and slide work that produce `.univer` targets by default without requiring the first CLI step to create a typed unit.
 - [ ] 3.4 Add exchange-source handling that imports `.xlsx`, `.docx`, `.pptx`, and `.csv` into `.univer` targets when users ask to work on existing external files.
 - [ ] 3.5 Add exchange-output handling that exports external formats only when users request a handoff format.
 
 ## 4. Univer Surface Integration
 
-- [ ] 4.1 Audit the current `collab-client`, `collab-gateway`, `collab-gateway-contract`, and `domain/collab-worktree` behavior before implementing OpenWork surface code.
-- [ ] 4.2 Embed the gateway-served collab-client view as the first OpenWork Univer Office Surface, using the daemon/gateway view URL plus `file`, `worktree`, and `unit` route parameters.
+- [x] 4.1 Audit the current `collab-client`, `collab-gateway`, `collab-gateway-contract`, and `domain/collab-worktree` behavior before implementing OpenWork surface code.
+- [x] 4.2 Embed the gateway-served collab-client view as the first OpenWork Univer Office Surface, using the daemon/gateway view URL plus `file`, `worktree`, and `unit` route parameters.
 - [ ] 4.3 Preserve existing collab-client navigation and review behavior: trunk files, worktree lists, per-unit badges, preview/original toggle, ready/merge/discard controls, and SSE reset rebuild.
 - [ ] 4.4 Define the OpenWork embedded web-view host interface, gateway unavailable state, and external-browser fallback path before future component extraction.
 - [ ] 4.5 Add explicit unsupported-state UI for unit types, browser direct-edit paths, or exchange outputs that are not available in the installed collab/CLI capability.
@@ -35,6 +35,6 @@
 - [x] 5.1 Add unit tests for extension setup status, atomic readiness, and skill package installation.
 - [x] 5.2 Add integration tests proving managed OpenCode sessions can invoke `univer` after setup.
 - [x] 5.3 Add fraimz coverage for Univer CLI marketplace discovery and setup controls.
-- [ ] 5.4 Add artifact tests for `.univer` classification and open-target routing.
-- [ ] 5.5 Add fraimz coverage for installing the extension and opening a native `.univer` artifact in the embedded collab gateway/client surface.
+- [x] 5.4 Add artifact tests for `.univer` classification and open-target routing.
+- [x] 5.5 Add fraimz coverage for installing the extension and opening a native `.univer` artifact in the embedded collab gateway/client surface.
 - [ ] 5.6 Document any skipped validation paths with exact reproduction steps.

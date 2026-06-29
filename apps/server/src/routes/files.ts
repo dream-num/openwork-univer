@@ -158,6 +158,7 @@ function contentTypeForPath(path: string): string {
   if (lowered.endsWith(".potx")) return "application/vnd.openxmlformats-officedocument.presentationml.template";
   if (lowered.endsWith(".pot")) return "application/vnd.ms-powerpoint";
   if (lowered.endsWith(".odp")) return "application/vnd.oasis.opendocument.presentation";
+  if (lowered.endsWith(".univer")) return "application/vnd.univer";
   if (isSupportedWorkspaceTextFilePath(path)) return "text/plain; charset=utf-8";
   return "application/octet-stream";
 }
@@ -174,6 +175,7 @@ type ArtifactTargetInput = {
 function artifactPreviewForPath(path: string): string {
   const lowered = path.toLowerCase();
   if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
+  if (lowered.endsWith(".univer")) return "univer";
   if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
   if (/\.(ppt|pptx|pptm|pot|potx|odp|key|sxi)$/.test(lowered)) return "slides";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(lowered)) return "image";

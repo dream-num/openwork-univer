@@ -112,6 +112,17 @@ describe("deriveOpenTargets", () => {
     expect(deck ? isCollectibleArtifactTarget({ ...deck, exists: true }) : false).toBe(true);
   });
 
+  it("extracts Univer files as collectible native artifacts", () => {
+    const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "reports/budget.univer" }, { filePath: "reports/budget.univer" }),
+      message("msg_1", "assistant", "Created reports/budget.univer"),
+    ]);
+    const univer = targets.find((target) => target.value === "reports/budget.univer");
+
+    expect(univer).toMatchObject({ preview: "univer", confidence: 95 });
+    expect(univer ? isCollectibleArtifactTarget({ ...univer, exists: true }) : false).toBe(true);
+  });
+
   it("extracts artifact paths from OpenWork extension call metadata", () => {
     const targets = deriveOpenTargets([
       toolMessage("msg_tool", "openwork_extension_call", {
@@ -131,6 +142,34 @@ describe("deriveOpenTargets", () => {
     ]);
 
     expect(targets[0]).toMatchObject({ value: "artifacts/potato.png", preview: "image", confidence: 95 });
+  });
+
+  it("preserves Univer worktree and unit deep link metadata from extension action args", () => {
+    const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "openwork_extension_call", {
+        extensionId: "univer-cli",
+        action: "open_surface",
+        args: {
+          path: "reports/budget.univer",
+          worktreeId: "wt_review",
+          unitId: "unit_sheet",
+        },
+      }, {
+        ok: true,
+        result: {
+          path: "reports/budget.univer",
+        },
+      }),
+      message("msg_1", "assistant", "Review reports/budget.univer"),
+    ]);
+    const target = targets.find((item) => item.value === "reports/budget.univer");
+
+    expect(target).toMatchObject({
+      preview: "univer",
+      confidence: 95,
+      worktreeId: "wt_review",
+      unitId: "unit_sheet",
+    });
   });
 
   it("extracts artifact targets from attachment sources", () => {

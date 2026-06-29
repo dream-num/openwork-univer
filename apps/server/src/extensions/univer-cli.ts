@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { access, chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { ApiError } from "../errors.js";
 import { installHubSkill } from "../skill-hub.js";
@@ -18,6 +18,7 @@ const UNIVER_NPM_PACKAGE = "univer-cli";
 const UNIVER_BIN_NAME = process.platform === "win32" ? "univer.cmd" : "univer";
 const INSTALL_METADATA_FILE = ".openwork-univer-cli.json";
 const COMMAND_TIMEOUT_MS = 20_000;
+const OPEN_SURFACE_TIMEOUT_MS = 60_000;
 const NPM_INSTALL_TIMEOUT_MS = 120_000;
 
 export const UNIVER_CLI_EXTENSION_ACTIONS = [
@@ -77,9 +78,28 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
       additionalProperties: false,
     },
   },
+  {
+    extensionId: UNIVER_CLI_EXTENSION_ID,
+    action: "open_surface",
+    title: "Open Univer surface",
+    description: "Start the local Univer collab gateway if needed and return an embedded collab-client URL for a workspace .univer file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: { type: "string", description: "OpenWork workspace id containing the .univer file." },
+        path: { type: "string", description: "Workspace-relative path to the .univer file." },
+        worktreeId: { type: "string", description: "Optional Univer worktree id to open." },
+        unitId: { type: "string", description: "Optional Univer unit id to select." },
+        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 type SetupAction = "setup_status" | "setup_install" | "setup_retry" | "setup_repair";
+type SurfaceAction = "open_surface";
 type ProbeStatus = "ok" | "missing" | "failed" | "skipped";
 type ExecutableSource = "managed" | "override" | "system" | "unresolved";
 
@@ -164,6 +184,26 @@ type SetupActionResult = {
   context: Record<string, unknown>;
 };
 
+type UniverOpenSurface = {
+  url: string;
+  viewerUrl: string;
+  univerfile: string;
+  workspaceId: string;
+  path: string;
+  worktreeId?: string;
+  unitId?: string;
+};
+
+type SurfaceActionResult = {
+  ok: true;
+  extensionId: typeof UNIVER_CLI_EXTENSION_ID;
+  action: SurfaceAction;
+  result: UniverOpenSurface;
+  context: Record<string, unknown>;
+};
+
+type UniverCliActionResult = SetupActionResult | SurfaceActionResult;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -176,6 +216,70 @@ function readStringField(value: unknown, key: string): string {
 
 function normalizedWorkspace(workspace: WorkspaceInfo): WorkspaceInfo {
   return { ...workspace, path: resolve(workspace.path) };
+}
+
+function normalizeWorkspaceRelativePath(input: string): string {
+  let normalized = input.trim().replace(/\\/g, "/");
+  normalized = normalized.replace(/^\/+/, "");
+  normalized = normalized.replace(/^\.\//, "");
+  normalized = normalized.replace(/^workspaces\/[^/]+\//i, "");
+  normalized = normalized.replace(/^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\//i, "");
+  normalized = normalized.replace(/^workspace\//i, "");
+  normalized = normalized.replace(/^\/+/, "");
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (!parts.length) {
+    throw new ApiError(400, "invalid_univer_path", "A .univer path is required.");
+  }
+  for (const part of parts) {
+    if (part === "." || part === "..") {
+      throw new ApiError(400, "invalid_univer_path", "Path traversal is not allowed.");
+    }
+  }
+  return parts.join("/");
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  return candidate !== root && candidate.startsWith(`${root}${sep}`);
+}
+
+async function realpathIfPresent(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+async function resolveUniverfilePath(workspace: WorkspaceInfo, args: Record<string, unknown>): Promise<{ absolutePath: string; relativePath: string }> {
+  const rawPath = readStringField(args, "path") || readStringField(args, "file") || readStringField(args, "univerfile");
+  if (!rawPath) {
+    throw new ApiError(400, "invalid_univer_path", "A workspace-relative .univer path is required.");
+  }
+  const workspaceRoot = await realpathIfPresent(workspace.path);
+  const candidate = isAbsolute(rawPath)
+    ? resolve(rawPath)
+    : resolve(workspaceRoot, normalizeWorkspaceRelativePath(rawPath));
+  const absolutePath = await realpathIfPresent(candidate);
+  if (!isWithinRoot(workspaceRoot, absolutePath)) {
+    throw new ApiError(400, "invalid_univer_path", "The .univer path must stay inside the workspace.");
+  }
+  if (!absolutePath.toLowerCase().endsWith(".univer")) {
+    throw new ApiError(400, "invalid_univer_path", "Expected a .univer file.");
+  }
+  let fileStat: Awaited<ReturnType<typeof stat>>;
+  try {
+    fileStat = await stat(absolutePath);
+  } catch {
+    throw new ApiError(404, "univer_file_not_found", "The .univer file was not found.", { path: rawPath });
+  }
+  if (!fileStat.isFile()) {
+    throw new ApiError(400, "invalid_univer_path", "The .univer path must point to a file.");
+  }
+  return {
+    absolutePath,
+    relativePath: relative(workspaceRoot, absolutePath).replace(/\\/g, "/"),
+  };
 }
 
 function workspaceForSetup(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>): WorkspaceInfo {
@@ -360,11 +464,11 @@ function commandLabel(command: string, args: string[]): string[] {
   return [command, ...args];
 }
 
-async function runCommand(command: string, args: string[], cwd: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<CommandResult> {
+async function runCommand(command: string, args: string[], cwd: string, timeoutMs = COMMAND_TIMEOUT_MS, env: NodeJS.ProcessEnv = process.env): Promise<CommandResult> {
   return new Promise((resolveCommand) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -419,6 +523,35 @@ async function runCommand(command: string, args: string[], cwd: string, timeoutM
       });
     });
   });
+}
+
+function isDaemonBuildMismatch(result: CommandResult): boolean {
+  return /Daemon build mismatch/i.test(`${result.stdout}\n${result.stderr}`);
+}
+
+function mergeCommandFailures(first: CommandResult, second: CommandResult): CommandResult {
+  return {
+    ok: false,
+    stdout: [first.stdout, second.stdout].filter(Boolean).join("\n"),
+    stderr: [first.stderr, second.stderr].filter(Boolean).join("\n"),
+    exitCode: second.exitCode,
+    signal: second.signal,
+    error: second.error ?? first.error,
+  };
+}
+
+async function startUniverDaemon(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
+  const firstStart = await runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
+  if (firstStart.ok || !isDaemonBuildMismatch(firstStart)) {
+    return firstStart;
+  }
+
+  const stopped = await runCommand(command, ["daemon", "stop"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
+  if (!stopped.ok) {
+    return mergeCommandFailures(firstStart, stopped);
+  }
+
+  return runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
 }
 
 function probeFromCommand(command: string, args: string[], result: CommandResult, requireJson: boolean): ProbeResult {
@@ -612,12 +745,127 @@ function isSetupAction(action: string): action is SetupAction {
   return action === "setup_status" || action === "setup_install" || action === "setup_retry" || action === "setup_repair";
 }
 
+function isSurfaceAction(action: string): action is SurfaceAction {
+  return action === "open_surface";
+}
+
+function surfaceCommandEnv(config: ServerConfig, workspace: WorkspaceInfo): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...univerCliManagedRuntimeEnv(config),
+    UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspace.path,
+  };
+}
+
+function isLoopbackHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function readRequiredSurfaceString(value: Record<string, unknown>, key: string): string {
+  const field = value[key];
+  if (typeof field !== "string" || !field.trim()) {
+    throw new ApiError(502, "univer_open_invalid_response", `univer open response is missing ${key}.`, { response: value });
+  }
+  return field;
+}
+
+function readOptionalSurfaceString(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field : undefined;
+}
+
+function parseOpenSurface(stdout: string, workspace: WorkspaceInfo, target: { absolutePath: string; relativePath: string }): UniverOpenSurface {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch (error) {
+    throw new ApiError(502, "univer_open_invalid_response", "univer open did not return JSON.", {
+      error: error instanceof Error ? error.message : String(error),
+      stdout,
+    });
+  }
+  if (!isRecord(parsed)) {
+    throw new ApiError(502, "univer_open_invalid_response", "univer open returned an invalid response.", { response: parsed });
+  }
+
+  const url = readRequiredSurfaceString(parsed, "url");
+  const viewerUrl = readRequiredSurfaceString(parsed, "viewerUrl");
+  const univerfile = readRequiredSurfaceString(parsed, "univerfile");
+  if (resolve(univerfile) !== target.absolutePath) {
+    throw new ApiError(502, "univer_open_invalid_response", "univer open returned a different .univer path.", { univerfile });
+  }
+  if (!isLoopbackHttpUrl(url) || !isLoopbackHttpUrl(viewerUrl)) {
+    throw new ApiError(502, "univer_open_untrusted_url", "univer open returned a non-local gateway URL.", { url, viewerUrl });
+  }
+  return {
+    url,
+    viewerUrl,
+    univerfile,
+    workspaceId: workspace.id,
+    path: target.relativePath,
+    worktreeId: readOptionalSurfaceString(parsed, "worktreeId"),
+    unitId: readOptionalSurfaceString(parsed, "unitId"),
+  };
+}
+
+async function openUniverSurface(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>): Promise<SurfaceActionResult> {
+  const workspace = workspaceForSetup(config, args, context);
+  if (workspace.workspaceType === "remote") {
+    throw new ApiError(400, "univer_remote_workspace_unsupported", "Embedded Univer preview is available for local workspaces only.");
+  }
+  const setup = await univerCliSetupStatus(config, args, { ...context, workspaceId: workspace.id });
+  if (!setup.ready || !setup.executable.path) {
+    throw new ApiError(409, "univer_setup_incomplete", "Univer CLI setup is incomplete.", { status: setup });
+  }
+
+  const target = await resolveUniverfilePath(workspace, args);
+  const env = surfaceCommandEnv(config, workspace);
+  const daemon = await startUniverDaemon(setup.executable.path, workspace.path, env);
+  if (!daemon.ok) {
+    throw new ApiError(502, "univer_daemon_start_failed", "Failed to start the Univer daemon.", {
+      stdout: daemon.stdout,
+      stderr: daemon.stderr,
+      error: daemon.error,
+      exitCode: daemon.exitCode,
+    });
+  }
+
+  const worktreeId = readStringField(args, "worktreeId") || readStringField(args, "worktree");
+  const unitId = readStringField(args, "unitId") || readStringField(args, "unit");
+  const openArgs = ["open", target.absolutePath, "--json"];
+  if (worktreeId) openArgs.push("--worktree", worktreeId);
+  if (unitId) openArgs.push("--unit", unitId);
+  const opened = await runCommand(setup.executable.path, openArgs, workspace.path, OPEN_SURFACE_TIMEOUT_MS, env);
+  if (!opened.ok) {
+    throw new ApiError(502, "univer_open_failed", "Failed to open the Univer collab surface.", {
+      stdout: opened.stdout,
+      stderr: opened.stderr,
+      error: opened.error,
+      exitCode: opened.exitCode,
+    });
+  }
+
+  return {
+    ok: true,
+    extensionId: UNIVER_CLI_EXTENSION_ID,
+    action: "open_surface",
+    result: parseOpenSurface(opened.stdout, workspace, target),
+    context,
+  };
+}
+
 export async function callUniverCliExtensionAction(
   config: ServerConfig,
   action: string,
   args: Record<string, unknown>,
   context: Record<string, unknown>,
-): Promise<SetupActionResult | null> {
+): Promise<UniverCliActionResult | null> {
+  if (isSurfaceAction(action)) return openUniverSurface(config, args, context);
   if (!isSetupAction(action)) return null;
   const workspace = workspaceForSetup(config, args, context);
   let install: InstallResult | undefined;

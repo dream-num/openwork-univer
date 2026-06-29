@@ -75,6 +75,43 @@ if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4
   echo '{"templates":[]}'
   exit 0
 fi
+if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then
+  marker="$0.mismatch-once"
+  if [ -f "$marker" ]; then
+    rm -f "$marker"
+    echo "ERROR CLI_ERROR" >&2
+    echo "Daemon build mismatch. Expected new-build, got old-build. Run \`univer daemon stop\` and retry." >&2
+    exit 1
+  fi
+  echo "univer daemon: started"
+  exit 0
+fi
+if [ "$1" = "daemon" ] && [ "$2" = "stop" ]; then
+  echo "univer daemon: stopped"
+  exit 0
+fi
+if [ "$1" = "open" ]; then
+  source="$2"
+  worktree=""
+  unit=""
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--worktree" ]; then
+      shift
+      worktree="$1"
+    elif [ "$1" = "--unit" ]; then
+      shift
+      unit="$1"
+    fi
+    shift
+  done
+  if [ -n "$worktree" ] && [ -n "$unit" ]; then
+    printf '{"ok":true,"url":"http://127.0.0.1:5180/?file=%s&worktree=%s&unit=%s","viewerUrl":"http://127.0.0.1:5180/","univerfile":"%s","worktreeId":"%s","unitId":"%s"}\n' "$source" "$worktree" "$unit" "$source" "$worktree" "$unit"
+    exit 0
+  fi
+  printf '{"ok":true,"url":"http://127.0.0.1:5180/?file=%s","viewerUrl":"http://127.0.0.1:5180/","univerfile":"%s"}\n' "$source" "$source"
+  exit 0
+fi
 echo "unsupported $*" >&2
 exit 2
 `, "utf8");
@@ -178,9 +215,9 @@ describe("Univer CLI extension", () => {
     expect(UNIVER_CLI_EXTENSION_ID).toBe("univer-cli");
   });
 
-  test("exposes only installer-scoped actions", () => {
+  test("exposes installer and embedded surface actions", () => {
     const actions = listExperimentalExtensionActions(UNIVER_CLI_EXTENSION_ID).map((action) => action.action).sort();
-    expect(actions).toEqual(["setup_install", "setup_repair", "setup_retry", "setup_status"]);
+    expect(actions).toEqual(["open_surface", "setup_install", "setup_repair", "setup_retry", "setup_status"]);
     expect(actions).not.toContain("import");
     expect(actions).not.toContain("export");
     expect(actions).not.toContain("inspect");
@@ -246,7 +283,7 @@ describe("Univer CLI extension", () => {
         { executablePath },
         { directory: root },
       );
-      if (!result) throw new Error("Expected Univer setup action result");
+      if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
 
       expect(result.result.ready).toBe(true);
       expect(result.install?.skill?.written).toBe(3);
@@ -284,7 +321,7 @@ describe("Univer CLI extension", () => {
         {},
         { directory: root },
       );
-      if (!result) throw new Error("Expected Univer setup action result");
+      if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
 
       expect(result.result.ready).toBe(true);
       expect(result.result.executable.source).toBe("managed");
@@ -298,6 +335,61 @@ describe("Univer CLI extension", () => {
       restoreFetch();
       process.env.PATH = originalPath;
     }
+  });
+
+  test("opens a workspace .univer file through the embedded collab surface action", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    await mkdir(join(root, "reports"), { recursive: true });
+    await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
+    const executablePath = await writeFakeUniver(root);
+
+    const result = await callUniverCliExtensionAction(
+      serverConfig(root),
+      "open_surface",
+      {
+        workspaceId: "ws_1",
+        path: "reports/budget.univer",
+        executablePath,
+        worktreeId: "wt_1",
+        unitId: "unit_1",
+      },
+      { workspaceId: "ws_1" },
+    );
+
+    if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
+    expect(result.result).toMatchObject({
+      workspaceId: "ws_1",
+      path: "reports/budget.univer",
+      viewerUrl: "http://127.0.0.1:5180/",
+      worktreeId: "wt_1",
+      unitId: "unit_1",
+    });
+    expect(result.result.url).toContain("worktree=wt_1");
+    expect(result.result.url).toContain("unit=unit_1");
+  });
+
+  test("restarts the Univer daemon when a stale build is already running", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    await mkdir(join(root, "reports"), { recursive: true });
+    await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
+    const executablePath = await writeFakeUniver(root);
+    await writeFile(`${executablePath}.mismatch-once`, "stale\n", "utf8");
+
+    const result = await callUniverCliExtensionAction(
+      serverConfig(root),
+      "open_surface",
+      {
+        workspaceId: "ws_1",
+        path: "reports/budget.univer",
+        executablePath,
+      },
+      { workspaceId: "ws_1" },
+    );
+
+    if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
+    expect(result.result.url).toContain("reports/budget.univer");
   });
 
   test("injects the managed Univer bin directory into managed runtime env", async () => {

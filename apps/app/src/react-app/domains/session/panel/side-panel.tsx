@@ -401,6 +401,25 @@ export function SidePanel({
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
 
+  const workspaceInfoControlAction = React.useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.workspace.info",
+      label: "Read current workspace info",
+      description: "Return the mounted session workspace identity for eval setup.",
+      sideEffect: "none",
+      disabled: !workspaceId,
+      execute: () => ({
+        ok: true,
+        workspaceId,
+        workspaceRoot,
+        isRemoteWorkspace,
+      }),
+    };
+  }, [isRemoteWorkspace, workspaceId, workspaceRoot]);
+  useControlAction(workspaceInfoControlAction);
+
   const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -512,6 +531,72 @@ export function SidePanel({
     };
   }, [client, sessionId, workspaceId]);
   useControlAction(seedPdfArtifactControlAction);
+
+  const seedUniverArtifactControlAction = React.useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.artifact_tabs.seed_univer",
+      label: "Seed a Univer artifact",
+      description: "Open an existing .univer workspace file as a right-side artifact tab.",
+      sideEffect: "mutation",
+      disabled: !workspaceId,
+      args: [
+        { name: "path", type: "string", required: true, description: "Workspace-relative .univer path." },
+        { name: "size", type: "number", description: "Optional file size for artifact metadata." },
+        { name: "worktreeId", type: "string", description: "Optional Univer worktree id to open." },
+        { name: "unitId", type: "string", description: "Optional Univer unit id to select." },
+        { name: "open", type: "boolean", description: "Whether to open the artifact tab immediately. Defaults to true." },
+      ],
+      previewArgs: { path: "artifacts/native-univer-eval.univer" },
+      execute: async (args) => {
+        if (!workspaceId) return { ok: false, error: "Workspace is not ready." };
+        if (!args || typeof args !== "object" || !("path" in args) || typeof args.path !== "string") {
+          return { ok: false, error: "A workspace-relative .univer path is required." };
+        }
+
+        const value = args.path.trim().replace(/^\.\/+/, "");
+        if (!value.endsWith(".univer")) {
+          return { ok: false, error: "Expected a .univer file path." };
+        }
+
+        const size = "size" in args && typeof args.size === "number" ? args.size : undefined;
+        const worktreeId = "worktreeId" in args && typeof args.worktreeId === "string" && args.worktreeId.trim()
+          ? args.worktreeId.trim()
+          : undefined;
+        const unitId = "unitId" in args && typeof args.unitId === "string" && args.unitId.trim()
+          ? args.unitId.trim()
+          : undefined;
+        const name = value.split("/").filter(Boolean).pop() ?? value;
+        const target: OpenTarget = {
+          id: `file:${value}`,
+          kind: "file",
+          value,
+          name,
+          preview: "univer",
+          confidence: 100,
+          reason: "eval",
+          exists: true,
+          size,
+          worktreeId,
+          unitId,
+        };
+
+        const store = usePanelTabStore.getState();
+        store.syncTranscriptArtifacts(sessionId, [target]);
+        const shouldOpen = !("open" in args) || args.open !== false;
+        if (shouldOpen) {
+          store.openTab(sessionId, { id: target.id, type: "artifact", label: target.name, preview: target.preview });
+          store.selectTab(sessionId, target.id);
+        } else {
+          store.closeTab(sessionId, target.id);
+        }
+
+        return { ok: true, activeTabId: shouldOpen ? target.id : null };
+      },
+    };
+  }, [sessionId, workspaceId]);
+  useControlAction(seedUniverArtifactControlAction);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

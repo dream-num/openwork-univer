@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { File, FileCode, FileImage, FileSpreadsheet, FileText, FileType, Globe, Presentation } from "lucide-react";
+import { File, FileArchive, FileCode, FileImage, FileSpreadsheet, FileText, FileType, Globe, Presentation } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { OpenTargetPreview } from "./open-target";
@@ -24,6 +24,10 @@ export function ArtifactIcon({ type, className }: ArtifactIconProps) {
 
   if (type === "slides") {
     return <Presentation className={cn("size-3.5 shrink-0 text-amber-9", className)} />;
+  }
+
+  if (type === "univer") {
+    return <FileArchive className={cn("size-3.5 shrink-0 text-emerald-9", className)} />;
   }
 
   if (type === "image") {

@@ -425,7 +425,7 @@ export type OpenworkResolvedArtifactTarget = {
   kind: "file" | "url";
   value: string;
   name: string;
-  preview: "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  preview: "browser" | "markdown" | "sheet" | "slides" | "univer" | "image" | "pdf" | "html" | "text" | "external";
   confidence: number;
   reason: string;
   exists?: boolean;
