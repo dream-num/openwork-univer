@@ -37,6 +37,15 @@ export type ExtensionConfigContext = {
     onSaveApiKey: (apiKey: string) => void | Promise<void>;
     onTestSession: () => void | Promise<void>;
   };
+  univerCli: {
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    ready: boolean;
+    onCheck: () => void | Promise<void>;
+    onInstall: () => void | Promise<void>;
+    onRepair: () => void | Promise<void>;
+  };
   localProvider: {
     busy: boolean;
     status: string | null;

@@ -63,6 +63,7 @@ import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/browser-extension-config";
 import "@/react-app/domains/settings/openwork-voice-config";
 import "@/react-app/domains/settings/google-workspace-config";
+import "@/react-app/domains/settings/univer-cli-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
@@ -162,6 +163,31 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
+
+const UNIVER_CLI_EXTENSION_ID = "univer-cli";
+
+type UniverCliSetupAction = "setup_status" | "setup_install" | "setup_repair";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function summarizeUniverCliResult(result: unknown): { ready: boolean; message: string } {
+  if (!isRecord(result)) {
+    return { ready: false, message: "Univer CLI setup returned an unexpected response." };
+  }
+  const ready = result.ready === true;
+  if (ready) {
+    return { ready, message: "Univer CLI is ready for this workspace." };
+  }
+  const issues = Array.isArray(result.issues)
+    ? result.issues.filter((issue): issue is string => typeof issue === "string" && issue.trim().length > 0)
+    : [];
+  return {
+    ready,
+    message: issues.length ? `Setup incomplete: ${issues.join(" ")}` : "Univer CLI setup is incomplete for this workspace.",
+  };
+}
 
 const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   skills: { read: true, write: true, source: "openwork" },
@@ -435,6 +461,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [univerCliBusy, setUniverCliBusy] = useState(false);
+  const [univerCliStatus, setUniverCliStatus] = useState<string | null>(null);
+  const [univerCliError, setUniverCliError] = useState<string | null>(null);
+  const [univerCliReady, setUniverCliReady] = useState(false);
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
@@ -889,6 +919,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return () => { cancelled = true; };
   }, [openworkClient]);
 
+  useEffect(() => {
+    setUniverCliReady(false);
+    setUniverCliStatus(null);
+    setUniverCliError(null);
+  }, [runtimeWorkspaceId]);
+
   const installOpenAiImageExtension = useCallback(async (apiKey: string) => {
     const resolvedApiKey = apiKey.trim();
     if (!openworkClient) {
@@ -995,6 +1031,35 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setVoiceBusy(false);
     }
   }, [openworkClient]);
+
+  const runUniverCliSetupAction = useCallback(async (action: UniverCliSetupAction) => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    if (!client || !workspaceId) {
+      setUniverCliError("OpenWork server is not connected for this workspace.");
+      return;
+    }
+
+    setUniverCliBusy(true);
+    setUniverCliStatus(null);
+    setUniverCliError(null);
+    try {
+      const response = await client.callExtensionAction({
+        extensionId: UNIVER_CLI_EXTENSION_ID,
+        action,
+        args: { workspaceId },
+        context: { directory: selectedWorkspaceRoot || undefined },
+      });
+      const summary = summarizeUniverCliResult(response.result);
+      setUniverCliReady(summary.ready);
+      setUniverCliStatus(summary.message);
+    } catch (error) {
+      setUniverCliReady(false);
+      setUniverCliError(describeRouteError(error));
+    } finally {
+      setUniverCliBusy(false);
+    }
+  }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
 
   const installLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
@@ -1633,6 +1698,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       error: voiceError,
       onSaveApiKey: saveVoiceApiKey,
       onTestSession: testVoiceSession,
+    },
+    univerCli: {
+      busy: univerCliBusy,
+      status: univerCliStatus,
+      error: univerCliError,
+      ready: univerCliReady,
+      onCheck: () => runUniverCliSetupAction("setup_status"),
+      onInstall: () => runUniverCliSetupAction("setup_install"),
+      onRepair: () => runUniverCliSetupAction("setup_repair"),
     },
     localProvider: {
       busy: localProviderBusy,

@@ -12,6 +12,7 @@ import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
+import { univerCliManagedRuntimeEnv } from "./extensions/univer-cli.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -69,6 +70,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         cwd,
         excludedPorts: [config.port],
         env: {
+          ...univerCliManagedRuntimeEnv(config),
           ...(process.env.OPENWORK_DEV_MODE ? { OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE } : {}),
           ...(process.env.OPENWORK_UI_CONTROL_DISCOVERY ? { OPENWORK_UI_CONTROL_DISCOVERY: process.env.OPENWORK_UI_CONTROL_DISCOVERY } : {}),
           OPENWORK_SERVER_URL: serverUrl,

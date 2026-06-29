@@ -42,6 +42,15 @@ type SettingsExtensionControllerInput = {
     onSaveApiKey: (apiKey: string) => void | Promise<void>;
     onTestSession: () => void | Promise<void>;
   };
+  univerCli: {
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    ready: boolean;
+    onCheck: () => void | Promise<void>;
+    onInstall: () => void | Promise<void>;
+    onRepair: () => void | Promise<void>;
+  };
   localProvider: {
     busy: boolean;
     status: string | null;
@@ -65,6 +74,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
       "google-workspace": input.googleWorkspaceConnected,
+      "univer-cli": input.univerCli.ready,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
@@ -84,6 +94,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       ...input.voiceExtension,
       envKeyDetected: hasOpenAiEnv(input),
     },
+    univerCli: input.univerCli,
     localProvider: input.localProvider,
   }), [input]);
 
@@ -100,6 +111,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       openworkServerClient: input.openworkServerClient,
       extensionConnections: {
         "google-workspace": input.googleWorkspaceConnected,
+        "univer-cli": input.univerCli.ready,
       },
     });
     return runtimeConnected ?? false;

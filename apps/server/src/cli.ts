@@ -8,6 +8,7 @@ import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } 
 import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
+import { univerCliManagedRuntimeEnv } from "./extensions/univer-cli.js";
 import pkg from "../package.json" with { type: "json" };
 
 const args = parseCliArgs(process.argv.slice(2));
@@ -46,6 +47,7 @@ if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
       cwd: managedOpencodeCwd,
       excludedPorts: [config.port],
       env: {
+        ...univerCliManagedRuntimeEnv(config),
         ...(process.env.OPENWORK_DEV_MODE ? { OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE } : {}),
         ...(process.env.OPENWORK_UI_CONTROL_DISCOVERY ? { OPENWORK_UI_CONTROL_DISCOVERY: process.env.OPENWORK_UI_CONTROL_DISCOVERY } : {}),
         OPENWORK_SERVER_URL: serverUrl,

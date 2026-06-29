@@ -87,6 +87,8 @@ export function ExtensionCard(props: ExtensionCardProps) {
   return (
     <button
       type="button"
+      data-extension-name={name}
+      data-extension-kind={kind}
       disabled={disabled || connecting}
       onClick={onClick}
       className={`group w-full rounded-xl border p-4 text-left transition-all ${
