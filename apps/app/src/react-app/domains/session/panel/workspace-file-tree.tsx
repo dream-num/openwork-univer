@@ -16,8 +16,8 @@ import type { OpenworkFileSessionCatalogEntry, OpenworkServerClient } from "@/ap
 import { isElectronRuntime } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatFileSize } from "@/lib/utils";
-import { usePanelTabStore } from "./panel-tab-store";
+import { cn, formatFileSize } from "@/lib/utils";
+import { useActivePanelTab, usePanelTabStore } from "./panel-tab-store";
 import type { OpenTarget, OpenTargetPreview } from "../artifacts/open-target";
 
 type WorkspaceFileTreeProps = {
@@ -57,6 +57,7 @@ const DEFAULT_CACHED_WORKSPACE_FILE_TREE_STATE: CachedWorkspaceFileTreeState = {
   query: "",
   expandedPaths: [],
 };
+const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const workspaceFileTreeStateCache = new Map<string, CachedWorkspaceFileTreeState>();
 
 function basename(path: string) {
@@ -176,25 +177,35 @@ function readCachedState(key: string): CachedWorkspaceFileTreeState {
   return workspaceFileTreeStateCache.get(key) ?? DEFAULT_CACHED_WORKSPACE_FILE_TREE_STATE;
 }
 
+function parentPaths(path: string): string[] {
+  const parts = path.split("/").filter(Boolean);
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
 type FileTreeRowProps = {
   node: WorkspaceFileNode;
   depth: number;
   expandedPaths: Set<string>;
   searchActive: boolean;
+  selectedPath: string | null;
   onToggle: (path: string) => void;
   onOpenFile: (node: WorkspaceFileNode) => void;
 };
 
-function FileTreeRow({ node, depth, expandedPaths, searchActive, onToggle, onOpenFile }: FileTreeRowProps) {
+function FileTreeRow({ node, depth, expandedPaths, searchActive, selectedPath, onToggle, onOpenFile }: FileTreeRowProps) {
   const hasChildren = node.children.length > 0;
   const expanded = searchActive || expandedPaths.has(node.path);
+  const selected = node.kind === "file" && node.path === selectedPath;
   const paddingLeft = 8 + depth * 16;
 
   return (
     <div>
       <button
         type="button"
-        className="flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs text-foreground hover:bg-muted"
+        className={cn(
+          "flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs text-foreground hover:bg-muted",
+          selected && "bg-primary/10 text-primary hover:bg-primary/15",
+        )}
         style={{ paddingLeft }}
         onClick={() => {
           if (node.kind === "dir") {
@@ -205,6 +216,7 @@ function FileTreeRow({ node, depth, expandedPaths, searchActive, onToggle, onOpe
         }}
         title={node.path}
         aria-label={node.kind === "dir" ? `Toggle ${node.path}` : `Open ${node.path}`}
+        aria-current={selected ? "true" : undefined}
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
           {node.kind === "dir" ? (
@@ -217,7 +229,7 @@ function FileTreeRow({ node, depth, expandedPaths, searchActive, onToggle, onOpe
             <span className="size-3.5" />
           )}
         </span>
-        <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+        <span className={cn("flex size-4 shrink-0 items-center justify-center text-muted-foreground", selected && "text-primary")}>
           {node.kind === "dir" ? (
             expanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />
           ) : (
@@ -238,6 +250,7 @@ function FileTreeRow({ node, depth, expandedPaths, searchActive, onToggle, onOpe
               depth={depth + 1}
               expandedPaths={expandedPaths}
               searchActive={searchActive}
+              selectedPath={selectedPath}
               onToggle={onToggle}
               onOpenFile={onOpenFile}
             />
@@ -265,6 +278,13 @@ export function WorkspaceFileTree({
   const [query, setQuery] = React.useState(cachedState.query);
   const [expandedPaths, setExpandedPaths] = React.useState<Set<string>>(() => new Set(cachedState.expandedPaths));
   const store = usePanelTabStore;
+  const activeTab = useActivePanelTab(sessionId);
+  const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
+  const selectedFilePath = React.useMemo(() => {
+    if (activeTab?.type !== "artifact") return null;
+    const target = transcriptTargets.find((item) => item.id === activeTab.id);
+    return target?.kind === "file" ? target.value : null;
+  }, [activeTab, transcriptTargets]);
 
   const closeFileSession = React.useCallback(async () => {
     loadGenerationRef.current += 1;
@@ -337,6 +357,24 @@ export function WorkspaceFileTree({
     if (loadedStateKey !== stateKey) return;
     void loadFiles();
   }, [loadFiles, loadedStateKey, stateKey]);
+
+  React.useEffect(() => {
+    if (loadedStateKey !== stateKey || !selectedFilePath) return;
+    const selectedParents = parentPaths(selectedFilePath);
+    if (!selectedParents.length) return;
+
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      let changed = false;
+      for (const path of selectedParents) {
+        if (!next.has(path)) {
+          next.add(path);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [loadedStateKey, selectedFilePath, stateKey]);
 
   React.useEffect(() => {
     return () => {
@@ -446,6 +484,7 @@ export function WorkspaceFileTree({
                 depth={0}
                 expandedPaths={expandedPaths}
                 searchActive={searchActive}
+                selectedPath={selectedFilePath}
                 onToggle={togglePath}
                 onOpenFile={openFile}
               />
