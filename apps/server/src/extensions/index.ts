@@ -11,10 +11,16 @@ import {
   OPENAI_IMAGE_GENERATION_EXTENSION_ACTIONS,
   OPENAI_IMAGE_GENERATION_EXTENSION_ID,
 } from "./openai-image-generation.js";
+import {
+  callUniverCliExtensionAction,
+  UNIVER_CLI_EXTENSION_ACTIONS,
+  UNIVER_CLI_EXTENSION_ID,
+} from "./univer-cli.js";
 
 const OPENWORK_EXPERIMENTAL_EXTENSION_ACTIONS = [
   ...GOOGLE_WORKSPACE_EXTENSION_ACTIONS,
   ...OPENAI_IMAGE_GENERATION_EXTENSION_ACTIONS,
+  ...UNIVER_CLI_EXTENSION_ACTIONS,
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,6 +63,11 @@ export async function callExperimentalExtensionAction(config: ServerConfig, env:
 
   if (extensionId === OPENAI_IMAGE_GENERATION_EXTENSION_ID) {
     const result = await callOpenAiImageGenerationExtensionAction(config, env, action, args, context);
+    if (result) return result;
+  }
+
+  if (extensionId === UNIVER_CLI_EXTENSION_ID) {
+    const result = await callUniverCliExtensionAction(config, action, args, context);
     if (result) return result;
   }
 

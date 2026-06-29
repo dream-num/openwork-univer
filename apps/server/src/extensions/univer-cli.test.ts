@@ -1,0 +1,310 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+
+import { listExperimentalExtensionActions } from "./index.js";
+import {
+  callUniverCliExtensionAction,
+  inspectUniverSkillPackage,
+  UNIVER_CLI_EXTENSION_ID,
+  univerCliManagedExecutablePath,
+  univerCliManagedRuntimeEnv,
+  univerCliSetupStatus,
+} from "./univer-cli.js";
+import { createManagedOpencodeServer } from "../managed-opencode.js";
+import type { ServerConfig } from "../types.js";
+
+const roots: string[] = [];
+
+afterEach(async () => {
+  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+});
+
+async function tempRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "openwork-univer-cli-"));
+  roots.push(root);
+  return root;
+}
+
+function serverConfig(root: string): ServerConfig {
+  return {
+    host: "127.0.0.1",
+    port: 0,
+    token: "token",
+    hostToken: "host-token",
+    configPath: join(root, "server.json"),
+    approval: { mode: "auto", timeoutMs: 0 },
+    corsOrigins: [],
+    workspaces: [{ id: "ws_1", name: "Workspace", path: root, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [root],
+    readOnly: false,
+    startedAt: Date.now(),
+    tokenSource: "generated",
+    hostTokenSource: "generated",
+    logFormat: "pretty",
+    logRequests: false,
+  };
+}
+
+async function writeCompleteSkillPackage(root: string): Promise<void> {
+  const skillDir = join(root, ".opencode", "skills", "univer-cli");
+  await mkdir(join(skillDir, "references"), { recursive: true });
+  await mkdir(join(skillDir, "inspect-tools"), { recursive: true });
+  await writeFile(join(skillDir, "SKILL.md"), "---\nname: univer-cli\n---\n# Univer CLI\n", "utf8");
+  await writeFile(join(skillDir, "references", "evidence-tools.md"), "# Evidence tools\n", "utf8");
+  await writeFile(join(skillDir, "inspect-tools", "tools.manifest.json"), "{\"tools\":[]}\n", "utf8");
+  await writeFile(join(skillDir, ".openwork-univer-cli.json"), JSON.stringify({
+    source: { owner: "dream-num", repo: "skills", ref: "main" },
+    skill: "univer-cli",
+  }) + "\n", "utf8");
+}
+
+async function writeFakeUniver(root: string): Promise<string> {
+  const bin = join(root, "fake-univer");
+  await writeFile(bin, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "univer 0.0.0-test"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "tools" ] && [ "$3" = "list" ] && [ "$4" = "--json" ]; then
+  echo '{"tools":[]}'
+  exit 0
+fi
+if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4" = "--json" ]; then
+  echo '{"templates":[]}'
+  exit 0
+fi
+echo "unsupported $*" >&2
+exit 2
+`, "utf8");
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+async function writeFakeOpencode(root: string): Promise<string> {
+  const bin = join(root, "fake-opencode");
+  await writeFile(bin, `#!/bin/sh
+univer --version >/dev/null || exit 42
+echo "opencode server listening on http://127.0.0.1:48765"
+while true; do sleep 1; done
+`, "utf8");
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+async function writeFakeNpm(root: string): Promise<string> {
+  const binDir = join(root, "fake-npm-bin");
+  await mkdir(binDir, { recursive: true });
+  const bin = join(binDir, "npm");
+  await writeFile(bin, `#!/bin/sh
+prefix=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--prefix" ]; then
+    shift
+    prefix="$1"
+  fi
+  shift
+done
+if [ -z "$prefix" ]; then
+  echo "missing --prefix" >&2
+  exit 2
+fi
+mkdir -p "$prefix/node_modules/.bin"
+cat > "$prefix/node_modules/.bin/univer" <<'UNIVER'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "univer 0.0.0-managed-test"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "tools" ] && [ "$3" = "list" ] && [ "$4" = "--json" ]; then
+  echo '{"tools":[]}'
+  exit 0
+fi
+if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4" = "--json" ]; then
+  echo '{"templates":[]}'
+  exit 0
+fi
+echo "unsupported $*" >&2
+exit 2
+UNIVER
+chmod +x "$prefix/node_modules/.bin/univer"
+exit 0
+`, "utf8");
+  await chmod(bin, 0o755);
+  return binDir;
+}
+
+function mockCanonicalSkillFetch() {
+  const originalFetch = globalThis.fetch;
+  const fakeFetch = async (input: Parameters<typeof fetch>[0]) => {
+    const url = String(input);
+    if (url.includes("/git/trees/main?recursive=1")) {
+      return Response.json({
+        tree: [
+          { path: "skills/univer-cli/SKILL.md", mode: "100644", type: "blob" },
+          { path: "skills/univer-cli/references/evidence-tools.md", mode: "100644", type: "blob" },
+          { path: "skills/univer-cli/inspect-tools/tools.manifest.json", mode: "100644", type: "blob" },
+        ],
+      });
+    }
+    if (url.endsWith("/skills/univer-cli/SKILL.md")) {
+      return new Response("---\nname: univer-cli\n---\n# Univer CLI\n");
+    }
+    if (url.endsWith("/skills/univer-cli/references/evidence-tools.md")) {
+      return new Response("# Evidence tools\n");
+    }
+    if (url.endsWith("/skills/univer-cli/inspect-tools/tools.manifest.json")) {
+      return new Response("{\"tools\":[]}\n");
+    }
+    return new Response("not found", { status: 404 });
+  };
+  Object.defineProperty(globalThis, "fetch", {
+    value: fakeFetch,
+    configurable: true,
+    writable: true,
+  });
+  return () => {
+    Object.defineProperty(globalThis, "fetch", {
+      value: originalFetch,
+      configurable: true,
+      writable: true,
+    });
+  };
+}
+
+describe("Univer CLI extension", () => {
+  test("uses the Univer CLI extension id", () => {
+    expect(UNIVER_CLI_EXTENSION_ID).toBe("univer-cli");
+  });
+
+  test("exposes only installer-scoped actions", () => {
+    const actions = listExperimentalExtensionActions(UNIVER_CLI_EXTENSION_ID).map((action) => action.action).sort();
+    expect(actions).toEqual(["setup_install", "setup_repair", "setup_retry", "setup_status"]);
+    expect(actions).not.toContain("import");
+    expect(actions).not.toContain("export");
+    expect(actions).not.toContain("inspect");
+    expect(actions).not.toContain("apply");
+    expect(actions).not.toContain("verify");
+    expect(actions).not.toContain("open");
+  });
+
+  test("does not treat a single SKILL.md as a complete skill package", async () => {
+    const root = await tempRoot();
+    const skillDir = join(root, ".opencode", "skills", "univer-cli");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: univer-cli\n---\n# Univer CLI\n", "utf8");
+
+    const status = await inspectUniverSkillPackage(root);
+    expect(status.installed).toBe(true);
+    expect(status.complete).toBe(false);
+    expect(status.sourceVerified).toBe(false);
+    expect(status.checks).toEqual({
+      skillFile: true,
+      references: false,
+      inspectTools: false,
+    });
+  });
+
+  test("reports ready only when skill, executable, and health probes pass", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    const executablePath = await writeFakeUniver(root);
+
+    const status = await univerCliSetupStatus(serverConfig(root), { executablePath }, { directory: root });
+    expect(status.ready).toBe(true);
+    expect(status.skill.complete).toBe(true);
+    expect(status.skill.sourceVerified).toBe(true);
+    expect(status.executable.source).toBe("override");
+    expect(status.health.executable.status).toBe("ok");
+    expect(status.health.inspectTools.status).toBe("ok");
+    expect(status.health.sacMigrationTemplates.status).toBe("ok");
+    expect(status.issues).toEqual([]);
+  });
+
+  test("keeps setup incomplete when health passes but the skill package is incomplete", async () => {
+    const root = await tempRoot();
+    const executablePath = await writeFakeUniver(root);
+
+    const status = await univerCliSetupStatus(serverConfig(root), { executablePath }, { directory: root });
+    expect(status.ready).toBe(false);
+    expect(status.skill.complete).toBe(false);
+    expect(status.health.inspectTools.status).toBe("ok");
+    expect(status.issues).toContain("The univer-cli skill package is incomplete.");
+  });
+
+  test("installs the full canonical skill package through the setup action", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const executablePath = await writeFakeUniver(root);
+    const restoreFetch = mockCanonicalSkillFetch();
+
+    try {
+      const result = await callUniverCliExtensionAction(
+        config,
+        "setup_install",
+        { executablePath },
+        { directory: root },
+      );
+      if (!result) throw new Error("Expected Univer setup action result");
+
+      expect(result.result.ready).toBe(true);
+      expect(result.install?.skill?.written).toBe(3);
+      expect(result.install?.executable?.skipped).toBe(true);
+      expect(await readFile(join(root, ".opencode", "skills", "univer-cli", "references", "evidence-tools.md"), "utf8")).toContain("Evidence tools");
+      expect(await readFile(join(root, ".opencode", "skills", "univer-cli", "inspect-tools", "tools.manifest.json"), "utf8")).toContain("tools");
+      expect((await inspectUniverSkillPackage(root)).sourceVerified).toBe(true);
+      await stat(univerCliManagedExecutablePath(config));
+
+      const managed = await createManagedOpencodeServer({
+        bin: await writeFakeOpencode(root),
+        cwd: root,
+        env: univerCliManagedRuntimeEnv(config),
+        timeoutMs: 2_000,
+      });
+      await managed.close();
+      expect(managed.execution.env.some((entry) => entry.name === "OPENWORK_UNIVER_BIN")).toBe(true);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("uses managed npm install when no executable override is provided", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const fakeNpmBinDir = await writeFakeNpm(root);
+    const originalPath = process.env.PATH;
+    process.env.PATH = originalPath ? `${fakeNpmBinDir}${delimiter}${originalPath}` : fakeNpmBinDir;
+    const restoreFetch = mockCanonicalSkillFetch();
+
+    try {
+      const result = await callUniverCliExtensionAction(
+        config,
+        "setup_install",
+        {},
+        { directory: root },
+      );
+      if (!result) throw new Error("Expected Univer setup action result");
+
+      expect(result.result.ready).toBe(true);
+      expect(result.result.executable.source).toBe("managed");
+      expect(result.install?.executable?.skipped).toBe(false);
+      expect(result.install?.executable?.packageName).toBe("univer-cli");
+      expect(result.install?.executable?.binPath).toBe(univerCliManagedExecutablePath(config));
+      expect(result.result.health.executable.status).toBe("ok");
+      expect(result.result.health.inspectTools.status).toBe("ok");
+      expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
+    } finally {
+      restoreFetch();
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("injects the managed Univer bin directory into managed runtime env", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const env = univerCliManagedRuntimeEnv(config);
+    expect(env.OPENWORK_UNIVER_BIN).toBe(univerCliManagedExecutablePath(config));
+    expect(env.PATH.split(":")[0]).toBe(join(root, "extensions", "univer-cli", "bin"));
+  });
+});

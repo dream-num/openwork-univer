@@ -279,7 +279,10 @@ export function CloudMarketplacesView({
     });
   }, [builtInEntries, enablementContext, extensionItemsByBuiltInId, isBuiltInConnected]);
 
-  const rows = React.useMemo<MarketplaceRow[]>(() => canShowRows ? [...builtInRows, ...cloudRows] : [], [builtInRows, canShowRows, cloudRows]);
+  const rows = React.useMemo<MarketplaceRow[]>(
+    () => [...builtInRows, ...(canShowRows ? cloudRows : [])],
+    [builtInRows, canShowRows, cloudRows],
+  );
 
   React.useEffect(() => {
     if (rows.length > 0) lastRowsRef.current = rows;
@@ -288,10 +291,10 @@ export function CloudMarketplacesView({
   const displayRows = rows.length > 0 ? rows : busy ? lastRowsRef.current : rows;
 
   const marketplaceOptions = React.useMemo(
-    () => canShowRows ? [
+    () => [
       ...(builtInRows.length > 0 ? [{ id: "openwork-builtins", name: "OpenWork Built-ins" }] : []),
-      ...marketplaces.map((marketplace) => ({ id: marketplace.marketplace.id, name: marketplace.marketplace.name })),
-    ] : [],
+      ...(canShowRows ? marketplaces.map((marketplace) => ({ id: marketplace.marketplace.id, name: marketplace.marketplace.name })) : []),
+    ],
     [builtInRows.length, canShowRows, marketplaces],
   );
 
@@ -477,7 +480,7 @@ export function CloudMarketplacesView({
       {!isSignedIn ? (
         <SettingsNotice>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>You can use OpenWork without an account. Sign in to OpenWork Cloud to load the Marketplace, including OpenWork's built-in extensions and any organization marketplaces.</span>
+            <span>You can use OpenWork without an account. Sign in to OpenWork Cloud to load organization marketplace extensions.</span>
             <Button size="sm" onClick={onOpenAccount}>
               {t("skills.share_team_sign_in")}
             </Button>

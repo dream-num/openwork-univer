@@ -28,7 +28,15 @@ function hubApiBase(repo: HubRepo) {
 }
 
 function hubRawBase(repo: HubRepo) {
-  return `https://raw.githubusercontent.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${encodeURIComponent(repo.ref)}`;
+  return `https://raw.githubusercontent.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${encodePathSegments(repo.ref)}`;
+}
+
+function encodePathSegments(path: string): string {
+  return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+}
+
+function hubRawFileUrl(repo: HubRepo, path: string): string {
+  return `${hubRawBase(repo)}/${encodePathSegments(path)}`;
 }
 
 async function fetchJson(url: string): Promise<any> {
@@ -115,12 +123,11 @@ export async function listHubSkills(repo: HubRepo = DEFAULT_HUB_REPO): Promise<H
         .map((entry) => String(entry.name))
     : [];
 
-  const rawBase = hubRawBase(repo);
   const items = await mapWithConcurrency<string, HubSkillItem | null>(dirs, 6, async (dirName) => {
     try {
       const skillName = dirName.trim();
       validateSkillName(skillName);
-      const skillMd = await fetchText(`${rawBase}/skills/${encodeURIComponent(skillName)}/SKILL.md`);
+      const skillMd = await fetchText(hubRawFileUrl(repo, `skills/${skillName}/SKILL.md`));
       const { data, body } = parseFrontmatter(skillMd);
       const name = typeof data.name === "string" ? data.name : skillName;
       const descriptionRaw = typeof data.description === "string" ? data.description : "";
@@ -215,8 +222,6 @@ export async function installHubSkill(
 
   let written = 0;
   let skipped = 0;
-  const rawBase = hubRawBase(repo);
-
   for (const file of files) {
     const rel = file.path.slice(prefix.length);
     if (!rel || rel.startsWith("/") || rel.includes("..")) {
@@ -230,7 +235,7 @@ export async function installHubSkill(
     }
 
     await mkdir(dirname(destPath), { recursive: true });
-    const res = await fetch(`${rawBase}/${file.path}`, {
+    const res = await fetch(hubRawFileUrl(repo, file.path), {
       headers: { "User-Agent": "openwork-server" },
     });
     if (!res.ok) {

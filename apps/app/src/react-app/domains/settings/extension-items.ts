@@ -95,6 +95,35 @@ function childKeysForPlugin(plugin: CloudImportedPlugin) {
   return { mcpServerNames, skillPaths, skillNames };
 }
 
+function normalizeSkillPath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/\/+$/, "");
+}
+
+function skillNameFromSkillPath(path: string): string | null {
+  const segments = normalizeSkillPath(path).split("/").filter((segment) => segment.length > 0);
+  const skillsIndex = segments.lastIndexOf("skills");
+  if (skillsIndex < 0) return null;
+  const name = segments[skillsIndex + 1];
+  return name && name !== "SKILL.md" ? name : null;
+}
+
+function groupedSkillPathMatches(skillPath: string, groupedPath: string): boolean {
+  const normalizedSkillPath = normalizeSkillPath(skillPath);
+  const normalizedGroupedPath = normalizeSkillPath(groupedPath);
+  return (
+    normalizedSkillPath === normalizedGroupedPath ||
+    normalizedSkillPath.endsWith(normalizedGroupedPath) ||
+    normalizedSkillPath.endsWith(`${normalizedGroupedPath}/SKILL.md`)
+  );
+}
+
+function addGroupedSkillPath(path: string, groupedSkillPaths: Set<string>, groupedSkillNames: Set<string>) {
+  const normalizedPath = normalizeSkillPath(path);
+  groupedSkillPaths.add(normalizedPath);
+  const skillName = skillNameFromSkillPath(normalizedPath);
+  if (skillName) groupedSkillNames.add(skillName);
+}
+
 export function buildExtensionItems(input: ExtensionItemBuildInput) {
   const builtInItems = input.quickConnect.filter(isBuiltInOpenWorkExtension).map((entry): ExtensionItem => {
     const enablement = entry.extensionManifest?.enablement
@@ -168,10 +197,18 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   const groupedMcpServerNames = new Set<string>();
   const groupedSkillPaths = new Set<string>();
   const groupedSkillNames = new Set<string>();
+  for (const entry of input.quickConnect) {
+    if (!isBuiltInOpenWorkExtension(entry)) continue;
+    for (const resource of entry.extensionManifest?.resources ?? []) {
+      if (resource.type === "skill" && resource.path) {
+        addGroupedSkillPath(resource.path, groupedSkillPaths, groupedSkillNames);
+      }
+    }
+  }
   for (const plugin of Object.values(input.importedCloudPlugins)) {
     const keys = childKeysForPlugin(plugin);
     keys.mcpServerNames.forEach((value) => groupedMcpServerNames.add(value));
-    keys.skillPaths.forEach((value) => groupedSkillPaths.add(value));
+    keys.skillPaths.forEach((value) => addGroupedSkillPath(value, groupedSkillPaths, groupedSkillNames));
     keys.skillNames.forEach((value) => groupedSkillNames.add(value));
   }
 
@@ -183,7 +220,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   });
 
   const standaloneSkillItems = input.installedSkills.filter((skill) => {
-    if ([...groupedSkillPaths].some((path) => skill.path.endsWith(path))) return false;
+    if ([...groupedSkillPaths].some((path) => groupedSkillPathMatches(skill.path, path))) return false;
     if (groupedSkillNames.has(skill.name)) return false;
     return true;
   }).map((skill): ExtensionItem => ({
