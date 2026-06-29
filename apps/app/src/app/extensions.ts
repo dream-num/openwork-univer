@@ -149,6 +149,9 @@ export function isTrustedBuiltInExtension(manifest: OpenWorkExtensionManifest | 
   return manifest?.source.origin === "builtin" && manifest.source.trusted;
 }
 
+const UNIVER_CLI_COMPOSER_PROMPT =
+  "Use Univer CLI to work on native .univer office files. Create .univer by default for spreadsheets, docs, and slides; import/export xlsx, csv, docx, or pptx only as exchange formats when asked. ";
+
 export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] = [
   {
     schemaVersion: 1,
@@ -265,7 +268,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
     preview: true,
     source: { format: "openwork-builtin", origin: "builtin", trusted: true },
     icon: { src: "/openwork-mark.svg" },
-    composer: { prompt: "Use Univer CLI to " },
+    composer: { prompt: UNIVER_CLI_COMPOSER_PROMPT },
     setup: {
       instructions: "Install the canonical univer-cli skill package and the OpenWork-managed univer executable. OpenWork will verify the executable, managed inspect tools, and SaC migration templates before marking setup ready.",
       primaryCta: "Install Univer CLI",
@@ -312,7 +315,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
       { type: "settings-panel", ref: "openwork.univerCli.setup", location: "settings-detail" },
       { type: "setup-instructions", ref: "openwork.univerCli.setup", location: "settings-detail" },
       { type: "test-action", ref: "openwork.univerCli.setupStatus", label: "Check Univer CLI setup" },
-      { type: "composer-prompt", prompt: "Use Univer CLI to ", location: "composer" },
+      { type: "composer-prompt", prompt: UNIVER_CLI_COMPOSER_PROMPT, location: "composer" },
     ],
     lifecycle: {
       reload: ["skills", "config"],

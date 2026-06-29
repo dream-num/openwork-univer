@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { OPENWORK_EXTENSION_CATALOG } from "../src/app/constants";
 import { buildExtensionItems } from "../src/react-app/domains/settings/extension-items";
 
 describe("extension item grouping", () => {
+  test("describes Univer CLI as native .univer office work in composer", () => {
+    const univer = OPENWORK_EXTENSION_CATALOG.find((entry) => entry.id === "univer-cli");
+
+    expect(univer?.composerPrompt).toContain("native .univer office files");
+    expect(univer?.composerPrompt).toContain("Create .univer by default");
+    expect(univer?.composerPrompt).toContain("exchange formats");
+  });
+
   test("groups imported cloud plugin resources and suppresses child skill rows", () => {
     const result = buildExtensionItems({
       quickConnect: [],

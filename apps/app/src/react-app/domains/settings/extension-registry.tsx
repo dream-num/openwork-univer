@@ -29,6 +29,21 @@ export type ExtensionConfigContext = {
     onInstall: (apiKey: string) => void | Promise<void>;
     onTestGenerate: (input: { apiKey: string; prompt: string }) => void | Promise<void>;
   };
+  univerCli: {
+    busy: boolean;
+    status: string | null;
+    error: string | null;
+    ready: boolean | null;
+    checking: boolean;
+    versionInfo: UniverCliVersionInfo | null;
+    autoUpdate: boolean;
+    onCheck: () => void | Promise<void>;
+    onCheckUpdates: () => void | Promise<void>;
+    onInstall: () => void | Promise<void>;
+    onUpdate: () => void | Promise<void>;
+    onRepair: () => void | Promise<void>;
+    onAutoUpdateChange: (enabled: boolean) => void | Promise<void>;
+  };
   voiceExtension: {
     busy: boolean;
     status: string | null;
@@ -36,15 +51,6 @@ export type ExtensionConfigContext = {
     envKeyDetected: boolean;
     onSaveApiKey: (apiKey: string) => void | Promise<void>;
     onTestSession: () => void | Promise<void>;
-  };
-  univerCli: {
-    busy: boolean;
-    status: string | null;
-    error: string | null;
-    ready: boolean;
-    onCheck: () => void | Promise<void>;
-    onInstall: () => void | Promise<void>;
-    onRepair: () => void | Promise<void>;
   };
   localProvider: {
     busy: boolean;
@@ -59,6 +65,22 @@ export type ExtensionConfigContext = {
       setDefault: boolean;
     }) => void | Promise<void>;
   };
+};
+
+export type UniverCliVersionInfo = {
+  source: string;
+  path: string | null;
+  managedBinPath: string;
+  packageName: string;
+  installRoot: string;
+  commandVersion: string | null;
+  commandOutput: string | null;
+  packageVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean | null;
+  checkedAt: string | null;
+  registryStatus: string;
+  registryDetail: string | null;
 };
 
 export type ExtensionConfigFactory = (ctx: ExtensionConfigContext) => ReactNode;

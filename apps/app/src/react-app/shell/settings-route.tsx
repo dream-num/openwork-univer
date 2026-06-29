@@ -65,6 +65,7 @@ import "@/react-app/domains/settings/openwork-voice-config";
 import "@/react-app/domains/settings/google-workspace-config";
 import "@/react-app/domains/settings/univer-cli-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
+import type { UniverCliVersionInfo } from "@/react-app/domains/settings/extension-registry";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED, setOpenWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
@@ -166,19 +167,56 @@ import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-
 
 const UNIVER_CLI_EXTENSION_ID = "univer-cli";
 
-type UniverCliSetupAction = "setup_status" | "setup_install" | "setup_repair";
+type UniverCliSetupAction = "setup_status" | "setup_install" | "setup_repair" | "setup_update";
+type UniverCliSetupOptions = {
+  checkForUpdates?: boolean;
+  autoUpdate?: boolean;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function summarizeUniverCliResult(result: unknown): { ready: boolean; message: string } {
+function readOptionalString(value: Record<string, unknown>, key: string): string | null {
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field.trim() : null;
+}
+
+function readOptionalBoolean(value: Record<string, unknown>, key: string): boolean | null {
+  const field = value[key];
+  return typeof field === "boolean" ? field : null;
+}
+
+function readUniverCliVersionInfo(result: Record<string, unknown>): UniverCliVersionInfo | null {
+  const executable = result.executable;
+  if (!isRecord(executable)) return null;
+  const version = executable.version;
+  if (!isRecord(version)) return null;
+  return {
+    source: readOptionalString(executable, "source") ?? "unresolved",
+    path: readOptionalString(executable, "path"),
+    managedBinPath: readOptionalString(executable, "managedBinPath") ?? "",
+    packageName: readOptionalString(executable, "packageName") ?? "univer-cli",
+    installRoot: readOptionalString(executable, "installRoot") ?? "",
+    commandVersion: readOptionalString(version, "commandVersion"),
+    commandOutput: readOptionalString(version, "commandOutput"),
+    packageVersion: readOptionalString(version, "packageVersion"),
+    latestVersion: readOptionalString(version, "latestVersion"),
+    updateAvailable: readOptionalBoolean(version, "updateAvailable"),
+    checkedAt: readOptionalString(version, "checkedAt"),
+    registryStatus: readOptionalString(version, "registryStatus") ?? "not_checked",
+    registryDetail: readOptionalString(version, "registryDetail"),
+  };
+}
+
+function summarizeUniverCliResult(result: unknown): { ready: boolean; message: string; versionInfo: UniverCliVersionInfo | null } {
   if (!isRecord(result)) {
-    return { ready: false, message: "Univer CLI setup returned an unexpected response." };
+    return { ready: false, message: "Univer CLI setup returned an unexpected response.", versionInfo: null };
   }
   const ready = result.ready === true;
+  const versionInfo = readUniverCliVersionInfo(result);
   if (ready) {
-    return { ready, message: "Univer CLI is ready for this workspace." };
+    return { ready, message: "Univer CLI is ready for this workspace.", versionInfo };
   }
   const issues = Array.isArray(result.issues)
     ? result.issues.filter((issue): issue is string => typeof issue === "string" && issue.trim().length > 0)
@@ -186,6 +224,7 @@ function summarizeUniverCliResult(result: unknown): { ready: boolean; message: s
   return {
     ready,
     message: issues.length ? `Setup incomplete: ${issues.join(" ")}` : "Univer CLI setup is incomplete for this workspace.",
+    versionInfo,
   };
 }
 
@@ -265,6 +304,8 @@ function reconcileSelectedWorkspaceId(
 const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
+const SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY = "openwork.univerCli.autoUpdate";
+const SETTINGS_UNIVER_CLI_READY_KEY_PREFIX = "openwork.univerCli.ready.";
 
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
@@ -325,6 +366,30 @@ function writeStoredBoolean(key: string, value: boolean) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+function univerCliReadyCacheKey(workspaceId: string) {
+  return `${SETTINGS_UNIVER_CLI_READY_KEY_PREFIX}${workspaceId}`;
+}
+
+function readStoredUniverCliReady(workspaceId: string): boolean | null {
+  if (typeof window === "undefined" || !workspaceId.trim()) return null;
+  try {
+    return window.localStorage.getItem(univerCliReadyCacheKey(workspaceId)) === "1" ? true : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredUniverCliReady(workspaceId: string, ready: boolean) {
+  if (typeof window === "undefined" || !workspaceId.trim()) return;
+  try {
+    const key = univerCliReadyCacheKey(workspaceId);
+    if (ready) window.localStorage.setItem(key, "1");
+    else window.localStorage.removeItem(key);
   } catch {
     // ignore persistence failures
   }
@@ -464,7 +529,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [univerCliBusy, setUniverCliBusy] = useState(false);
   const [univerCliStatus, setUniverCliStatus] = useState<string | null>(null);
   const [univerCliError, setUniverCliError] = useState<string | null>(null);
-  const [univerCliReady, setUniverCliReady] = useState(false);
+  const [univerCliReady, setUniverCliReady] = useState<boolean | null>(() =>
+    readStoredUniverCliReady(selectedWorkspaceId),
+  );
+  const [univerCliVersionInfo, setUniverCliVersionInfo] = useState<UniverCliVersionInfo | null>(null);
+  const [univerCliAutoUpdate, setUniverCliAutoUpdate] = useState(() =>
+    readStoredBoolean(SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY, false),
+  );
+  const univerCliAutoUpdateAttemptRef = useRef("");
+  const univerCliSetupPrefetchRef = useRef("");
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
@@ -1032,7 +1105,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   }, [openworkClient]);
 
-  const runUniverCliSetupAction = useCallback(async (action: UniverCliSetupAction) => {
+  const runUniverCliSetupAction = useCallback(async (action: UniverCliSetupAction, options: UniverCliSetupOptions = {}) => {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
     const workspaceId = runtimeWorkspaceId?.trim() ?? "";
     if (!client || !workspaceId) {
@@ -1044,22 +1117,69 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setUniverCliStatus(null);
     setUniverCliError(null);
     try {
+      const args: Record<string, unknown> = { workspaceId };
+      if (options.checkForUpdates) args.checkForUpdates = true;
+      if (options.autoUpdate) args.autoUpdate = true;
       const response = await client.callExtensionAction({
         extensionId: UNIVER_CLI_EXTENSION_ID,
         action,
-        args: { workspaceId },
+        args,
         context: { directory: selectedWorkspaceRoot || undefined },
       });
       const summary = summarizeUniverCliResult(response.result);
       setUniverCliReady(summary.ready);
       setUniverCliStatus(summary.message);
+      setUniverCliVersionInfo(summary.versionInfo);
+      writeStoredUniverCliReady(workspaceId, summary.ready);
     } catch (error) {
       setUniverCliReady(false);
+      writeStoredUniverCliReady(workspaceId, false);
       setUniverCliError(describeRouteError(error));
     } finally {
       setUniverCliBusy(false);
     }
   }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
+
+  useEffect(() => {
+    writeStoredBoolean(SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY, univerCliAutoUpdate);
+  }, [univerCliAutoUpdate]);
+
+  useEffect(() => {
+    const workspaceId = runtimeWorkspaceId?.trim() || selectedWorkspaceId.trim();
+    setUniverCliReady(readStoredUniverCliReady(workspaceId));
+    setUniverCliStatus(null);
+    setUniverCliError(null);
+    setUniverCliVersionInfo(null);
+    univerCliSetupPrefetchRef.current = "";
+    univerCliAutoUpdateAttemptRef.current = "";
+  }, [runtimeWorkspaceId, selectedWorkspaceId]);
+
+  useEffect(() => {
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    if (!univerCliAutoUpdate || univerCliBusy || !workspaceId) return;
+    const attemptKey = `${workspaceId}:${selectedWorkspaceRoot}`;
+    if (univerCliAutoUpdateAttemptRef.current === attemptKey) return;
+    univerCliAutoUpdateAttemptRef.current = attemptKey;
+    void runUniverCliSetupAction("setup_status", { checkForUpdates: true, autoUpdate: true });
+  }, [runtimeWorkspaceId, runUniverCliSetupAction, selectedWorkspaceRoot, univerCliAutoUpdate, univerCliBusy]);
+
+  useEffect(() => {
+    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
+    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
+    if (!client || !workspaceId || univerCliBusy || univerCliAutoUpdate) return;
+    const checkKey = `${workspaceId}:${selectedWorkspaceRoot}`;
+    if (univerCliSetupPrefetchRef.current === checkKey) return;
+    univerCliSetupPrefetchRef.current = checkKey;
+    void runUniverCliSetupAction("setup_status");
+  }, [
+    openworkClient,
+    runUniverCliSetupAction,
+    runtimeWorkspaceId,
+    selectedWorkspaceEndpoint,
+    selectedWorkspaceRoot,
+    univerCliAutoUpdate,
+    univerCliBusy,
+  ]);
 
   const installLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
@@ -1704,9 +1824,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       status: univerCliStatus,
       error: univerCliError,
       ready: univerCliReady,
+      checking: univerCliReady !== true && (univerCliBusy || univerCliReady === null),
+      versionInfo: univerCliVersionInfo,
+      autoUpdate: univerCliAutoUpdate,
       onCheck: () => runUniverCliSetupAction("setup_status"),
+      onCheckUpdates: () => runUniverCliSetupAction("setup_status", { checkForUpdates: true }),
       onInstall: () => runUniverCliSetupAction("setup_install"),
+      onUpdate: () => runUniverCliSetupAction("setup_update", { checkForUpdates: true }),
       onRepair: () => runUniverCliSetupAction("setup_repair"),
+      onAutoUpdateChange: (enabled) => {
+        setUniverCliAutoUpdate(enabled);
+        if (enabled) void runUniverCliSetupAction("setup_status", { checkForUpdates: true, autoUpdate: true });
+      },
     },
     localProvider: {
       busy: localProviderBusy,
@@ -2169,6 +2298,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}
+                isExtensionChecking={extensionController.isChecking}
                 authorizeMcp={(entry) => {
                   void connectionsStore.authorizeMcp(entry);
                 }}

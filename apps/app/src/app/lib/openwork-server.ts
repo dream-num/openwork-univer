@@ -178,6 +178,34 @@ export type OpenworkWorkspaceFileDeleteResult = {
   code?: string;
 };
 
+export type OpenworkFileSession = {
+  id: string;
+  workspaceId: string;
+  createdAt: number;
+  expiresAt: number;
+  ttlMs: number;
+  canWrite: boolean;
+};
+
+export type OpenworkFileSessionCatalogEntry = {
+  path: string;
+  kind: "file" | "dir";
+  size: number;
+  mtimeMs: number;
+  revision: string;
+};
+
+export type OpenworkFileSessionCatalogSnapshot = {
+  sessionId: string;
+  workspaceId: string;
+  generatedAt: number;
+  cursor: number;
+  total: number;
+  truncated: boolean;
+  nextAfter?: string;
+  items: OpenworkFileSessionCatalogEntry[];
+};
+
 export type OpenworkAuthorizedFoldersResponse = {
   folders: string[];
   hiddenCount: number;
@@ -1617,6 +1645,52 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
         { token, hostToken },
       ),
+
+    createWorkspaceFileSession: (
+      workspaceId: string,
+      payload?: { write?: boolean; ttlSeconds?: number },
+    ) =>
+      requestJson<{ session: OpenworkFileSession }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: {
+            write: payload?.write === true,
+            ttlSeconds: payload?.ttlSeconds,
+          },
+        },
+      ),
+
+    closeFileSession: (sessionId: string) =>
+      requestJson<{ ok: boolean }>(
+        baseUrl,
+        `/files/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          token,
+          hostToken,
+          method: "DELETE",
+        },
+      ),
+
+    listFileSessionCatalog: (
+      sessionId: string,
+      options?: { prefix?: string; after?: string; includeDirs?: boolean; limit?: number },
+    ) => {
+      const params = new URLSearchParams();
+      if (options?.prefix) params.set("prefix", options.prefix);
+      if (options?.after) params.set("after", options.after);
+      if (options?.includeDirs === false) params.set("includeDirs", "false");
+      if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+      const query = params.size ? `?${params.toString()}` : "";
+      return requestJson<OpenworkFileSessionCatalogSnapshot>(
+        baseUrl,
+        `/files/sessions/${encodeURIComponent(sessionId)}/catalog/snapshot${query}`,
+        { token, hostToken },
+      );
+    },
 
     statWorkspaceFile: (workspaceId: string, path: string) =>
       requestJson<OpenworkWorkspaceFileStat>(

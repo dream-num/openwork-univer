@@ -111,6 +111,8 @@ export type McpViewProps = {
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
   /** Check if an extension-kind entry is connected/active. */
   isExtensionConnected?: (entry: McpDirectoryInfo) => boolean;
+  /** Check if an extension-kind entry is still resolving setup state. */
+  isExtensionChecking?: (entry: McpDirectoryInfo) => boolean;
   /** Enablement context for evaluating extension active state. */
   enablementContext?: import("../../../../app/enablement").EnablementContext;
   /** Organization policy restriction for OpenWork-provided built-in extensions. */
@@ -598,6 +600,7 @@ export function McpView(props: McpViewProps) {
           if (entry.kind === "extension" && !isMcpBackedExtension(entry)) return props.isExtensionConnected?.(entry) ?? false;
           return isQuickConnectConfigured(entry);
         }}
+        isExtensionChecking={props.isExtensionChecking}
         enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
@@ -867,6 +870,7 @@ function McpQuickConnectSection(props: {
   isPluginHidden: (plugin: CloudImportedPlugin) => boolean;
   disabledReasonForEntry: (entry: McpDirectoryInfo) => string | null;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
+  isExtensionChecking?: (entry: McpDirectoryInfo) => boolean;
   enablementForEntry?: (entry: McpDirectoryInfo) => { active: boolean; results: EnablementResult[] } | null;
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
@@ -888,7 +892,8 @@ function McpQuickConnectSection(props: {
         {props.entries.map((entry) => {
           const configured = props.isConfigured(entry);
           const enablement = props.enablementForEntry?.(entry);
-          const connecting = props.connectingName === entry.name;
+          const checkingExtension = props.isExtensionChecking?.(entry) === true;
+          const connecting = props.connectingName === entry.name || checkingExtension;
           const FallbackIcon = serviceIcon(entry.name);
           const hidden = props.isEntryHidden(entry);
           const disabledReason = props.disabledReasonForEntry(entry);
@@ -909,7 +914,7 @@ function McpQuickConnectSection(props: {
               preview={entry.preview}
               disabledReason={disabledReason}
               disabled={props.busy}
-              actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
+              actionLabel={checkingExtension ? "Checking setup..." : configured ? "View details" : t("mcp.tap_to_connect")}
               onClick={() => props.onDetail(entry)}
             />
           );

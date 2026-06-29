@@ -230,8 +230,8 @@ function parseApplyPatchPaths(patchText: string) {
   return paths;
 }
 
-const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
-const ASSISTANT_ARTIFACT_MENTION_PATTERN = /\b(?:artifact|created|deck|deliverable|exported|file|generated|opened|presentation|saved|slides?|updated|wrote)\b/i;
+const FILE_PATTERN = /(?:^|[\s"'`([{|])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\p{L}\p{N}._~@%+=,-]+(?:[/\\][\p{L}\p{N}._~@%+=,-]+)*\.[a-z][a-z0-9]{0,9})(?=$|[\s"'`)\]}>,;:|])/giu;
+const ASSISTANT_ARTIFACT_MENTION_PATTERN = /(?:\b(?:artifact|created|deck|deliverable|exported|file|generated|opened|presentation|saved|slides?|updated|wrote)\b|文件|产物|生成|创建|导出|保存|写入|更新|路径|位置)/iu;
 
 function getArtifactPathsFromText(text: string) {
   if (!ASSISTANT_ARTIFACT_MENTION_PATTERN.test(text)) return [];

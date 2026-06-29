@@ -12,14 +12,16 @@
 - [x] 2.2 Add an OpenWork-managed npm package install path for `univer-cli`, with explicit incomplete status when managed installation is unavailable.
 - [x] 2.3 Add health checks for executable version/help, complete skill package presence, managed inspect tool listing, and SaC migration template listing.
 - [x] 2.4 Inject the resolved executable path into managed OpenCode runtime configuration without requiring shell startup file edits.
+- [x] 2.5 Report resolved executable source, current command/package version, managed install root, and npm registry latest version in the Univer CLI Extension page.
+- [x] 2.6 Add managed executable update controls: manual update, registry update check, and opt-in auto-update for managed npm installs without overwriting development overrides.
 
 ## 3. Native Univer Artifacts
 
 - [x] 3.1 Register `.univer` as a first-class OpenWork office artifact.
 - [x] 3.2 Route `.univer` artifact open actions to a Univer-specific target path instead of the lightweight generic spreadsheet editor.
-- [ ] 3.3 Add native office creation actions for new spreadsheet, document, and slide work that produce `.univer` targets by default without requiring the first CLI step to create a typed unit.
-- [ ] 3.4 Add exchange-source handling that imports `.xlsx`, `.docx`, `.pptx`, and `.csv` into `.univer` targets when users ask to work on existing external files.
-- [ ] 3.5 Add exchange-output handling that exports external formats only when users request a handoff format.
+- [x] 3.3 Add agent-facing native office guidance for new spreadsheet, document, and slide work that produces `.univer` targets by default without requiring the first CLI step to create a typed unit.
+- [x] 3.4 Add agent-facing exchange-source guidance that imports `.xlsx`, `.docx`, `.pptx`, and `.csv` into `.univer` targets when users ask to work on existing external files.
+- [x] 3.5 Add agent-facing exchange-output guidance that exports external formats only when users request a handoff format.
 
 ## 4. Univer Surface Integration
 

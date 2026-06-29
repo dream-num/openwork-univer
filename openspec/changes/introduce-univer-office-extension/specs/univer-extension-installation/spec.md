@@ -16,11 +16,11 @@ OpenWork SHALL provide a Univer CLI Extension that presents Univer setup, status
 - **THEN** OpenWork runs the setup checks again and reports the current executable and skill package status
 
 ### Requirement: Extension actions keep setup and surface handoff narrow
-OpenWork SHALL expose setup status, install, retry, repair, and native surface handoff actions without exposing semantic office workflow actions as generic extension actions.
+OpenWork SHALL expose setup status, install, retry, repair, managed update, and native surface handoff actions without exposing semantic office workflow actions as generic extension actions.
 
 #### Scenario: Setup actions are listed
 - **WHEN** OpenWork lists setup-oriented Univer CLI Extension actions
-- **THEN** the listed actions cover setup status, install, retry, or repair
+- **THEN** the listed actions cover setup status, install, retry, repair, or managed update
 
 #### Scenario: Surface handoff is listed
 - **WHEN** OpenWork needs to embed a native `.univer` artifact
@@ -78,6 +78,29 @@ OpenWork SHALL provide a `univer` executable for the active workspace through an
 #### Scenario: Executable is missing
 - **WHEN** OpenWork cannot resolve a usable `univer` executable for the workspace
 - **THEN** OpenWork reports setup as incomplete and does not imply that Univer office automation is ready
+
+### Requirement: Extension reports and updates Univer CLI versions
+OpenWork SHALL show the resolved Univer CLI executable source and version metadata in the Univer CLI Extension page and SHALL update OpenWork-managed executable installs from the npm registry.
+
+#### Scenario: Version metadata is displayed
+- **WHEN** OpenWork checks Univer CLI setup
+- **THEN** the Univer CLI Extension page shows the resolved executable source, executable path, detected command version, managed package version when present, and managed install root
+
+#### Scenario: Registry version is checked
+- **WHEN** the user checks for Univer CLI updates
+- **THEN** OpenWork queries the npm registry for the latest `univer-cli` version and reports whether the managed package is up to date
+
+#### Scenario: Managed executable is updated manually
+- **WHEN** the user updates the managed Univer CLI executable
+- **THEN** OpenWork installs `univer-cli@latest` from npm registry into the OpenWork-managed install directory and reruns setup health checks
+
+#### Scenario: Managed executable is auto-updated
+- **WHEN** the user enables automatic Univer CLI updates for a managed install
+- **THEN** OpenWork checks npm registry and updates the managed executable when a newer version is available
+
+#### Scenario: Development override is not overwritten
+- **WHEN** a development override executable or system executable is the resolved source
+- **THEN** OpenWork reports that source and does not replace it during managed update checks
 
 ### Requirement: Managed agents can invoke Univer
 OpenWork SHALL make the resolved `univer` executable available to managed OpenCode sessions launched for the workspace.

@@ -135,6 +135,10 @@ async function writeFakeNpm(root: string): Promise<string> {
   await mkdir(binDir, { recursive: true });
   const bin = join(binDir, "npm");
   await writeFile(bin, `#!/bin/sh
+if [ "$1" = "view" ] && [ "$2" = "univer-cli" ] && [ "$3" = "version" ]; then
+  echo '"0.0.1-managed-test"'
+  exit 0
+fi
 prefix=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--prefix" ]; then
@@ -148,6 +152,10 @@ if [ -z "$prefix" ]; then
   exit 2
 fi
 mkdir -p "$prefix/node_modules/.bin"
+mkdir -p "$prefix/node_modules/univer-cli"
+cat > "$prefix/node_modules/univer-cli/package.json" <<'PACKAGE'
+{"name":"univer-cli","version":"0.0.0-managed-test"}
+PACKAGE
 cat > "$prefix/node_modules/.bin/univer" <<'UNIVER'
 #!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -217,7 +225,7 @@ describe("Univer CLI extension", () => {
 
   test("exposes installer and embedded surface actions", () => {
     const actions = listExperimentalExtensionActions(UNIVER_CLI_EXTENSION_ID).map((action) => action.action).sort();
-    expect(actions).toEqual(["open_surface", "setup_install", "setup_repair", "setup_retry", "setup_status"]);
+    expect(actions).toEqual(["open_surface", "setup_install", "setup_repair", "setup_retry", "setup_status", "setup_update"]);
     expect(actions).not.toContain("import");
     expect(actions).not.toContain("export");
     expect(actions).not.toContain("inspect");
@@ -253,6 +261,7 @@ describe("Univer CLI extension", () => {
     expect(status.skill.complete).toBe(true);
     expect(status.skill.sourceVerified).toBe(true);
     expect(status.executable.source).toBe("override");
+    expect(status.executable.version.commandVersion).toBe("0.0.0-test");
     expect(status.health.executable.status).toBe("ok");
     expect(status.health.inspectTools.status).toBe("ok");
     expect(status.health.sacMigrationTemplates.status).toBe("ok");
@@ -325,12 +334,91 @@ describe("Univer CLI extension", () => {
 
       expect(result.result.ready).toBe(true);
       expect(result.result.executable.source).toBe("managed");
+      expect(result.result.executable.version.commandVersion).toBe("0.0.0-managed-test");
+      expect(result.result.executable.version.packageVersion).toBe("0.0.0-managed-test");
       expect(result.install?.executable?.skipped).toBe(false);
       expect(result.install?.executable?.packageName).toBe("univer-cli");
       expect(result.install?.executable?.binPath).toBe(univerCliManagedExecutablePath(config));
       expect(result.result.health.executable.status).toBe("ok");
       expect(result.result.health.inspectTools.status).toBe("ok");
       expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
+    } finally {
+      restoreFetch();
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("checks registry version metadata for the managed executable", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const fakeNpmBinDir = await writeFakeNpm(root);
+    const originalPath = process.env.PATH;
+    process.env.PATH = originalPath ? `${fakeNpmBinDir}${delimiter}${originalPath}` : fakeNpmBinDir;
+    const restoreFetch = mockCanonicalSkillFetch();
+
+    try {
+      await callUniverCliExtensionAction(config, "setup_install", {}, { directory: root });
+      const result = await callUniverCliExtensionAction(
+        config,
+        "setup_status",
+        { checkForUpdates: true },
+        { directory: root },
+      );
+      if (!result || result.action !== "setup_status") throw new Error("Expected Univer setup status result");
+
+      expect(result.result.executable.source).toBe("managed");
+      expect(result.result.executable.version.packageVersion).toBe("0.0.0-managed-test");
+      expect(result.result.executable.version.latestVersion).toBe("0.0.1-managed-test");
+      expect(result.result.executable.version.updateAvailable).toBe(true);
+      expect(result.result.executable.version.registryStatus).toBe("ok");
+    } finally {
+      restoreFetch();
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("updates the managed executable from npm registry", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    const config = serverConfig(root);
+    const fakeNpmBinDir = await writeFakeNpm(root);
+    const originalPath = process.env.PATH;
+    process.env.PATH = originalPath ? `${fakeNpmBinDir}${delimiter}${originalPath}` : fakeNpmBinDir;
+
+    try {
+      const result = await callUniverCliExtensionAction(config, "setup_update", {}, { directory: root });
+      if (!result || result.action !== "setup_update") throw new Error("Expected Univer setup update result");
+
+      expect(result.result.ready).toBe(true);
+      expect(result.result.executable.source).toBe("managed");
+      expect(result.install?.executable?.skipped).toBe(false);
+      expect(result.result.executable.version.latestVersion).toBe("0.0.1-managed-test");
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  test("auto-updates the managed executable when registry check finds a newer version", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const fakeNpmBinDir = await writeFakeNpm(root);
+    const originalPath = process.env.PATH;
+    process.env.PATH = originalPath ? `${fakeNpmBinDir}${delimiter}${originalPath}` : fakeNpmBinDir;
+    const restoreFetch = mockCanonicalSkillFetch();
+
+    try {
+      await callUniverCliExtensionAction(config, "setup_install", {}, { directory: root });
+      const result = await callUniverCliExtensionAction(
+        config,
+        "setup_status",
+        { checkForUpdates: true, autoUpdate: true },
+        { directory: root },
+      );
+      if (!result || result.action !== "setup_status") throw new Error("Expected Univer setup status result");
+
+      expect(result.install?.executable?.skipped).toBe(false);
+      expect(result.result.executable.source).toBe("managed");
+      expect(result.result.executable.version.registryStatus).toBe("ok");
     } finally {
       restoreFetch();
       process.env.PATH = originalPath;

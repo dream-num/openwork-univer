@@ -60,6 +60,7 @@ import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
+import { WorkspaceFileTreePopover } from "../panel/workspace-file-tree-popover";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
@@ -316,6 +317,8 @@ export function SessionPage(props: SessionPageProps) {
   const panelRailActive = activeSidePanel === "panel";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
+  const browserRailActive = panelRailActive && activePanelTab?.type === "browser";
+  const artifactRailActive = panelRailActive && activePanelTab?.type === "artifact";
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -477,6 +480,11 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
+  const showArtifactPanelFromFileTree = useCallback(() => {
+    if (!props.selectedSessionId) return;
+    preserveSidePanelOnPanelOpenRef.current = true;
+    setCurrentSidePanel("panel");
+  }, [props.selectedSessionId, setCurrentSidePanel]);
   const openBrowserRailPane = useCallback(() => {
     // Opening the browser pane should land on a usable page, not an empty
     // panel that forces the user to click "+". If no browser tab exists yet,
@@ -514,6 +522,24 @@ export function SessionPage(props: SessionPageProps) {
     },
   }), [setCurrentSidePanel]);
   useControlAction(openBrowserUrlControlAction);
+  const workspaceInfoControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.workspace.info",
+      label: "Read current workspace info",
+      description: "Return the mounted session workspace identity for eval setup.",
+      sideEffect: "none",
+      disabled: !props.runtimeWorkspaceId,
+      execute: () => ({
+        ok: true,
+        workspaceId: props.runtimeWorkspaceId,
+        workspaceRoot: props.selectedWorkspaceRoot,
+        isRemoteWorkspace: props.surface?.isRemoteWorkspace ?? false,
+      }),
+    };
+  }, [props.runtimeWorkspaceId, props.selectedWorkspaceRoot, props.surface?.isRemoteWorkspace]);
+  useControlAction(workspaceInfoControlAction);
   const setBrowserProxyControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "browser.set_proxy",
     label: "Set built-in browser proxy",
@@ -895,6 +921,14 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
+              <WorkspaceFileTreePopover
+                sessionId={props.selectedSessionId}
+                client={props.openworkServerClient}
+                workspaceId={props.runtimeWorkspaceId}
+                workspaceRoot={props.selectedWorkspaceRoot}
+                isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                onArtifactOpen={showArtifactPanelFromFileTree}
+              />
               <NotificationBell />
               {props.developerMode ? (
                 <Button
@@ -1284,12 +1318,12 @@ export function SessionPage(props: SessionPageProps) {
                 size="icon-sm"
                 className={cn(
                   "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  browserRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                 )}
                 onClick={openBrowserRailPane}
                 title="Browser"
                 aria-label="Browser"
-                aria-pressed={panelRailActive}
+                aria-pressed={browserRailActive}
               >
                 <Globe size={17} />
               </Button>
@@ -1315,12 +1349,12 @@ export function SessionPage(props: SessionPageProps) {
               size="icon-sm"
               className={cn(
                 "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                artifactRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
               onClick={openArtifactRailPane}
               title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
               aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive}
+              aria-pressed={artifactRailActive}
               disabled={!hasArtifactTargets}
             >
               <FileText size={17} />
