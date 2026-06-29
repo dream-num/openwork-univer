@@ -48,6 +48,16 @@ type ArtifactQueryState =
 
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
 
+type UniverOpenSurface = {
+  url: string;
+  viewerUrl: string;
+  univerfile: string;
+  worktreeId?: string;
+  unitId?: string;
+};
+
+const UNIVER_CLI_EXTENSION_ID = "univer-cli";
+
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
   const cleanPath = path.trim().replace(/^\.\//, "");
@@ -57,6 +67,36 @@ function absoluteWorkspacePath(root: string, path: string) {
 
 function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requiredString(value: Record<string, unknown>, key: string): string {
+  const field = value[key];
+  if (typeof field !== "string" || !field.trim()) {
+    throw new Error(`Univer surface response is missing ${key}.`);
+  }
+  return field;
+}
+
+function optionalString(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field : undefined;
+}
+
+function readUniverOpenSurface(value: unknown): UniverOpenSurface {
+  if (!isRecord(value)) {
+    throw new Error("Univer surface response is invalid.");
+  }
+  return {
+    url: requiredString(value, "url"),
+    viewerUrl: requiredString(value, "viewerUrl"),
+    univerfile: requiredString(value, "univerfile"),
+    worktreeId: optionalString(value, "worktreeId"),
+    unitId: optionalString(value, "unitId"),
+  };
 }
 
 export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
@@ -98,6 +138,9 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
   const { data, error, isError, isLoading } = useQuery<ArtifactQueryState>({
     queryKey: ["artifact-panel", workspaceId, target.id] as const,
     queryFn: async () => {
+      if (target.preview === "univer") {
+        throw new Error("Univer artifacts open through the embedded Univer surface.");
+      }
       if (target.kind === "url") {
         throw new Error("URLs open in browser tabs.");
       }
@@ -115,6 +158,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
 
       return { kind: "binary", data: result.data, contentType: result.contentType, updatedAt: target.updatedAt ?? null };
     },
+    enabled: target.preview !== "univer",
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -351,7 +395,14 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
+        {target.preview === "univer" ? (
+          <UniverCollabSurface
+            client={client}
+            workspaceId={workspaceId}
+            target={target}
+            isRemoteWorkspace={isRemoteWorkspace}
+          />
+        ) : isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />
@@ -381,6 +432,66 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
         )}
       </div>
     </div>
+  );
+}
+
+interface UniverCollabSurfaceProps {
+  client: OpenworkServerClient;
+  workspaceId: string;
+  target: OpenTarget;
+  isRemoteWorkspace: boolean;
+}
+
+function UniverCollabSurface({ client, workspaceId, target, isRemoteWorkspace }: UniverCollabSurfaceProps) {
+  const { data, error, isError, isLoading } = useQuery<UniverOpenSurface>({
+    queryKey: ["univer-collab-surface", workspaceId, target.id, target.value, target.worktreeId ?? "", target.unitId ?? ""],
+    queryFn: async () => {
+      if (isRemoteWorkspace) {
+        throw new Error("Embedded Univer preview is available for local workspaces only.");
+      }
+      if (target.kind !== "file") {
+        throw new Error("Univer preview requires a workspace file.");
+      }
+      const response = await client.callExtensionAction({
+        extensionId: UNIVER_CLI_EXTENSION_ID,
+        action: "open_surface",
+        args: {
+          workspaceId,
+          path: target.value,
+          ...(target.worktreeId ? { worktreeId: target.worktreeId } : {}),
+          ...(target.unitId ? { unitId: target.unitId } : {}),
+        },
+        context: {
+          workspaceId,
+        },
+      });
+      return readUniverOpenSurface(response.result);
+    },
+    enabled: target.kind === "file",
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: 10_000,
+  });
+
+  if (isLoading) {
+    return <PreviewLoading />;
+  }
+
+  if (isError || !data) {
+    return <PreviewError message={error instanceof Error ? error.message : "Failed to open Univer surface."} />;
+  }
+
+  return (
+    <iframe
+      data-testid="univer-collab-surface"
+      src={data.url}
+      title={target.name}
+      className="h-full w-full border-0 bg-background"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+      allow="clipboard-read; clipboard-write"
+      referrerPolicy="no-referrer"
+    />
   );
 }
 

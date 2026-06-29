@@ -8,7 +8,7 @@ import { isElectronRuntime } from "@/app/utils";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 
-const SUPPORTED_PANEL_PREVIEWS = new Set(["markdown", "sheet", "slides", "image", "pdf", "html", "text"]);
+const SUPPORTED_PANEL_PREVIEWS = new Set(["markdown", "sheet", "slides", "univer", "image", "pdf", "html", "text"]);
 
 type LinkActionMenuProps = {
   target: OpenTarget;

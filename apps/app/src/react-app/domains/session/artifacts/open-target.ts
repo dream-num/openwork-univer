@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 
 type OpenTargetKind = "url" | "file";
-export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "univer" | "image" | "pdf" | "html" | "text" | "external";
 
 export interface TextData {
   kind: "text";
@@ -23,6 +23,8 @@ export type OpenTarget = {
   preview: OpenTargetPreview;
   confidence: number;
   reason: string;
+  worktreeId?: string;
+  unitId?: string;
   exists?: boolean;
   size?: number;
   updatedAt?: number;
@@ -34,7 +36,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "image", "pdf", "html"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "univer", "image", "pdf", "html"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const ASSISTANT_ARTIFACT_MENTION_PATTERN = /\b(?:artifact|created|deck|deliverable|exported|file|generated|opened|presentation|saved|slides?|updated|wrote)\b/i;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
@@ -51,6 +53,8 @@ const WRITE_TOOL_NAMES = new Set([
   "write_file",
 ]);
 const FILE_METADATA_KEYS = ["path", "file", "filePath", "filepath"];
+const WORKTREE_METADATA_KEYS = ["worktreeId", "worktree"];
+const UNIT_METADATA_KEYS = ["unitId", "unit", "localUnitId"];
 const PATCH_FILE_PATTERN = /^\*\*\* (?:Add File|Update File):\s*(.+)$/gmi;
 const PATCH_MOVE_TO_PATTERN = /^\*\*\* Move to:\s*(.+)$/gmi;
 const URI_PATTERN = /^(?:https?|wss?|file):\/\//i;
@@ -79,10 +83,29 @@ function extname(value: string) {
   return index >= 0 ? name.slice(index) : "";
 }
 
+function firstStringField(value: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const field = value[key];
+    if (typeof field === "string" && field.trim()) return field.trim();
+  }
+  return "";
+}
+
+function routeMetadata(value: unknown): Pick<OpenTarget, "worktreeId" | "unitId"> {
+  if (!isObject(value)) return {};
+  const worktreeId = firstStringField(value, WORKTREE_METADATA_KEYS);
+  const unitId = firstStringField(value, UNIT_METADATA_KEYS);
+  return {
+    ...(worktreeId ? { worktreeId } : {}),
+    ...(unitId ? { unitId } : {}),
+  };
+}
+
 function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
   const ext = extname(value);
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
+  if (ext === ".univer") return "univer";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
   if ([".ppt", ".pptx", ".pptm", ".pot", ".potx", ".odp", ".key", ".sxi"].includes(ext)) return "slides";
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].includes(ext)) return "image";
@@ -104,7 +127,7 @@ function textWithoutRedundantMarkdownLinkLabels(text: string) {
   });
 }
 
-function targetFromFile(path: string, confidence: number, reason: string): OpenTarget | null {
+function targetFromFile(path: string, confidence: number, reason: string, metadata: Pick<OpenTarget, "worktreeId" | "unitId"> = {}): OpenTarget | null {
   const normalized = normalizePath(path).replace(/[.,;:]+$/, "");
   if (!normalized || normalized.length > 500 || !normalized.includes(".")) return null;
   return {
@@ -115,6 +138,8 @@ function targetFromFile(path: string, confidence: number, reason: string): OpenT
     preview: classifyOpenTarget(normalized, "file"),
     confidence,
     reason,
+    ...(metadata.worktreeId ? { worktreeId: metadata.worktreeId } : {}),
+    ...(metadata.unitId ? { unitId: metadata.unitId } : {}),
   };
 }
 
@@ -144,7 +169,27 @@ function targetFromUrl(url: string, confidence: number, reason: string): OpenTar
 function addTarget(map: Map<string, OpenTarget>, target: OpenTarget | null) {
   if (!target) return;
   const existing = map.get(target.id);
-  if (!existing || target.confidence >= existing.confidence) map.set(target.id, target);
+  if (!existing) {
+    map.set(target.id, target);
+    return;
+  }
+
+  if (target.confidence >= existing.confidence) {
+    map.set(target.id, {
+      ...target,
+      worktreeId: target.worktreeId ?? existing.worktreeId,
+      unitId: target.unitId ?? existing.unitId,
+    });
+    return;
+  }
+
+  if ((target.worktreeId && !existing.worktreeId) || (target.unitId && !existing.unitId)) {
+    map.set(target.id, {
+      ...existing,
+      worktreeId: existing.worktreeId ?? target.worktreeId,
+      unitId: existing.unitId ?? target.unitId,
+    });
+  }
 }
 
 function isArtifactTarget(target: OpenTarget) {
@@ -216,7 +261,7 @@ function scanText(
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizedToolName(toolName: string) {
@@ -251,9 +296,16 @@ function collectFileMetadataValues(value: unknown) {
   return values;
 }
 
-function collectNestedFileMetadataValues(value: unknown) {
+function collectFileMetadataTargets(value: unknown, confidence: number, reason: string) {
+  const metadata = routeMetadata(value);
+  return collectFileMetadataValues(value)
+    .map((file) => targetFromFile(file, confidence, reason, metadata))
+    .filter((target): target is OpenTarget => target !== null);
+}
+
+function collectNestedFileMetadataTargets(value: unknown, confidence: number, reason: string) {
   if (!isObject(value)) return [];
-  return [value, value.result].flatMap(collectFileMetadataValues);
+  return [value, value.args, value.result].flatMap((entry) => collectFileMetadataTargets(entry, confidence, reason));
 }
 
 function collectPatchFileValues(value: unknown) {
@@ -276,6 +328,10 @@ function addFileValues(map: Map<string, OpenTarget>, values: string[], confidenc
   for (const value of values) {
     addTarget(map, targetFromFile(value, confidence, reason));
   }
+}
+
+function addFileTargets(map: Map<string, OpenTarget>, targets: OpenTarget[]) {
+  for (const target of targets) addTarget(map, target);
 }
 
 export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTargetsOptions = {}): OpenTarget[] {
@@ -324,11 +380,9 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
       }
 
       if (artifactMetadataTool) {
-        addFileValues(
+        addFileTargets(
           targets,
-          [part.input, part.output].flatMap(collectNestedFileMetadataValues),
-          95,
-          "artifact tool metadata",
+          [part.input, part.output].flatMap((entry) => collectNestedFileMetadataTargets(entry, 95, "artifact tool metadata")),
         );
       }
 

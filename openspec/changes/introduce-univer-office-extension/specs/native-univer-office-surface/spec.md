@@ -18,9 +18,21 @@ OpenWork SHALL create `.univer` targets by default for new spreadsheet, document
 - **WHEN** a user asks OpenWork to create a new spreadsheet without specifying `.xlsx` or `.csv`
 - **THEN** OpenWork creates a `.univer` native office target for the work
 
+#### Scenario: User asks for a new document
+- **WHEN** a user asks OpenWork to create a new document without specifying `.docx` or another external format
+- **THEN** OpenWork creates a `.univer` native office target for the work
+
+#### Scenario: User asks for a new presentation
+- **WHEN** a user asks OpenWork to create a new slide deck without specifying `.pptx` or another external format
+- **THEN** OpenWork creates a `.univer` native office target for the work
+
 #### Scenario: Agent populates native target
 - **WHEN** an agent creates new office work through `univer-cli` public surfaces
 - **THEN** OpenWork treats the completed `.univer` artifact as the user-facing result and does not require the initial creation step to be the same operation that creates the typed unit
+
+#### Scenario: Native creation returns route metadata
+- **WHEN** native creation discovers a resulting unit or review worktree
+- **THEN** OpenWork preserves the `.univer` artifact path plus optional `unit` and `worktree` route metadata for the embedded Univer Office Surface
 
 #### Scenario: User asks for an Excel file
 - **WHEN** a user explicitly asks for an `.xlsx` file
@@ -33,12 +45,36 @@ OpenWork SHALL treat `.xlsx`, `.docx`, `.pptx`, and `.csv` inputs as exchange so
 - **WHEN** a user asks OpenWork to work on an existing `.xlsx` file
 - **THEN** OpenWork imports it into a `.univer` target and continues subsequent office operations against the `.univer` target
 
+#### Scenario: User opens a CSV source
+- **WHEN** a user asks OpenWork to work on an existing `.csv` file
+- **THEN** OpenWork imports it into a `.univer` target and treats the `.csv` as source provenance rather than the primary work artifact
+
+#### Scenario: User opens a Word source
+- **WHEN** a user asks OpenWork to work on an existing `.docx` file
+- **THEN** OpenWork imports it into a `.univer` target when the installed Univer capability supports that exchange path
+
+#### Scenario: User opens a PowerPoint source
+- **WHEN** a user asks OpenWork to work on an existing `.pptx` file
+- **THEN** OpenWork imports it into a `.univer` target when the installed Univer capability supports that exchange path
+
+#### Scenario: Exchange source remains available
+- **WHEN** OpenWork imports an external source file into a `.univer` target
+- **THEN** OpenWork preserves the original source file reference as provenance without making it the default editing target
+
 ### Requirement: External formats are exchange outputs
 OpenWork SHALL use export to external office formats only when the user asks for an exchange handoff or another tool requires one.
 
 #### Scenario: User asks to send a Word-compatible file
 - **WHEN** a user asks for a Word-compatible output after native document work
 - **THEN** OpenWork exports the relevant `.univer` document unit to an external handoff format when supported
+
+#### Scenario: User asks to send an Excel-compatible file
+- **WHEN** a user asks for an Excel-compatible output after native spreadsheet work
+- **THEN** OpenWork exports the relevant `.univer` spreadsheet unit to an external handoff format when supported
+
+#### Scenario: Export is secondary
+- **WHEN** OpenWork produces an external exchange output from a `.univer` target
+- **THEN** the exported file appears as a handoff artifact and the `.univer` target remains the primary office work artifact
 
 #### Scenario: Exchange output is unsupported
 - **WHEN** the requested exchange output is not supported by the installed Univer capability

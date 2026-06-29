@@ -9,7 +9,7 @@ import {
 import { useOpenTargets } from "@/lib/target-provider";
 import { isCollectibleArtifactTarget, isOpenableFileTarget, type OpenTarget, type OpenTargetPreview } from "@/react-app/domains/session/artifacts/open-target";
 
-export type ArtifactType = "website" | "markdown" | "sheet" | "slides" | "document" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "unknown";
+export type ArtifactType = "website" | "markdown" | "sheet" | "slides" | "univer" | "document" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "unknown";
 
 export type ArtifactItem = {
   id: string
@@ -41,6 +41,10 @@ export function isSheetPreviewSupported(extension: string) {
   return ["csv", "tsv", "xlsx", "xls", "ods"].includes(extension);
 }
 
+export function isUniverPreviewSupported(extension: string) {
+  return ["univer"].includes(extension);
+}
+
 export function isImagePreviewSupported(extension: string) {
   return ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension);
 }
@@ -58,7 +62,7 @@ export function isTextPreviewSupported(extension: string) {
 }
 
 export function isPreviewSupported(extension: string) {
-  return isMarkdownPreviewSupported(extension) || isSheetPreviewSupported(extension) || isImagePreviewSupported(extension) || isPdfPreviewSupported(extension) || isHtmlPreviewSupported(extension) || isTextPreviewSupported(extension);
+  return isMarkdownPreviewSupported(extension) || isSheetPreviewSupported(extension) || isUniverPreviewSupported(extension) || isImagePreviewSupported(extension) || isPdfPreviewSupported(extension) || isHtmlPreviewSupported(extension) || isTextPreviewSupported(extension);
 }
 
 export function getArtifactType(filename: string): ArtifactType {
@@ -78,6 +82,10 @@ export function getArtifactType(filename: string): ArtifactType {
 
   if (["ppt", "pptx", "pptm", "pot", "potx", "odp", "key", "sxi"].includes(extension)) {
     return "slides";
+  }
+
+  if (["univer"].includes(extension)) {
+    return "univer";
   }
 
   if (["doc", "docx", "odt", "rtf", "pages"].includes(extension)) {
@@ -120,6 +128,7 @@ const ARTIFACT_TYPE_LABELS: Record<ArtifactType, string> = {
   markdown: "Markdown",
   sheet: "Spreadsheet",
   slides: "Slides",
+  univer: "Univer",
   document: "Document",
   image: "Image",
   video: "Video",
@@ -161,6 +170,7 @@ function artifactTypeToPreview(type: ArtifactType): OpenTargetPreview {
   if (type === "markdown") return "markdown";
   if (type === "sheet") return "sheet";
   if (type === "slides") return "slides";
+  if (type === "univer") return "univer";
   if (type === "image") return "image";
   if (type === "pdf") return "pdf";
   if (type === "html") return "html";

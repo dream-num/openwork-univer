@@ -15,16 +15,20 @@ OpenWork SHALL provide a Univer CLI Extension that presents Univer setup, status
 - **WHEN** a previous Univer setup attempt fails and the user retries from the extension
 - **THEN** OpenWork runs the setup checks again and reports the current executable and skill package status
 
-### Requirement: First-slice actions are installer-scoped
-OpenWork SHALL limit the first Univer CLI Extension action surface to setup status, install, retry, and repair actions.
+### Requirement: Extension actions keep setup and surface handoff narrow
+OpenWork SHALL expose setup status, install, retry, repair, and native surface handoff actions without exposing semantic office workflow actions as generic extension actions.
 
-#### Scenario: Installer actions are listed
-- **WHEN** OpenWork lists first-slice Univer CLI Extension actions
-- **THEN** the listed actions cover setup status, install, retry, or repair rather than office file workflows
+#### Scenario: Setup actions are listed
+- **WHEN** OpenWork lists setup-oriented Univer CLI Extension actions
+- **THEN** the listed actions cover setup status, install, retry, or repair
+
+#### Scenario: Surface handoff is listed
+- **WHEN** OpenWork needs to embed a native `.univer` artifact
+- **THEN** the extension exposes an `open_surface` handoff action that returns a local collab-client URL for the embedded host
 
 #### Scenario: Workflow actions are deferred
-- **WHEN** the first installer-focused implementation is complete
-- **THEN** OpenWork does not expose `univer` import, export, inspect, apply, verify, or open workflow actions as extension actions
+- **WHEN** the setup and embedded surface implementation is complete
+- **THEN** OpenWork does not expose `univer` import, export, inspect, apply, verify, or arbitrary open workflow actions as extension actions
 
 ### Requirement: Extension readiness requires complete setup
 OpenWork SHALL report the Univer CLI Extension as ready only when the complete skill package is installed, the resolved `univer` executable is available, and required health checks pass for the active workspace/runtime.
