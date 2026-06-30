@@ -1128,6 +1128,12 @@ function isLoopbackHttpUrl(value: string): boolean {
   }
 }
 
+function toEmbeddedSurfaceUrl(value: string): string {
+  const url = new URL(value);
+  url.searchParams.set("mode", "embedded");
+  return url.toString();
+}
+
 function readRequiredSurfaceString(value: Record<string, unknown>, key: string): string {
   const field = value[key];
   if (typeof field !== "string" || !field.trim()) {
@@ -1165,7 +1171,7 @@ function parseOpenSurface(stdout: string, workspace: WorkspaceInfo, target: { ab
     throw new ApiError(502, "univer_open_untrusted_url", "univer open returned a non-local gateway URL.", { url, viewerUrl });
   }
   return {
-    url,
+    url: toEmbeddedSurfaceUrl(url),
     viewerUrl,
     univerfile,
     workspaceId: workspace.id,
