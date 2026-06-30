@@ -39,6 +39,7 @@ const ArtifactSpreadsheetEditor = lazy(() =>
 );
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const UNIVER_ARTIFACT_ACTIVE_EVENT = "openwork-univer-artifact-active";
 
 type ArtifactPanelProps = {
   sessionId: string;
@@ -105,6 +106,13 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const [draft, setDraft] = useState("");
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
+
+  useEffect(() => {
+    if (target.preview !== "univer") return;
+    window.dispatchEvent(new CustomEvent(UNIVER_ARTIFACT_ACTIVE_EVENT, {
+      detail: { targetId: target.id },
+    }));
+  }, [target.id, target.preview]);
 
   const { data: fileIcon } = useQuery<string | null>({
     queryKey: ["desktop-file-icon", externalPath] as const,

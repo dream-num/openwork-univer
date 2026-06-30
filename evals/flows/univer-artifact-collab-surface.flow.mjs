@@ -18,6 +18,7 @@ const UNIVER_BASENAME = `native-univer-eval-${RUN_SUFFIX}.univer`;
 const CSV_BASENAME = `native-univer-eval-${RUN_SUFFIX}.csv`;
 const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
 const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
+const MIN_UNIVER_ARTIFACT_IFRAME_WIDTH = 600;
 
 let latestDeepLink = {
   worktreeId: "",
@@ -273,7 +274,7 @@ export default {
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Download artifact"]'))
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Show in folder"]'))
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Close artifact"]'))
-                  && rect.width > 200
+                  && rect.width >= ${MIN_UNIVER_ARTIFACT_IFRAME_WIDTH}
                   && rect.height > 200;
               })()`,
               { timeoutMs: 60_000, label: "local Univer collab iframe and dedicated header" },
@@ -325,7 +326,8 @@ export default {
             ctx.assert(result.editable === "false", `Iframe URL did not request read-only worktree viewing: ${result.src}`);
             ctx.assert(result.worktree === latestDeepLink.worktreeId, `Iframe URL did not preserve worktree=${latestDeepLink.worktreeId}: ${result.src}`);
             ctx.assert(result.unit === latestDeepLink.unitId, `Iframe URL did not preserve unit=${latestDeepLink.unitId}: ${result.src}`);
-            ctx.assert(result.width > 200 && result.height > 200, `Iframe is not visibly sized (${result.width}x${result.height}).`);
+            ctx.assert(result.width >= MIN_UNIVER_ARTIFACT_IFRAME_WIDTH, `Iframe is narrower than the Univer artifact default (${result.width}px).`);
+            ctx.assert(result.height > 200, `Iframe is not visibly tall (${result.width}x${result.height}).`);
             const response = await fetch(result.src);
             ctx.assert(response.ok, `Iframe URL was not reachable from the eval runner: ${response.status} ${result.src}`);
             ctx.assert(!result.errorVisible, "OpenWork displayed a Univer preview error.");

@@ -73,6 +73,8 @@ const STARTUP_SKELETON_ROWS = [
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const UNIVER_ARTIFACT_PANEL_WIDTH = 760;
+const UNIVER_ARTIFACT_ACTIVE_EVENT = "openwork-univer-artifact-active";
 
 export type OpenSessionTab = {
   workspaceId: string;
@@ -318,7 +320,17 @@ export function SessionPage(props: SessionPageProps) {
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
   const browserRailActive = panelRailActive && activePanelTab?.type === "browser";
-  const artifactRailActive = panelRailActive && activePanelTab?.type === "artifact";
+  const activeArtifactTab = activePanelTab?.type === "artifact" ? activePanelTab : null;
+  const artifactRailActive = panelRailActive && Boolean(activeArtifactTab);
+  const activeArtifactTarget = activeArtifactTab
+    ? artifactFileTargets.find((target) => target.id === activeArtifactTab.id)
+    : null;
+  const activeArtifactLooksUniver = activeArtifactTarget?.preview === "univer" ||
+    activeArtifactTab?.preview === "univer" ||
+    activeArtifactTab?.label.toLowerCase().endsWith(".univer") === true;
+  const activeArtifactPreview = activeArtifactLooksUniver ? "univer" : activeArtifactTarget?.preview ?? activeArtifactTab?.preview;
+  const univerArtifactRailActive = artifactRailActive && activeArtifactPreview === "univer";
+  const activeUniverArtifactTabId = univerArtifactRailActive ? activeArtifactTab?.id ?? null : null;
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -345,8 +357,13 @@ export function SessionPage(props: SessionPageProps) {
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
+  const [univerArtifactPaneActive, setUniverArtifactPaneActive] = useState(false);
   const browserPanelRef = usePanelRef();
   const preserveSidePanelOnPanelOpenRef = useRef(false);
+  const autoSizedUniverArtifactTabIdRef = useRef<string | null>(null);
+  const autoSizedUniverLayoutRef = useRef(false);
+  const scheduledUniverResizeFrameRef = useRef<number | null>(null);
+  const univerArtifactLayoutActive = univerArtifactRailActive || univerArtifactPaneActive;
 
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
@@ -406,6 +423,61 @@ export function SessionPage(props: SessionPageProps) {
     const size = browserPanelRef.current?.getSize();
     if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
   }, [browserPanelRef, setBrowserPanelWidth]);
+  const ensureUniverArtifactPanelWidth = useCallback((preview: OpenTarget["preview"] | undefined) => {
+    if (preview !== "univer") return;
+    const currentWidth = browserPanelRef.current?.getSize().inPixels ?? browserPanelWidth;
+    const nextWidth = Math.max(Math.round(currentWidth), browserPanelWidth, UNIVER_ARTIFACT_PANEL_WIDTH);
+    setBrowserPanelDefaultWidth(nextWidth);
+    if (nextWidth !== browserPanelWidth) {
+      setBrowserPanelWidth(nextWidth);
+    }
+    browserPanelRef.current?.resize(`${nextWidth}px`);
+  }, [browserPanelRef, browserPanelWidth, setBrowserPanelWidth]);
+  const scheduleUniverArtifactPanelWidth = useCallback(() => {
+    if (scheduledUniverResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(scheduledUniverResizeFrameRef.current);
+    }
+    scheduledUniverResizeFrameRef.current = window.requestAnimationFrame(() => {
+      scheduledUniverResizeFrameRef.current = null;
+      ensureUniverArtifactPanelWidth("univer");
+    });
+  }, [ensureUniverArtifactPanelWidth]);
+  useEffect(() => {
+    if (!activeUniverArtifactTabId || autoSizedUniverArtifactTabIdRef.current === activeUniverArtifactTabId) return;
+    autoSizedUniverArtifactTabIdRef.current = activeUniverArtifactTabId;
+    ensureUniverArtifactPanelWidth(activeArtifactPreview);
+  }, [activeArtifactPreview, activeUniverArtifactTabId, ensureUniverArtifactPanelWidth]);
+  useEffect(() => {
+    const handleUniverArtifactActive = () => {
+      autoSizedUniverLayoutRef.current = false;
+      setUniverArtifactPaneActive(true);
+      scheduleUniverArtifactPanelWidth();
+    };
+    window.addEventListener(UNIVER_ARTIFACT_ACTIVE_EVENT, handleUniverArtifactActive);
+    return () => window.removeEventListener(UNIVER_ARTIFACT_ACTIVE_EVENT, handleUniverArtifactActive);
+  }, [scheduleUniverArtifactPanelWidth]);
+  useEffect(() => {
+    if (activeSidePanel !== "panel" || activePanelTab?.type === "browser") {
+      autoSizedUniverLayoutRef.current = false;
+      setUniverArtifactPaneActive(false);
+    }
+  }, [activePanelTab?.type, activeSidePanel]);
+  useEffect(() => {
+    if (!univerArtifactLayoutActive) {
+      autoSizedUniverLayoutRef.current = false;
+      return;
+    }
+    if (autoSizedUniverLayoutRef.current) return;
+    autoSizedUniverLayoutRef.current = true;
+    scheduleUniverArtifactPanelWidth();
+  }, [scheduleUniverArtifactPanelWidth, univerArtifactLayoutActive]);
+  useEffect(() => {
+    return () => {
+      if (scheduledUniverResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(scheduledUniverResizeFrameRef.current);
+      }
+    };
+  }, []);
   const browserUrlForTarget = useCallback((target: OpenTarget) => {
     if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
     return target.value;
@@ -468,6 +540,7 @@ export function SessionPage(props: SessionPageProps) {
     const sessionId = sourceSessionId ?? props.selectedSessionId;
     if (!sessionId) return;
     if (options?.auto && activePanelTab?.id === target.id) return;
+    ensureUniverArtifactPanelWidth(target.preview);
     openTab(sessionId, {
       id: target.id,
       type: "artifact",
@@ -476,7 +549,7 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, ensureUniverArtifactPanelWidth, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
@@ -565,6 +638,7 @@ export function SessionPage(props: SessionPageProps) {
     const artifactTab = sessionPanelState.tabs.find((tab) => (
       tab.type === "artifact" && artifactTargetIds.has(tab.id)
     ));
+    const artifactTabTarget = artifactTab ? artifactFileTargets.find((target) => target.id === artifactTab.id) : null;
     const firstArtifact = artifactFileTargets[0];
     if (panelRailActive && activeTab?.type === "artifact") {
       toggleCurrentSidePanel("panel");
@@ -574,8 +648,12 @@ export function SessionPage(props: SessionPageProps) {
       preserveSidePanelOnPanelOpenRef.current = true;
     }
     if (artifactTab) {
+      if (artifactTabTarget) {
+        ensureUniverArtifactPanelWidth(artifactTabTarget.preview);
+      }
       selectTab(props.selectedSessionId, artifactTab.id);
     } else if (firstArtifact) {
+      ensureUniverArtifactPanelWidth(firstArtifact.preview);
       openTab(props.selectedSessionId, {
         id: firstArtifact.id,
         type: "artifact",
@@ -586,7 +664,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!panelRailActive) {
       toggleCurrentSidePanel("panel");
     }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
+  }, [artifactFileTargets, ensureUniverArtifactPanelWidth, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
@@ -894,7 +972,7 @@ export function SessionPage(props: SessionPageProps) {
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
             className="min-h-0 flex-1"
           >
-            <ResizablePanel minSize="360px" className="min-w-0">
+            <ResizablePanel minSize={univerArtifactLayoutActive ? "280px" : "360px"} className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
           <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
@@ -1283,7 +1361,7 @@ export function SessionPage(props: SessionPageProps) {
                   panelRef={browserPanelRef}
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
                   minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
-                  maxSize="70%"
+                  maxSize={univerArtifactLayoutActive ? "80%" : "70%"}
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
                   {activeSidePanel === "extensions" && props.settingsSlot ? (
