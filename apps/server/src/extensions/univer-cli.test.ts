@@ -442,6 +442,7 @@ describe("Univer CLI extension", () => {
     });
     expect(result.result.url).toContain("worktree=wt_1");
     expect(result.result.url).toContain("unit=unit_1");
+    expect(result.result.url).toContain("mode=embedded");
   });
 
   test("restarts the Univer daemon when a stale build is already running", async () => {
@@ -464,7 +465,9 @@ describe("Univer CLI extension", () => {
     );
 
     if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
-    expect(result.result.url).toContain("reports/budget.univer");
+    const resultUrl = new URL(result.result.url);
+    expect(resultUrl.searchParams.get("file")?.endsWith("/reports/budget.univer")).toBe(true);
+    expect(resultUrl.searchParams.get("mode")).toBe("embedded");
   });
 
   test("injects the managed Univer bin directory into managed runtime env", async () => {

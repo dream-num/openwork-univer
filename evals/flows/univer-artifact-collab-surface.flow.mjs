@@ -12,8 +12,11 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const RELATIVE_UNIVER_PATH = "artifacts/native-univer-eval.univer";
-const RELATIVE_CSV_PATH = "artifacts/native-univer-eval.csv";
+const RUN_SUFFIX = Date.now().toString(36);
+const UNIVER_BASENAME = `native-univer-eval-${RUN_SUFFIX}.univer`;
+const CSV_BASENAME = `native-univer-eval-${RUN_SUFFIX}.csv`;
+const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
+const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
 
 let latestDeepLink = {
   worktreeId: "",
@@ -240,7 +243,7 @@ export default {
             ctx.assert(typeof clicked === "string" && clicked.startsWith("Artifacts ("), `Artifact rail click failed: ${clicked}`);
             ctx.log(`Clicked artifact rail: ${clicked}`);
             await ctx.waitFor(
-              `document.querySelectorAll('button[aria-label^="Select tab: native-univer-eval.univer"]').length >= 1`,
+              `document.querySelectorAll('button[aria-label^="Select tab: ${UNIVER_BASENAME}"]').length >= 1`,
               { timeoutMs: 30_000, label: "seeded Univer artifact tab present" },
             );
             await ctx.waitFor(
@@ -250,7 +253,8 @@ export default {
                 const rect = iframe.getBoundingClientRect();
                 const url = new URL(iframe.src);
                 return /^http:\\/\\/(?:127\\.0\\.0\\.1|localhost|\\[::1\\]):/.test(iframe.src)
-                  && iframe.src.includes("native-univer-eval.univer")
+                  && iframe.src.includes(${JSON.stringify(UNIVER_BASENAME)})
+                  && url.searchParams.get("mode") === "embedded"
                   && url.searchParams.get("worktree") === ${JSON.stringify(latestDeepLink.worktreeId)}
                   && url.searchParams.get("unit") === ${JSON.stringify(latestDeepLink.unitId)}
                   && rect.width > 200
@@ -269,6 +273,7 @@ export default {
               return {
                 ok: true,
                 src: iframe.src,
+                mode: url.searchParams.get("mode"),
                 worktree: url.searchParams.get("worktree"),
                 unit: url.searchParams.get("unit"),
                 title: iframe.title,
@@ -279,7 +284,8 @@ export default {
             })()`);
             ctx.assert(result.ok, result.reason || "Univer iframe not found.");
             ctx.assert(/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):/.test(result.src), `Expected a local collab-client URL, got ${result.src}`);
-            ctx.assert(result.src.includes("native-univer-eval.univer"), `Iframe URL does not target the seeded .univer file: ${result.src}`);
+            ctx.assert(result.src.includes(UNIVER_BASENAME), `Iframe URL does not target the seeded .univer file: ${result.src}`);
+            ctx.assert(result.mode === "embedded", `Iframe URL did not request embedded mode: ${result.src}`);
             ctx.assert(result.worktree === latestDeepLink.worktreeId, `Iframe URL did not preserve worktree=${latestDeepLink.worktreeId}: ${result.src}`);
             ctx.assert(result.unit === latestDeepLink.unitId, `Iframe URL did not preserve unit=${latestDeepLink.unitId}: ${result.src}`);
             ctx.assert(result.width > 200 && result.height > 200, `Iframe is not visibly sized (${result.width}x${result.height}).`);
@@ -352,7 +358,7 @@ export default {
           },
           screenshot: {
             name: "univer-cowork-files-popover",
-            requireText: ["Main worktree", "Active changes", "Ready for review"],
+            requireText: ["MAIN WORKTREE", "ACTIVE CHANGES", "READY FOR REVIEW"],
             rejectText: ["Failed to open Univer surface", "Failed to load Univer workspace"],
           },
         });
