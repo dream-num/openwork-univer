@@ -121,7 +121,7 @@ export default {
           },
           assert: async () => {
             await ctx.expectText("Univer CLI");
-            await ctx.expectText("Install Univer CLI and skills so OpenWork can work with native .univer spreadsheets, documents, and slides.");
+            await ctx.expectText("Built-in Univer cowork bundle for native .univer spreadsheets, documents, and slides.");
           },
           screenshot: {
             name: "univer-cli-composer-extension-menu",

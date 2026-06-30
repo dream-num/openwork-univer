@@ -69,7 +69,7 @@ OpenWork can preview, edit, and download standard artifacts when you create or u
 
 For spreadsheet, document, and slide work, treat .univer as OpenWork's native office artifact.
 
-- Use the installed univer-cli skill and the \`univer\` executable for semantic office operations. Do not hand-edit .univer internals with ad hoc scripts.
+- Use OpenWork's built-in Univer CLI bundle and the \`univer\` executable for semantic office operations. Do not hand-edit .univer internals with ad hoc scripts.
 - When the user asks for a new spreadsheet, document, or slide deck without explicitly requesting .xlsx, .csv, .docx, or .pptx, create or update a .univer file and report that .univer path as the primary result.
 - Treat .xlsx, .csv, .docx, and .pptx files as exchange formats. Import them into .univer before continuing office work, and export from .univer only when the user explicitly asks for an external handoff file.
 - When a reviewable office change is useful, use univer-cli worktree flows so OpenWork can open the .univer artifact with worktree or unit context.`;

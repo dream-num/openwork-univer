@@ -211,19 +211,19 @@ function readUniverCliVersionInfo(result: Record<string, unknown>): UniverCliVer
 
 function summarizeUniverCliResult(result: unknown): { ready: boolean; message: string; versionInfo: UniverCliVersionInfo | null } {
   if (!isRecord(result)) {
-    return { ready: false, message: "Univer CLI setup returned an unexpected response.", versionInfo: null };
+    return { ready: false, message: "Univer bundle check returned an unexpected response.", versionInfo: null };
   }
   const ready = result.ready === true;
   const versionInfo = readUniverCliVersionInfo(result);
   if (ready) {
-    return { ready, message: "Univer CLI is ready for this workspace.", versionInfo };
+    return { ready, message: "Univer bundle is ready for this workspace.", versionInfo };
   }
   const issues = Array.isArray(result.issues)
     ? result.issues.filter((issue): issue is string => typeof issue === "string" && issue.trim().length > 0)
     : [];
   return {
     ready,
-    message: issues.length ? `Setup incomplete: ${issues.join(" ")}` : "Univer CLI setup is incomplete for this workspace.",
+    message: issues.length ? `Bundle check incomplete: ${issues.join(" ")}` : "Univer bundle is not ready for this workspace.",
     versionInfo,
   };
 }
