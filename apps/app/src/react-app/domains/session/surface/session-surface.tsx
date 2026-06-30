@@ -71,6 +71,7 @@ import {
 } from "./composer-state-store";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
+import { COMPACT_CHAT_SCROLL_PADDING_CLASS, COMPACT_CHAT_WIDTH_CLASS } from "@/components/chat/compact-chat-layout";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
 import type { ThreadStatus } from "@/lib/messages";
 import {
@@ -315,7 +316,7 @@ function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker }
   onOpenModelPicker?: () => void;
 }) {
   return (
-    <div className="mx-auto max-w-[720px] px-3 py-3 sm:px-5">
+    <div className={`${COMPACT_CHAT_WIDTH_CLASS} px-1 py-3 sm:px-2`}>
       <div className="rounded-2xl border border-red-6/30 bg-red-3/15 px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -1238,11 +1239,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
             sessionScroll.markScrollGesture(event.currentTarget);
           }}
           onScroll={sessionScroll.handleScroll}
-          className="absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5"
+          className={`absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain ${COMPACT_CHAT_SCROLL_PADDING_CLASS}`}
         >
-          {/* Chat column: tighter than the composer (800px) so messages
-               keep a comfortable reading width and don't feel "too big". */}
-          <div ref={contentRef} className="mx-auto w-full max-w-[720px]">
+          <div ref={contentRef} className={COMPACT_CHAT_WIDTH_CLASS} data-testid="compact-chat-transcript">
             {showDelayedLoading && pendingSessionLoad ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
@@ -1319,7 +1318,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         />
       </div>
 
-      <div ref={composerShellRef} className="shrink-0 px-0 pb-2 pt-2">
+      <div ref={composerShellRef} className="shrink-0">
         {(props.providerConnectedCount ?? 0) === 0 ? (
           <button
             type="button"
@@ -1378,12 +1377,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}
         pastedText={pasteParts}
-        onExpandPastedText={handleExpandPastedText}
-        onRemovePastedText={handleRemovePastedText}
-        isRemoteWorkspace={props.isRemoteWorkspace}
+          onExpandPastedText={handleExpandPastedText}
+          onRemovePastedText={handleRemovePastedText}
+          isRemoteWorkspace={props.isRemoteWorkspace}
           isSandboxWorkspace={props.isSandboxWorkspace}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
             props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>

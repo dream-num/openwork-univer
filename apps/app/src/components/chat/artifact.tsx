@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { ArrowUpRightIcon } from "lucide-react";
 
 import { ArtifactIcon } from "@/components/chat/artifact-icon";
+import { COMPACT_CHAT_EDGE_PADDING_CLASS } from "@/components/chat/compact-chat-layout";
 import {
   DescriptiveButton,
   DescriptiveButtonContent,
@@ -80,7 +81,7 @@ export function ArtifactList({ messages, includeTargetFallbacks = false }: Artif
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+    <div className={`mx-auto w-full max-w-none ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}>
       <div className="no-scrollbar flex min-w-0 flex-nowrap gap-2 overflow-x-auto pb-1">
         {artifacts.map((artifact) => (
           <ArtifactButton key={artifact.id} artifact={artifact} />

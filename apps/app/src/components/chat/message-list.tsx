@@ -81,6 +81,7 @@ import {
   getActiveToolLabel,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
+import { COMPACT_CHAT_EDGE_PADDING_CLASS } from "./compact-chat-layout"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -250,7 +251,7 @@ function EmptyMessage({
   return (
     <div
       className={cn(
-        "mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10 text-muted-foreground",
+        `mx-auto flex w-full max-w-none flex-col items-start gap-2 ${COMPACT_CHAT_EDGE_PADDING_CLASS} text-muted-foreground`,
         className
       )}
       {...props}
@@ -290,7 +291,7 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
     <MessageAction tooltip={copied ? "Copied!" : "Copy"}>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-xs"
         aria-label="Copy message"
         onClick={() => void onCopy()}
       >
@@ -317,7 +318,7 @@ const AssistantMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+        className={`mx-auto flex w-full max-w-none flex-col items-start gap-1.5 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -403,7 +404,7 @@ const UserMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-end gap-2 px-2 md:px-10"
+        className={`mx-auto flex w-full max-w-none flex-col items-end gap-1.5 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -424,9 +425,7 @@ const UserMessage = React.memo(
                 ) : null}
                 {!isStreaming && (
                   <MessageActions
-                    className={cn(
-                      "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    )}
+                    className="mt-0.5 flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                   >
                     <MessageTimestamp message={message} className="mr-1.5" />
                     <CopyMessageButton messages={[message]} />
@@ -434,7 +433,7 @@ const UserMessage = React.memo(
                       <MessageAction tooltip="Edit message">
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="icon-xs"
                           aria-label="Edit message"
                           onClick={() => onEditUserMessage(message.id, messageText)}
                         >
@@ -445,7 +444,7 @@ const UserMessage = React.memo(
                     <MessageAction tooltip="Branch in new chat">
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-xs"
                         aria-label="Branch in new chat"
                         onClick={() => onForkAtMessage(message.id)}
                       >
@@ -455,7 +454,7 @@ const UserMessage = React.memo(
                     <MessageAction tooltip="Revert">
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-xs"
                         aria-label="Revert"
                         onClick={() => onRevertToUserMessage(message.id)}
                       >
@@ -542,7 +541,7 @@ const MessageComponent = React.memo(
 MessageComponent.displayName = "MessageComponent"
 
 const LoadingMessage = React.memo(({ label }: { label?: string }) => (
-  <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+  <Message className={`mx-auto flex w-full max-w-none flex-col items-start gap-1.5 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}>
     <div className="group flex w-full flex-col gap-0">
       <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
         <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
@@ -571,7 +570,7 @@ interface ErrorMessageProps {
 
 function ErrorMessage({ error }: ErrorMessageProps) {
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className={`not-prose mx-auto flex w-full max-w-none flex-col items-start gap-1.5 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}>
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
@@ -615,7 +614,7 @@ const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
   const action = status.action
 
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className={`not-prose mx-auto flex w-full max-w-none flex-col items-start gap-1.5 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}>
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-col gap-2 rounded-lg border-2 border-amber-300 bg-amber-300/20 px-3 py-2">
           <div className="flex items-start gap-2">
@@ -728,7 +727,7 @@ function MessageGroup({
   }
 
   return (
-      <div className="flex flex-col gap-2 group/message-group">
+      <div className="flex flex-col gap-1.5 group/message-group">
       {stepItems.length > 0 ? (
         <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
           {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
@@ -736,7 +735,7 @@ function MessageGroup({
       ) : null}
       {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
       {lastTextMessage && !isStreaming && (
-        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
+        <div className={`mx-auto -mt-1 flex w-full max-w-none flex-wrap items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 ${COMPACT_CHAT_EDGE_PADDING_CLASS}`}>
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem ? (
@@ -744,7 +743,7 @@ function MessageGroup({
                 <MessageAction tooltip="Branch in new chat">
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     aria-label="Branch in new chat"
                     onClick={() => onForkAtMessage(lastRealItem.message.id)}
                   >
@@ -754,7 +753,7 @@ function MessageGroup({
                 <MessageAction tooltip="Revert">
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     aria-label="Revert"
                     onClick={() => onRevertToUserMessage(lastRealItem.message.id)}
                   >
@@ -790,7 +789,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
 
   return (
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-none shrink-0 px-2 pb-3 sm:px-3 md:pb-4 grow" />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {

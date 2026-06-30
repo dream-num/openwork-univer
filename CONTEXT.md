@@ -28,6 +28,14 @@ _Avoid_: Generic artifact titlebar, collab-client topbar, external-browser toolb
 A thin OpenWork-derived model that combines a Native Office Target, embedded surface state, and cowork content state into the data rendered by the Univer Artifact Header.
 _Avoid_: Generic artifact header framework, persisted header store, direct JSX condition soup.
 
+**Compact Chat Composer**:
+The default OpenWork session composer shape: a dense, refined agent chat input that keeps drafting, attachments, tools, model selection, queueing, steering, and stop controls available without letting the input container dominate the workspace. Agent selection belongs in the tools/agents menu rather than as default bottom chrome.
+_Avoid_: Univer-only composer, large task box, marketing chat prompt.
+
+**Compact Chat Pane**:
+The default OpenWork session conversation layout where the transcript and Compact Chat Composer share a dense full-width content rhythm with only small refined padding and a broad safety cap for extreme screens.
+_Avoid_: Narrow centered chat column, floating prompt card, office-only chat layout.
+
 **Collab Gateway Office Surface**:
 The Univer browser surface served by `univer-cli`'s daemon-owned `collab-gateway`, combining the official collaboration-client runtime, unit navigation, worktree board, merge preview, lifecycle SSE, and trunk editing gate.
 _Avoid_: Rebuilt OpenWork office shell, legacy local viewer.
