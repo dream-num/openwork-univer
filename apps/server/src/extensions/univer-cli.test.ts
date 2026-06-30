@@ -268,87 +268,73 @@ describe("Univer CLI extension", () => {
     expect(status.issues).toEqual([]);
   });
 
-  test("keeps setup incomplete when health passes but the skill package is incomplete", async () => {
+  test("uses the bundled skill package when the workspace has no installed skill", async () => {
     const root = await tempRoot();
     const executablePath = await writeFakeUniver(root);
 
     const status = await univerCliSetupStatus(serverConfig(root), { executablePath }, { directory: root });
-    expect(status.ready).toBe(false);
-    expect(status.skill.complete).toBe(false);
+    expect(status.ready).toBe(true);
+    expect(status.skill.complete).toBe(true);
+    expect(status.skill.source).toContain("bundled:dream-num/skills@");
+    expect(status.bundle.status).toBe("healthy");
     expect(status.health.inspectTools.status).toBe("ok");
-    expect(status.issues).toContain("The univer-cli skill package is incomplete.");
+    expect(status.issues).toEqual([]);
   });
 
-  test("installs the full canonical skill package through the setup action", async () => {
+  test("prepares the built-in bundle through the setup action without installing workspace skills", async () => {
     const root = await tempRoot();
     const config = serverConfig(root);
     const executablePath = await writeFakeUniver(root);
-    const restoreFetch = mockCanonicalSkillFetch();
 
-    try {
-      const result = await callUniverCliExtensionAction(
-        config,
-        "setup_install",
-        { executablePath },
-        { directory: root },
-      );
-      if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
+    const result = await callUniverCliExtensionAction(
+      config,
+      "setup_install",
+      { executablePath },
+      { directory: root },
+    );
+    if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
 
-      expect(result.result.ready).toBe(true);
-      expect(result.install?.skill?.written).toBe(3);
-      expect(result.install?.executable?.skipped).toBe(true);
-      expect(await readFile(join(root, ".opencode", "skills", "univer-cli", "references", "evidence-tools.md"), "utf8")).toContain("Evidence tools");
-      expect(await readFile(join(root, ".opencode", "skills", "univer-cli", "inspect-tools", "tools.manifest.json"), "utf8")).toContain("tools");
-      expect((await inspectUniverSkillPackage(root)).sourceVerified).toBe(true);
-      await stat(univerCliManagedExecutablePath(config));
+    expect(result.result.ready).toBe(true);
+    expect(result.result.bundle.status).toBe("healthy");
+    expect(result.install?.bundle?.action).toBe("ready");
+    expect(result.install?.skill).toBeUndefined();
+    expect(result.install?.executable).toBeUndefined();
+    expect((await inspectUniverSkillPackage(root)).installed).toBe(false);
+    await stat(univerCliManagedExecutablePath(config));
 
-      const managed = await createManagedOpencodeServer({
-        bin: await writeFakeOpencode(root),
-        cwd: root,
-        env: univerCliManagedRuntimeEnv(config),
-        timeoutMs: 2_000,
-      });
-      await managed.close();
-      expect(managed.execution.env.some((entry) => entry.name === "OPENWORK_UNIVER_BIN")).toBe(true);
-    } finally {
-      restoreFetch();
-    }
+    const managed = await createManagedOpencodeServer({
+      bin: await writeFakeOpencode(root),
+      cwd: root,
+      env: univerCliManagedRuntimeEnv(config),
+      timeoutMs: 2_000,
+    });
+    await managed.close();
+    expect(managed.execution.env.some((entry) => entry.name === "OPENWORK_UNIVER_BIN")).toBe(true);
   });
 
-  test("uses managed npm install when no executable override is provided", async () => {
+  test("uses the bundled executable when no executable override is provided", async () => {
     const root = await tempRoot();
     const config = serverConfig(root);
-    const fakeNpmBinDir = await writeFakeNpm(root);
-    const originalPath = process.env.PATH;
-    process.env.PATH = originalPath ? `${fakeNpmBinDir}${delimiter}${originalPath}` : fakeNpmBinDir;
-    const restoreFetch = mockCanonicalSkillFetch();
 
-    try {
-      const result = await callUniverCliExtensionAction(
-        config,
-        "setup_install",
-        {},
-        { directory: root },
-      );
-      if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
+    const result = await callUniverCliExtensionAction(
+      config,
+      "setup_install",
+      {},
+      { directory: root },
+    );
+    if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
 
-      expect(result.result.ready).toBe(true);
-      expect(result.result.executable.source).toBe("managed");
-      expect(result.result.executable.version.commandVersion).toBe("0.0.0-managed-test");
-      expect(result.result.executable.version.packageVersion).toBe("0.0.0-managed-test");
-      expect(result.install?.executable?.skipped).toBe(false);
-      expect(result.install?.executable?.packageName).toBe("univer-cli");
-      expect(result.install?.executable?.binPath).toBe(univerCliManagedExecutablePath(config));
-      expect(result.result.health.executable.status).toBe("ok");
-      expect(result.result.health.inspectTools.status).toBe("ok");
-      expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
-    } finally {
-      restoreFetch();
-      process.env.PATH = originalPath;
-    }
+    expect(result.result.ready).toBe(true);
+    expect(result.result.executable.source).toBe("bundled");
+    expect(result.result.executable.version.commandVersion).toBe("0.0.0");
+    expect(result.result.executable.version.packageVersion).toBe("0.0.0");
+    expect(result.install?.bundle?.executablePath).toBe(univerCliManagedExecutablePath(config));
+    expect(result.result.health.executable.status).toBe("ok");
+    expect(result.result.health.inspectTools.status).toBe("ok");
+    expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
   });
 
-  test("checks registry version metadata for the managed executable", async () => {
+  test("skips npm registry checks for the bundled executable", async () => {
     const root = await tempRoot();
     const config = serverConfig(root);
     const fakeNpmBinDir = await writeFakeNpm(root);
@@ -366,18 +352,18 @@ describe("Univer CLI extension", () => {
       );
       if (!result || result.action !== "setup_status") throw new Error("Expected Univer setup status result");
 
-      expect(result.result.executable.source).toBe("managed");
-      expect(result.result.executable.version.packageVersion).toBe("0.0.0-managed-test");
-      expect(result.result.executable.version.latestVersion).toBe("0.0.1-managed-test");
-      expect(result.result.executable.version.updateAvailable).toBe(true);
-      expect(result.result.executable.version.registryStatus).toBe("ok");
+      expect(result.result.executable.source).toBe("bundled");
+      expect(result.result.executable.version.packageVersion).toBe("0.0.0");
+      expect(result.result.executable.version.latestVersion).toBeNull();
+      expect(result.result.executable.version.updateAvailable).toBeNull();
+      expect(result.result.executable.version.registryStatus).toBe("not_checked");
     } finally {
       restoreFetch();
       process.env.PATH = originalPath;
     }
   });
 
-  test("updates the managed executable from npm registry", async () => {
+  test("setup_update repairs the built-in bundle instead of updating from npm", async () => {
     const root = await tempRoot();
     await writeCompleteSkillPackage(root);
     const config = serverConfig(root);
@@ -390,15 +376,16 @@ describe("Univer CLI extension", () => {
       if (!result || result.action !== "setup_update") throw new Error("Expected Univer setup update result");
 
       expect(result.result.ready).toBe(true);
-      expect(result.result.executable.source).toBe("managed");
-      expect(result.install?.executable?.skipped).toBe(false);
-      expect(result.result.executable.version.latestVersion).toBe("0.0.1-managed-test");
+      expect(result.result.executable.source).toBe("bundled");
+      expect(result.install?.bundle?.action).toBe("ready");
+      expect(result.install?.executable).toBeUndefined();
+      expect(result.result.executable.version.latestVersion).toBeNull();
     } finally {
       process.env.PATH = originalPath;
     }
   });
 
-  test("auto-updates the managed executable when registry check finds a newer version", async () => {
+  test("ignores legacy auto-update requests for the bundled executable", async () => {
     const root = await tempRoot();
     const config = serverConfig(root);
     const fakeNpmBinDir = await writeFakeNpm(root);
@@ -416,9 +403,9 @@ describe("Univer CLI extension", () => {
       );
       if (!result || result.action !== "setup_status") throw new Error("Expected Univer setup status result");
 
-      expect(result.install?.executable?.skipped).toBe(false);
-      expect(result.result.executable.source).toBe("managed");
-      expect(result.result.executable.version.registryStatus).toBe("ok");
+      expect(result.install).toBeUndefined();
+      expect(result.result.executable.source).toBe("bundled");
+      expect(result.result.executable.version.registryStatus).toBe("not_checked");
     } finally {
       restoreFetch();
       process.env.PATH = originalPath;

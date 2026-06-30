@@ -120,8 +120,22 @@ function groupedSkillPathMatches(skillPath: string, groupedPath: string): boolea
 function addGroupedSkillPath(path: string, groupedSkillPaths: Set<string>, groupedSkillNames: Set<string>) {
   const normalizedPath = normalizeSkillPath(path);
   groupedSkillPaths.add(normalizedPath);
+  if (normalizedPath.startsWith("builtin://")) {
+    const builtinName = normalizedPath.slice("builtin://".length).split("/")[0];
+    if (builtinName) groupedSkillNames.add(builtinName);
+  }
   const skillName = skillNameFromSkillPath(normalizedPath);
   if (skillName) groupedSkillNames.add(skillName);
+}
+
+function addGroupedSkillResource(
+  resource: { id: string; path?: string; label?: string },
+  groupedSkillPaths: Set<string>,
+  groupedSkillNames: Set<string>
+) {
+  if (resource.path) addGroupedSkillPath(resource.path, groupedSkillPaths, groupedSkillNames);
+  const idSkillName = resource.id.endsWith("-skill") ? resource.id.slice(0, -"-skill".length) : resource.id;
+  if (idSkillName) groupedSkillNames.add(idSkillName);
 }
 
 export function buildExtensionItems(input: ExtensionItemBuildInput) {
@@ -200,8 +214,8 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   for (const entry of input.quickConnect) {
     if (!isBuiltInOpenWorkExtension(entry)) continue;
     for (const resource of entry.extensionManifest?.resources ?? []) {
-      if (resource.type === "skill" && resource.path) {
-        addGroupedSkillPath(resource.path, groupedSkillPaths, groupedSkillNames);
+      if (resource.type === "skill") {
+        addGroupedSkillResource(resource, groupedSkillPaths, groupedSkillNames);
       }
     }
   }

@@ -346,6 +346,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@univer/cowork':
+        specifier: link:../../../univer-cli/packages/cowork
+        version: link:../../../univer-cli/packages/cowork
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0

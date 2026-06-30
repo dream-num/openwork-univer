@@ -57,6 +57,7 @@ registerExtensionRuntime({
 });
 
 function sourceLabel(source: string) {
+  if (source === "bundled") return "Built into OpenWork";
   if (source === "managed") return "Managed npm";
   if (source === "override") return "Development override";
   if (source === "system") return "System PATH";
@@ -87,13 +88,14 @@ function VersionRow({ label, value }: { label: string; value: string }) {
 
 export function UniverCliConfig(props: UniverCliConfigProps) {
   const info = props.versionInfo;
+  const isBundled = info?.source === "bundled";
   const canUpdateManaged = info?.source === "managed";
   return (
     <Card variant="outline" size="sm">
       <CardHeader>
-        <CardTitle>Univer CLI setup</CardTitle>
+        <CardTitle>Univer built-in bundle</CardTitle>
         <CardDescription>
-          Install the canonical skill package and managed executable for native .univer work.
+          OpenWork includes the matched Univer CLI runtime, cowork UI, and skills for native .univer work.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -112,7 +114,7 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
         ) : props.status ? (
           <Alert variant="warning">
             <PackageCheck />
-            <AlertTitle>Needs setup</AlertTitle>
+            <AlertTitle>Needs attention</AlertTitle>
             <AlertDescription>{props.status}</AlertDescription>
           </Alert>
         ) : null}
@@ -136,29 +138,31 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
             <div className="space-y-2">
               <VersionRow label="Source" value={sourceLabel(info.source)} />
               <VersionRow label="Command" value={displayValue(info.commandVersion)} />
-              <VersionRow label="Package" value={displayValue(info.packageVersion)} />
-              <VersionRow label="Latest" value={displayValue(info.latestVersion)} />
+              <VersionRow label={isBundled ? "Bundle" : "Package"} value={displayValue(info.packageVersion)} />
+              {!isBundled ? <VersionRow label="Latest" value={displayValue(info.latestVersion)} /> : null}
               <VersionRow label="Executable" value={displayValue(info.path)} />
-              <VersionRow label="Install root" value={info.installRoot} />
+              {!isBundled ? <VersionRow label="Install root" value={info.installRoot} /> : null}
             </div>
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Auto-update managed CLI</div>
-            <div className="text-xs leading-5 text-muted-foreground">
-              Check npm registry and update managed installs when this page opens.
+        {!isBundled ? (
+          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Auto-update managed CLI</div>
+              <div className="text-xs leading-5 text-muted-foreground">
+                Check npm registry and update managed installs when this page opens.
+              </div>
             </div>
+            <Switch
+              aria-label="Auto-update managed CLI"
+              checked={props.autoUpdate}
+              disabled={props.busy}
+              onCheckedChange={(checked) => void props.onAutoUpdateChange(checked === true)}
+              size="sm"
+            />
           </div>
-          <Switch
-            aria-label="Auto-update managed CLI"
-            checked={props.autoUpdate}
-            disabled={props.busy}
-            onCheckedChange={(checked) => void props.onAutoUpdateChange(checked === true)}
-            size="sm"
-          />
-        </div>
+        ) : null}
       </CardContent>
       <CardFooter className="flex-col items-start gap-2 border-t border-border">
         <div className="flex flex-wrap gap-2">
@@ -166,16 +170,12 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
             {props.busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={14} />}
             Check setup
           </Button>
-          <Button onClick={() => void props.onInstall()} disabled={props.busy || props.ready === true}>
-            {props.busy ? <Loader2 className="size-4 animate-spin" /> : <PackageCheck size={14} />}
-            Install
-          </Button>
           <Button variant="outline" onClick={() => void props.onRepair()} disabled={props.busy}>
             {props.busy ? <Loader2 className="size-4 animate-spin" /> : <Wrench size={14} />}
-            Repair
+            {isBundled ? "Repair bundle" : "Repair"}
           </Button>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {!isBundled ? <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void props.onCheckUpdates()} disabled={props.busy}>
             {props.busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={14} />}
             Check update
@@ -184,7 +184,7 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
             {props.busy ? <Loader2 className="size-4 animate-spin" /> : <Download size={14} />}
             Update
           </Button>
-        </div>
+        </div> : null}
       </CardFooter>
     </Card>
   );
