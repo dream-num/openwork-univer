@@ -1,8 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { createCoworkController, type CoworkController, type CoworkSelection, type CoworkSnapshot } from "@univer/cowork";
-import { createGatewayCoworkDataSource } from "@univer/cowork/gateway";
+import { type CoworkController, type CoworkSelection } from "@univer/cowork";
 import { useCoworkSnapshot } from "@univer/cowork/react";
 import {
   AlertTriangle,
@@ -23,8 +21,16 @@ import {
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { openUniverSurface, type UniverOpenSurface, univerSurfaceQueryKey } from "../artifacts/univer-surface";
 import type { OpenTarget } from "../artifacts/open-target";
+import {
+  isUniverTarget,
+  sameSelection,
+  sameTargetRoute,
+  selectionFromTarget,
+  targetFromSelection,
+  type UniverTarget,
+  useUniverCoworkSession,
+} from "../artifacts/univer-cowork-session";
 import { useActivePanelTab, usePanelTabStore } from "./panel-tab-store";
 
 type WorkspaceCoworkPanelProps = {
@@ -35,11 +41,6 @@ type WorkspaceCoworkPanelProps = {
   onArtifactOpen?: () => void;
 };
 
-type UniverTarget = OpenTarget & {
-  kind: "file";
-  preview: "univer";
-};
-
 type CoworkSectionKey = "mainWorktree" | "readyForReview" | "activeChanges";
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
@@ -48,86 +49,6 @@ const DEFAULT_OPEN_SECTIONS: Record<CoworkSectionKey, boolean> = {
   readyForReview: true,
   activeChanges: false,
 };
-
-function isUniverTarget(target: OpenTarget | null | undefined): target is UniverTarget {
-  return target?.kind === "file" && target.preview === "univer";
-}
-
-function originFromSurface(surface: UniverOpenSurface | undefined): string | null {
-  if (!surface) return null;
-  try {
-    return new URL(surface.url).origin;
-  } catch {
-    return null;
-  }
-}
-
-function targetFromSelection(target: UniverTarget, selection: CoworkSelection): UniverTarget {
-  const base = { ...target };
-  delete base.worktreeId;
-  delete base.unitId;
-
-  if (selection.type === "unit") {
-    return { ...base, unitId: selection.unitId };
-  }
-  if (selection.type === "activeWorktree" || selection.type === "reviewableWorktree") {
-    return { ...base, worktreeId: selection.worktreeId };
-  }
-  if (selection.type === "reviewUnit") {
-    return { ...base, worktreeId: selection.worktreeId, unitId: selection.unitId };
-  }
-  return base;
-}
-
-function targetForSurface(target: UniverTarget): UniverTarget {
-  const surfaceTarget = { ...target };
-  delete surfaceTarget.worktreeId;
-  delete surfaceTarget.unitId;
-  return surfaceTarget;
-}
-
-function sameTargetRoute(left: UniverTarget, right: UniverTarget): boolean {
-  return (
-    left.id === right.id &&
-    left.value === right.value &&
-    left.worktreeId === right.worktreeId &&
-    left.unitId === right.unitId
-  );
-}
-
-function sameSelection(left: CoworkSelection, right: CoworkSelection): boolean {
-  if (left.type !== right.type) return false;
-  if (left.type === "unit" && right.type === "unit") return left.unitId === right.unitId;
-  if (left.type === "activeWorktree" && right.type === "activeWorktree") return left.worktreeId === right.worktreeId;
-  if (left.type === "reviewableWorktree" && right.type === "reviewableWorktree") return left.worktreeId === right.worktreeId;
-  if (left.type === "reviewUnit" && right.type === "reviewUnit") {
-    return left.worktreeId === right.worktreeId && left.unitId === right.unitId;
-  }
-  return true;
-}
-
-function selectionFromTarget(snapshot: CoworkSnapshot, target: UniverTarget): CoworkSelection {
-  if (target.worktreeId) {
-    const active = snapshot.activeWorktrees.some((worktree) => worktree.worktreeId === target.worktreeId);
-    const reviewable = snapshot.reviewableWorktrees.some((worktree) => worktree.worktreeId === target.worktreeId);
-
-    if (target.unitId && reviewable) {
-      return { type: "reviewUnit", worktreeId: target.worktreeId, unitId: target.unitId };
-    }
-    if (active) {
-      return { type: "activeWorktree", worktreeId: target.worktreeId };
-    }
-    if (reviewable) {
-      return { type: "reviewableWorktree", worktreeId: target.worktreeId };
-    }
-  }
-
-  if (target.unitId && snapshot.units.some((unit) => unit.unitId === target.unitId)) {
-    return { type: "unit", unitId: target.unitId };
-  }
-
-  return { type: "container" };
-}
 
 function unitIcon(kind: string) {
   if (kind === "sheet") return <Sheet className="size-3.5" />;
@@ -532,49 +453,12 @@ export function WorkspaceCoworkPanel({
     }
     return null;
   }, [activeTab, transcriptTargets]);
-  const surfaceTarget = React.useMemo(() => target ? targetForSurface(target) : null, [target]);
-
-  const { data, error, isError, isLoading } = useQuery<UniverOpenSurface>({
-    queryKey: surfaceTarget && workspaceId ? univerSurfaceQueryKey(workspaceId, surfaceTarget) : ["univer-cowork-surface", "empty"],
-    queryFn: async () => {
-      if (!client || !workspaceId || !surfaceTarget) {
-        throw new Error("Univer workspace is not available.");
-      }
-      return openUniverSurface(client, workspaceId, surfaceTarget, isRemoteWorkspace);
-    },
-    enabled: Boolean(client && workspaceId && surfaceTarget),
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-    retry: false,
-    staleTime: 10_000,
+  const { controller, error, isError, isLoading } = useUniverCoworkSession({
+    client,
+    workspaceId,
+    target,
+    isRemoteWorkspace,
   });
-
-  const origin = React.useMemo(() => originFromSurface(data), [data]);
-  const controller = React.useMemo(() => {
-    if (!origin) return null;
-    return createCoworkController({
-      dataSource: createGatewayCoworkDataSource({ origin }),
-    });
-  }, [origin]);
-
-  React.useEffect(() => {
-    return () => {
-      controller?.dispose();
-    };
-  }, [controller]);
-
-  const surfaceUniverfile = data?.univerfile ?? null;
-  const surfaceDisplayName = surfaceTarget?.name ?? null;
-
-  React.useEffect(() => {
-    if (!controller || !surfaceUniverfile || !surfaceDisplayName) return;
-    controller.setContainer({
-      kind: "local-univerfile",
-      containerId: `local-univerfile:${surfaceUniverfile}`,
-      localPath: surfaceUniverfile,
-      displayName: surfaceDisplayName,
-    });
-  }, [controller, surfaceDisplayName, surfaceUniverfile]);
 
   if (!target) {
     return null;

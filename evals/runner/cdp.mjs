@@ -81,12 +81,12 @@ export function connect(webSocketDebuggerUrl) {
       opened = true;
       resolve({
         close: () => socket.close(),
-        send(method, params = {}) {
+        send(method, params = {}, sessionId) {
           const id = nextId++;
           return new Promise((innerResolve, innerReject) => {
             pending.set(id, { resolve: innerResolve, reject: innerReject });
             try {
-              socket.send(JSON.stringify({ id, method, params }));
+              socket.send(JSON.stringify({ id, method, params, ...(sessionId === undefined ? {} : { sessionId }) }));
             } catch (error) {
               pending.delete(id);
               innerReject(error);
@@ -117,12 +117,13 @@ export function connect(webSocketDebuggerUrl) {
   });
 }
 
-export async function evaluate(client, expression, { awaitPromise = false } = {}) {
+export async function evaluate(client, expression, { awaitPromise = false, contextId, sessionId } = {}) {
   const result = await client.send("Runtime.evaluate", {
     expression,
     awaitPromise,
     returnByValue: true,
-  });
+    ...(contextId === undefined ? {} : { contextId }),
+  }, sessionId);
   if (result.exceptionDetails) {
     throw new Error(
       result.exceptionDetails.exception?.description ??
@@ -131,6 +132,82 @@ export async function evaluate(client, expression, { awaitPromise = false } = {}
     );
   }
   return result.result?.value;
+}
+
+export async function evaluateInFrameUrl(client, frameUrl, expression, options = {}) {
+  const frames = await listFrames(client);
+  const frame = frames.find((candidate) => matchesFrameUrl(candidate.url, frameUrl));
+  if (frame) {
+    const world = await client.send("Page.createIsolatedWorld", {
+      frameId: frame.id,
+      worldName: "openwork-eval-runner",
+      grantUniveralAccess: true,
+    });
+    return evaluate(client, expression, { ...options, contextId: world.executionContextId });
+  }
+
+  const targets = await client.send("Target.getTargets");
+  const target = (targets.targetInfos ?? []).find((candidate) => matchesFrameUrl(candidate.url, frameUrl));
+  if (!target) {
+    const frameUrls = frames.map((candidate) => candidate.url).join("\n  ");
+    const targetUrls = (targets.targetInfos ?? []).map((candidate) => `${candidate.type}: ${candidate.url}`).join("\n  ");
+    throw new Error(`Could not find frame URL ${frameUrl}. Frames:\n  ${frameUrls}\nTargets:\n  ${targetUrls}`);
+  }
+
+  const attached = await client.send("Target.attachToTarget", {
+    targetId: target.targetId,
+    flatten: true,
+  });
+  try {
+    return await evaluate(client, expression, { ...options, sessionId: attached.sessionId });
+  } finally {
+    await client.send("Target.detachFromTarget", { sessionId: attached.sessionId }).catch(() => undefined);
+  }
+}
+
+function matchesFrameUrl(candidate, expected) {
+  if (candidate === expected) return true;
+  try {
+    const candidateUrl = new URL(candidate);
+    const expectedUrl = new URL(expected);
+    if (
+      candidateUrl.protocol !== expectedUrl.protocol ||
+      candidateUrl.host !== expectedUrl.host ||
+      candidateUrl.pathname !== expectedUrl.pathname ||
+      candidateUrl.hash !== expectedUrl.hash
+    ) {
+      return false;
+    }
+    return sameSearchParams(candidateUrl.searchParams, expectedUrl.searchParams);
+  } catch {
+    return false;
+  }
+}
+
+function sameSearchParams(candidate, expected) {
+  const keys = new Set([...candidate.keys(), ...expected.keys()]);
+  for (const key of keys) {
+    const candidateValues = candidate.getAll(key).sort();
+    const expectedValues = expected.getAll(key).sort();
+    if (candidateValues.length !== expectedValues.length) return false;
+    for (let index = 0; index < candidateValues.length; index += 1) {
+      if (candidateValues[index] !== expectedValues[index]) return false;
+    }
+  }
+  return true;
+}
+
+async function listFrames(client) {
+  const tree = await client.send("Page.getFrameTree");
+  const frames = [];
+  collectFrame(tree.frameTree, frames);
+  return frames;
+}
+
+function collectFrame(node, frames) {
+  if (!node) return;
+  if (node.frame) frames.push(node.frame);
+  for (const child of node.childFrames ?? []) collectFrame(child, frames);
 }
 
 export async function captureScreenshot(client) {

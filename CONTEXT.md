@@ -20,6 +20,14 @@ _Avoid_: Default authoring path, roundtrip pipeline.
 The OpenWork-hosted office UI for a Native Office Target, backed by the current `collab-gateway` / `collab-client` surface rather than OpenWork's generic artifact preview/editor.
 _Avoid_: Spreadsheet editor when referring to the unified sheet/doc/slide surface; `univerfile-viewer` when referring to the target implementation.
 
+**Univer Artifact Header**:
+The OpenWork-owned header shown above a Native Office Target, combining artifact identity with controls for the currently rendered unit, scope, and worktree. The rendered unit is the primary title; the `.univer` file is secondary context, and file-level actions are secondary or fallback actions.
+_Avoid_: Generic artifact titlebar, collab-client topbar, external-browser toolbar.
+
+**Univer Artifact Header View Model**:
+A thin OpenWork-derived model that combines a Native Office Target, embedded surface state, and cowork content state into the data rendered by the Univer Artifact Header.
+_Avoid_: Generic artifact header framework, persisted header store, direct JSX condition soup.
+
 **Collab Gateway Office Surface**:
 The Univer browser surface served by `univer-cli`'s daemon-owned `collab-gateway`, combining the official collaboration-client runtime, unit navigation, worktree board, merge preview, lifecycle SSE, and trunk editing gate.
 _Avoid_: Rebuilt OpenWork office shell, legacy local viewer.

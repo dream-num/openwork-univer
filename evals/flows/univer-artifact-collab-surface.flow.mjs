@@ -4,7 +4,8 @@
  * 1. Start from the active OpenWork workspace/session.
  * 2. Create a real `.univer` file with Univer CLI from a local CSV fixture.
  * 3. Seed it as an agent-created transcript artifact and click the artifact affordance.
- * 4. Confirm the artifact panel embeds the local collab-client URL in an iframe.
+ * 4. Confirm the artifact panel renders the dedicated Univer header.
+ * 5. Confirm the artifact panel embeds the local collab-client URL in an iframe.
  */
 import { execFile } from "node:child_process";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
@@ -17,11 +18,17 @@ const UNIVER_BASENAME = `native-univer-eval-${RUN_SUFFIX}.univer`;
 const CSV_BASENAME = `native-univer-eval-${RUN_SUFFIX}.csv`;
 const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
 const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
+const MIN_UNIVER_ARTIFACT_IFRAME_WIDTH = 600;
 
 let latestDeepLink = {
   worktreeId: "",
   unitId: "",
 };
+
+const SELECTED_SESSION_ROUTE_EXPR = `(() => {
+  const route = window.__openworkControl.snapshot().route || "";
+  return /\\/session\\/[^/?#]+/.test(route);
+})()`;
 
 function isDaemonBuildMismatch(error) {
   return /Daemon build mismatch/i.test(`${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${error?.message ?? ""}`);
@@ -105,10 +112,10 @@ async function ensureSessionAndSidePanel(ctx) {
   }
 
   const route = await ctx.eval("window.__openworkControl.snapshot().route");
-  if (typeof route !== "string" || !route.includes("/session/")) {
+  if (typeof route !== "string" || !/\/session\/[^/?#]+/.test(route)) {
     await ctx.control("session.create_task");
     await ctx.waitFor(
-      "window.__openworkControl.snapshot().route.includes('/session/')",
+      SELECTED_SESSION_ROUTE_EXPR,
       { timeoutMs: 60_000, label: "session route after task creation" },
     );
   }
@@ -170,7 +177,7 @@ async function openWorkspaceFilesPopover(ctx) {
 export default {
   id: "univer-artifact-collab-surface",
   title: "Native .univer artifacts open in the embedded Univer collab surface",
-  spec: "openspec/changes/introduce-univer-office-extension/specs/native-univer-office-surface/spec.md",
+  spec: "openspec/changes/add-univer-artifact-header/specs/univer-artifact-header/spec.md",
   steps: [
     {
       name: "App is ready and Electron-backed",
@@ -248,55 +255,99 @@ export default {
             );
             await ctx.waitFor(
               `(() => {
+                const header = document.querySelector('[data-testid="univer-artifact-header"]');
                 const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
-                if (!iframe) return false;
+                if (!header || !iframe) return false;
                 const rect = iframe.getBoundingClientRect();
                 const url = new URL(iframe.src);
                 return /^http:\\/\\/(?:127\\.0\\.0\\.1|localhost|\\[::1\\]):/.test(iframe.src)
                   && iframe.src.includes(${JSON.stringify(UNIVER_BASENAME)})
                   && url.searchParams.get("mode") === "embedded"
+                  && url.searchParams.get("scope") === "worktree"
+                  && url.searchParams.get("editable") === "false"
                   && url.searchParams.get("worktree") === ${JSON.stringify(latestDeepLink.worktreeId)}
                   && url.searchParams.get("unit") === ${JSON.stringify(latestDeepLink.unitId)}
-                  && rect.width > 200
+                  && header.textContent.includes(${JSON.stringify(UNIVER_BASENAME)})
+                  && header.textContent.includes("原始修改")
+                  && header.textContent.includes("仅查看")
+                  && !document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Open externally"]')
+                  && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Download artifact"]'))
+                  && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Show in folder"]'))
+                  && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Close artifact"]'))
+                  && rect.width >= ${MIN_UNIVER_ARTIFACT_IFRAME_WIDTH}
                   && rect.height > 200;
               })()`,
-              { timeoutMs: 60_000, label: "local Univer collab iframe" },
+              { timeoutMs: 60_000, label: "local Univer collab iframe and dedicated header" },
             );
             await ctx.eval("new Promise((resolve) => setTimeout(resolve, 8000))", { awaitPromise: true });
           },
           assert: async () => {
             const result = await ctx.eval(`(() => {
+              const header = document.querySelector('[data-testid="univer-artifact-header"]');
               const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
+              if (!header) return { ok: false, reason: "Univer artifact header missing" };
               if (!iframe) return { ok: false, reason: "iframe missing" };
               const rect = iframe.getBoundingClientRect();
               const url = new URL(iframe.src);
+              const headerText = header.textContent || "";
               return {
                 ok: true,
                 src: iframe.src,
                 mode: url.searchParams.get("mode"),
+                scope: url.searchParams.get("scope"),
+                editable: url.searchParams.get("editable"),
                 worktree: url.searchParams.get("worktree"),
                 unit: url.searchParams.get("unit"),
                 title: iframe.title,
                 width: Math.round(rect.width),
                 height: Math.round(rect.height),
+                headerText,
+                hasOpenExternally: Boolean(header.querySelector('button[aria-label="Open externally"]')),
+                hasDownload: Boolean(header.querySelector('button[aria-label="Download artifact"]')),
+                hasReveal: Boolean(header.querySelector('button[aria-label="Show in folder"]')),
+                hasClose: Boolean(header.querySelector('button[aria-label="Close artifact"]')),
+                hasContentActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-content-actions"]')),
                 errorVisible: /Failed to open Univer preview|Setup incomplete|remote workspaces only/i.test(document.body.innerText),
               };
             })()`);
             ctx.assert(result.ok, result.reason || "Univer iframe not found.");
+            ctx.assert(result.headerText.includes(UNIVER_BASENAME), `Dedicated Univer header did not show fallback file title: ${result.headerText}`);
+            ctx.assert(result.headerText.includes("原始修改"), `Dedicated Univer header did not show cowork scope: ${result.headerText}`);
+            ctx.assert(result.headerText.includes("仅查看"), `Dedicated Univer header did not show cowork edit gate: ${result.headerText}`);
+            ctx.assert(!result.hasOpenExternally, "Dedicated Univer header should not expose normal Open externally.");
+            ctx.assert(result.hasDownload, "Dedicated Univer header did not keep Download artifact fallback.");
+            ctx.assert(result.hasReveal, "Dedicated Univer header did not keep Show in folder fallback.");
+            ctx.assert(result.hasClose, "Dedicated Univer header did not keep Close artifact.");
+            ctx.assert(result.hasContentActionZone, "Dedicated Univer header did not reserve the content action zone.");
             ctx.assert(/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):/.test(result.src), `Expected a local collab-client URL, got ${result.src}`);
             ctx.assert(result.src.includes(UNIVER_BASENAME), `Iframe URL does not target the seeded .univer file: ${result.src}`);
             ctx.assert(result.mode === "embedded", `Iframe URL did not request embedded mode: ${result.src}`);
+            ctx.assert(result.scope === "worktree", `Iframe URL did not request worktree scope: ${result.src}`);
+            ctx.assert(result.editable === "false", `Iframe URL did not request read-only worktree viewing: ${result.src}`);
             ctx.assert(result.worktree === latestDeepLink.worktreeId, `Iframe URL did not preserve worktree=${latestDeepLink.worktreeId}: ${result.src}`);
             ctx.assert(result.unit === latestDeepLink.unitId, `Iframe URL did not preserve unit=${latestDeepLink.unitId}: ${result.src}`);
-            ctx.assert(result.width > 200 && result.height > 200, `Iframe is not visibly sized (${result.width}x${result.height}).`);
+            ctx.assert(result.width >= MIN_UNIVER_ARTIFACT_IFRAME_WIDTH, `Iframe is narrower than the Univer artifact default (${result.width}px).`);
+            ctx.assert(result.height > 200, `Iframe is not visibly tall (${result.width}x${result.height}).`);
             const response = await fetch(result.src);
             ctx.assert(response.ok, `Iframe URL was not reachable from the eval runner: ${response.status} ${result.src}`);
             ctx.assert(!result.errorVisible, "OpenWork displayed a Univer preview error.");
+            const embedded = await ctx.evalInFrameUrl(result.src, `(() => {
+              const topbar = document.querySelector(".topbar");
+              return {
+                readyState: document.readyState,
+                hasBody: Boolean(document.body),
+                hasTopbar: Boolean(topbar),
+                topbarText: topbar?.textContent || "",
+              };
+            })()`);
+            ctx.assert(embedded.hasBody, "Embedded collab-client frame did not expose a body.");
+            ctx.assert(!embedded.hasTopbar, `Embedded collab-client still rendered its own topbar: ${embedded.topbarText}`);
             ctx.log(`Univer iframe ${result.width}x${result.height}: ${result.src}`);
           },
           screenshot: {
             name: "univer-collab-surface-embedded",
-            rejectText: ["Failed to open Univer preview", "Setup incomplete", "remote workspaces only"],
+            requireText: [UNIVER_BASENAME, "原始修改", "仅查看"],
+            rejectText: ["Open externally", "Failed to open Univer preview", "Setup incomplete", "remote workspaces only"],
           },
         });
       },

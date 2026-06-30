@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { captureScreenshot, evaluate } from "./cdp.mjs";
+import { captureScreenshot, evaluate, evaluateInFrameUrl } from "./cdp.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 250;
@@ -63,6 +63,10 @@ export class EvalContext {
 
   async eval(expression, options = {}) {
     return evaluate(this.client, expression, options);
+  }
+
+  async evalInFrameUrl(frameUrl, expression, options = {}) {
+    return evaluateInFrameUrl(this.client, frameUrl, expression, options);
   }
 
   assert(condition, message) {
