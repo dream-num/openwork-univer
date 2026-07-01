@@ -293,7 +293,7 @@ export function StatusBar(props: StatusBarProps) {
 
   return (
     <div className="border-t border-border bg-background">
-      <div className="flex h-8 items-center justify-between gap-3 px-4 md:px-6">
+      <div className="flex h-8 items-center justify-between gap-3 px-2.5">
         <StatusIndicator
           clientConnected={props.clientConnected}
           openworkServerStatus={props.openworkServerStatus}

@@ -55,12 +55,13 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
+import { isUniverTarget } from "../artifacts/univer-cowork-session";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
-import { WorkspaceFileTreePopover } from "../panel/workspace-file-tree-popover";
+import { OfficeWorktreePopover, WorkspaceFilesPopover } from "../panel/workspace-file-tree-popover";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
@@ -331,6 +332,9 @@ export function SessionPage(props: SessionPageProps) {
   const activeArtifactPreview = activeArtifactLooksUniver ? "univer" : activeArtifactTarget?.preview ?? activeArtifactTab?.preview;
   const univerArtifactRailActive = artifactRailActive && activeArtifactPreview === "univer";
   const activeUniverArtifactTabId = univerArtifactRailActive ? activeArtifactTab?.id ?? null : null;
+  const activeUniverArtifactTarget = univerArtifactRailActive && activeArtifactTarget && isUniverTarget(activeArtifactTarget)
+    ? activeArtifactTarget
+    : null;
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -358,6 +362,7 @@ export function SessionPage(props: SessionPageProps) {
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
   const [univerArtifactPaneActive, setUniverArtifactPaneActive] = useState(false);
+  const [composerToolbarPopover, setComposerToolbarPopover] = useState<"files" | "changes" | null>(null);
   const browserPanelRef = usePanelRef();
   const preserveSidePanelOnPanelOpenRef = useRef(false);
   const autoSizedUniverArtifactTabIdRef = useRef<string | null>(null);
@@ -419,6 +424,14 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     props.onAccessibleTargetsChange?.(accessibleTargets);
   }, [accessibleTargets, props.onAccessibleTargetsChange]);
+  useEffect(() => {
+    setComposerToolbarPopover(null);
+  }, [props.selectedSessionId]);
+  useEffect(() => {
+    if (composerToolbarPopover === "changes" && !activeUniverArtifactTarget) {
+      setComposerToolbarPopover(null);
+    }
+  }, [activeUniverArtifactTarget, composerToolbarPopover]);
   const commitBrowserPanelWidth = useCallback(() => {
     const size = browserPanelRef.current?.getSize();
     if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
@@ -558,6 +571,33 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [props.selectedSessionId, setCurrentSidePanel]);
+  const composerToolbar = props.selectedSessionId ? (
+    <div
+      className="flex h-8 items-stretch gap-0 px-0 text-muted-foreground"
+      data-testid="composer-toolbar"
+    >
+      <WorkspaceFilesPopover
+        open={composerToolbarPopover === "files"}
+        onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "files" : null)}
+        sessionId={props.selectedSessionId}
+        client={props.openworkServerClient}
+        workspaceId={props.runtimeWorkspaceId}
+        workspaceRoot={props.selectedWorkspaceRoot}
+        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+        onArtifactOpen={showArtifactPanelFromFileTree}
+      />
+      <OfficeWorktreePopover
+        open={composerToolbarPopover === "changes"}
+        onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "changes" : null)}
+        sessionId={props.selectedSessionId}
+        client={props.openworkServerClient}
+        workspaceId={props.runtimeWorkspaceId}
+        target={activeUniverArtifactTarget}
+        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+        onArtifactOpen={showArtifactPanelFromFileTree}
+      />
+    </div>
+  ) : null;
   const openBrowserRailPane = useCallback(() => {
     // Opening the browser pane should land on a usable page, not an empty
     // panel that forces the user to click "+". If no browser tab exists yet,
@@ -974,7 +1014,7 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize={univerArtifactLayoutActive ? "280px" : "360px"} className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+          <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-2.5 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[15px] font-semibold text-dls-text">
@@ -999,14 +1039,6 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              <WorkspaceFileTreePopover
-                sessionId={props.selectedSessionId}
-                client={props.openworkServerClient}
-                workspaceId={props.runtimeWorkspaceId}
-                workspaceRoot={props.selectedWorkspaceRoot}
-                isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-                onArtifactOpen={showArtifactPanelFromFileTree}
-              />
               <NotificationBell />
               {props.developerMode ? (
                 <Button
@@ -1148,6 +1180,7 @@ export function SessionPage(props: SessionPageProps) {
                         respondQuestion={props.respondQuestion}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
+                        composerToolbar={composerToolbar}
                       />
                     </div>
                     {canRenderSplitSurface ? (

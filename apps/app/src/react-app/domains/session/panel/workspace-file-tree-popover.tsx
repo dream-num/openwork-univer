@@ -1,15 +1,23 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { FolderTree } from "lucide-react";
+import { useCoworkSnapshot } from "@univer/cowork/react";
+import type { CoworkController } from "@univer/cowork";
+import { FolderTree, GitPullRequest } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { WorkspaceCoworkPanel } from "./workspace-cowork-panel";
+import {
+  type UniverTarget,
+  useUniverCoworkSession,
+} from "../artifacts/univer-cowork-session";
+import { WorkspaceCoworkPanelContent } from "./workspace-cowork-panel";
 import { WorkspaceFileTree } from "./workspace-file-tree";
 
-type WorkspaceFileTreePopoverProps = {
+type WorkspaceFilesPopoverProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   sessionId: string | null;
   client: OpenworkServerClient | null;
   workspaceId: string | null;
@@ -18,58 +26,186 @@ type WorkspaceFileTreePopoverProps = {
   onArtifactOpen: () => void;
 };
 
-export function WorkspaceFileTreePopover({
+type OfficeWorktreePopoverProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sessionId: string | null;
+  client: OpenworkServerClient | null;
+  workspaceId: string | null;
+  target: UniverTarget | null;
+  isRemoteWorkspace?: boolean;
+  onArtifactOpen: () => void;
+};
+
+function ToolbarButton({
+  active,
+  badge,
+  children,
+  className,
+  disabled,
+  label,
+  testId,
+  ...props
+}: React.ComponentProps<typeof Button> & {
+  active: boolean;
+  badge?: number;
+  children: React.ReactNode;
+  label: string;
+  testId: string;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "h-full gap-1.5 rounded-none bg-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/75 hover:text-foreground",
+        active && "text-foreground hover:text-foreground",
+        className,
+      )}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      disabled={disabled}
+      data-testid={testId}
+      {...props}
+    >
+      {children}
+      <span>{label}</span>
+      {badge !== undefined && badge > 0 ? (
+        <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+          {badge}
+        </span>
+      ) : null}
+    </Button>
+  );
+}
+
+function ChangesBadge({
+  active,
+  controller,
+  ...props
+}: Omit<React.ComponentProps<typeof Button>, "children"> & {
+  active: boolean;
+  controller: CoworkController;
+}) {
+  const snapshot = useCoworkSnapshot(controller);
+  const reviewCount = snapshot.loadState === "ready" ? snapshot.reviewableWorktrees.length : 0;
+  return (
+    <ToolbarButton
+      {...props}
+      active={active}
+      badge={reviewCount > 0 ? reviewCount : undefined}
+      label="Changes"
+      testId="composer-toolbar-changes"
+    >
+      <GitPullRequest className="size-3.5" />
+    </ToolbarButton>
+  );
+}
+
+export function WorkspaceFilesPopover({
+  open,
+  onOpenChange,
   sessionId,
   client,
   workspaceId,
   workspaceRoot,
   isRemoteWorkspace = false,
   onArtifactOpen,
-}: WorkspaceFileTreePopoverProps) {
-  const [open, setOpen] = React.useState(false);
+}: WorkspaceFilesPopoverProps) {
   const disabled = !sessionId || !workspaceId || !client;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
         render={(
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={cn(
-              "rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground",
-              open && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-            )}
-            title="Workspace files"
-            aria-label="Workspace files"
-            aria-pressed={open}
+          <ToolbarButton
+            active={open}
             disabled={disabled}
+            label="Files"
+            testId="composer-toolbar-files"
           >
-            <FolderTree size={17} />
-          </Button>
+            <FolderTree className="size-3.5" />
+          </ToolbarButton>
         )}
       />
-      <PopoverContent align="end" sideOffset={8} className="h-[min(78vh,680px)] w-[420px] gap-0 overflow-hidden rounded-xl p-0">
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        className="h-[min(78vh,680px)] w-[420px] gap-0 overflow-hidden rounded-xl p-0"
+      >
         {sessionId ? (
-          <div className="flex h-full min-h-0 flex-col bg-background">
-            <div className="min-h-0 flex-1">
-              <WorkspaceFileTree
-                sessionId={sessionId}
-                client={client}
-                workspaceId={workspaceId}
-                workspaceRoot={workspaceRoot}
-                isRemoteWorkspace={isRemoteWorkspace}
-                onArtifactOpen={onArtifactOpen}
-              />
-            </div>
-            <WorkspaceCoworkPanel
-              sessionId={sessionId}
-              client={client}
-              workspaceId={workspaceId}
-              isRemoteWorkspace={isRemoteWorkspace}
-              onArtifactOpen={onArtifactOpen}
-            />
-          </div>
+          <WorkspaceFileTree
+            sessionId={sessionId}
+            client={client}
+            workspaceId={workspaceId}
+            workspaceRoot={workspaceRoot}
+            isRemoteWorkspace={isRemoteWorkspace}
+            onArtifactOpen={onArtifactOpen}
+          />
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function OfficeWorktreePopover({
+  open,
+  onOpenChange,
+  sessionId,
+  client,
+  workspaceId,
+  target,
+  isRemoteWorkspace = false,
+  onArtifactOpen,
+}: OfficeWorktreePopoverProps) {
+  const { controller, error, isError, isLoading } = useUniverCoworkSession({
+    client,
+    workspaceId,
+    target,
+    isRemoteWorkspace,
+  });
+
+  React.useEffect(() => {
+    if (!target && open) onOpenChange(false);
+  }, [onOpenChange, open, target]);
+
+  if (!target) return null;
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        render={
+          controller ? (
+            <ChangesBadge active={open} controller={controller} />
+          ) : (
+            <ToolbarButton
+              active={open}
+              label="Changes"
+              testId="composer-toolbar-changes"
+            >
+              <GitPullRequest className="size-3.5" />
+            </ToolbarButton>
+          )
+        }
+      />
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        className="max-h-[min(60vh,520px)] w-[380px] gap-0 overflow-hidden rounded-xl p-0"
+      >
+        {sessionId ? (
+          <WorkspaceCoworkPanelContent
+            sessionId={sessionId}
+            target={target}
+            controller={controller}
+            error={error}
+            isError={isError}
+            isLoading={isLoading}
+            onArtifactOpen={onArtifactOpen}
+          />
         ) : null}
       </PopoverContent>
     </Popover>

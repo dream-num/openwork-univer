@@ -1,12 +1,13 @@
 /**
- * Workspace files popover: the header exposes a file tree for the current
+ * Workspace files popover: the composer toolbar exposes a file tree for the current
  * workspace without consuming the right-side artifact/browser rail.
  */
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 
 const IGNORED_DIRS = new Set([".git", ".next", ".turbo", "build", "dist", "evals", "node_modules", "runs"]);
-const FALLBACK_PROBE_FILE = "artifacts/workspace-file-tree-eval.md";
+const RUN_SUFFIX = Date.now().toString(36);
+const PROBE_FILE = `artifacts/workspace-file-tree-eval-${RUN_SUFFIX}.md`;
 
 let probeFile = "";
 
@@ -51,13 +52,10 @@ async function findProbeFile(root) {
 }
 
 async function ensureProbeFile(root) {
-  const existing = await findProbeFile(root);
-  if (existing) return existing;
-
-  const absolutePath = join(root, FALLBACK_PROBE_FILE);
+  const absolutePath = join(root, PROBE_FILE);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, "# OpenWork file tree eval\n", "utf8");
-  return FALLBACK_PROBE_FILE;
+  return PROBE_FILE;
 }
 
 async function ensureSession(ctx) {
@@ -65,6 +63,16 @@ async function ensureSession(ctx) {
     timeoutMs: 60_000,
     label: "control API",
   });
+
+  await ctx.eval(`(() => {
+    for (const label of ["Continue without OpenWork Models", "Close"]) {
+      const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
+        candidate.textContent?.trim() === label && !candidate.disabled
+      );
+      if (button) button.click();
+    }
+    return true;
+  })()`);
 
   const hasCreateTask = await ctx.eval(
     "window.__openworkControl.listActions().some((action) => action.id === 'session.create_task' && !action.disabled)",
@@ -104,16 +112,16 @@ async function openFilesPopover(ctx) {
   }
 
   const clicked = await ctx.waitFor(`(() => {
-    const button = Array.from(document.querySelectorAll("button"))
-      .find((item) => item.getAttribute("aria-label") === "Workspace files" && !item.disabled);
+    const button = document.querySelector('button[data-testid="composer-toolbar-files"]');
+    if (button?.disabled) return false;
     if (!button) return false;
     button.click();
     return true;
   })()`, {
     timeoutMs: 30_000,
-    label: "workspace files popover button",
+    label: "composer toolbar files button",
   });
-  ctx.assert(clicked === true, "Could not click the workspace files popover button.");
+  ctx.assert(clicked === true, "Could not click the composer toolbar Files button.");
 
   await ctx.waitFor(`Boolean(document.querySelector('input[placeholder="Search files"]'))`, {
     timeoutMs: 30_000,
@@ -149,7 +157,7 @@ export default {
     {
       name: "Open a session and mount the Files popover",
       run: async (ctx) => {
-        await ctx.prove("The session header exposes a Files popover for the active local workspace", {
+        await ctx.prove("The composer toolbar exposes a Files popover for the active local workspace", {
           action: async () => {
             await ensureSession(ctx);
             await openFilesPopover(ctx);
@@ -159,6 +167,20 @@ export default {
             ctx.assert(info?.ok === true, "Workspace info action did not return ok.");
             ctx.assert(info.isRemoteWorkspace !== true, "This flow requires a local workspace.");
             ctx.assert(typeof info.workspaceRoot === "string" && info.workspaceRoot.length > 0, "Missing workspace root.");
+            const toolbarReady = await ctx.eval(`(() => {
+              const toolbar = document.querySelector('[data-testid="composer-toolbar"]');
+              const files = document.querySelector('button[data-testid="composer-toolbar-files"]');
+              const oldHeaderButton = Array.from(document.querySelectorAll("button"))
+                .some((item) => item.getAttribute("aria-label") === "Workspace files");
+              return {
+                hasToolbar: Boolean(toolbar),
+                hasFiles: Boolean(files),
+                hasOldHeaderButton: oldHeaderButton,
+              };
+            })()`);
+            ctx.assert(toolbarReady.hasToolbar, "Composer toolbar was not mounted.");
+            ctx.assert(toolbarReady.hasFiles, "Composer toolbar Files button was not mounted.");
+            ctx.assert(!toolbarReady.hasOldHeaderButton, "Old header Workspace files button is still present.");
             probeFile = await ensureProbeFile(info.workspaceRoot);
             ctx.log(`probeFile=${probeFile}`);
           },
@@ -203,14 +225,14 @@ export default {
         await ctx.prove("The Files popover preserves search and tree state after closing and reopening", {
           action: async () => {
             const closed = await ctx.waitFor(`(() => {
-              const button = Array.from(document.querySelectorAll("button"))
-                .find((item) => item.getAttribute("aria-label") === "Workspace files" && !item.disabled);
+              const button = document.querySelector('button[data-testid="composer-toolbar-files"]');
+              if (button?.disabled) return false;
               if (!button) return false;
               button.click();
               return true;
             })()`, {
               timeoutMs: 30_000,
-              label: "close workspace files popover",
+              label: "close composer toolbar files popover",
             });
             ctx.assert(closed === true, "Could not close the workspace files popover.");
             await ctx.waitFor(`!document.querySelector('input[placeholder="Search files"]')`, {

@@ -301,7 +301,7 @@ export function ModelSelect({
               disabled={disabled}
               aria-label="Change model"
               aria-keyshortcuts="Meta+Alt+/"
-              className="flex h-8 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
+              className="flex h-6 items-center gap-1 rounded-none px-0 py-0 text-xs text-gray-10 transition-colors hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
             />
           }
         >

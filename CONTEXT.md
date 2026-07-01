@@ -36,6 +36,19 @@ _Avoid_: Univer-only composer, large task box, marketing chat prompt.
 The default OpenWork session conversation layout where the transcript and Compact Chat Composer share a dense full-width content rhythm with only small refined padding and a broad safety cap for extreme screens.
 _Avoid_: Narrow centered chat column, floating prompt card, office-only chat layout.
 
+**Composer Toolbar**:
+A stable session-level toolbar shown directly above the Compact Chat Composer for durable workspace and office context entry points. It shares the chat pane width rhythm and stays separate from transient composer workflow accessories such as queued messages, permissions, questions, and todos.
+_Avoid_: Header file button, composer accessory, notification rail.
+
+**Workspace Files**:
+The current workspace's ordinary filesystem tree as exposed inside OpenWork for browsing, searching, selecting, and opening workspace files.
+_Avoid_: Office worktree, Univer unit list, artifact list.
+
+**Office Worktree**:
+The `.univer`-specific cowork/worktree navigation and review surface for a Native Office Target, including main worktree units, ready-for-review worktrees, and active changes.
+It may be exposed to users as `Changes` when the interaction is about reviewing pending office changes rather than teaching the implementation term.
+_Avoid_: Workspace file tree, generic git worktree, artifact list.
+
 **Collab Gateway Office Surface**:
 The Univer browser surface served by `univer-cli`'s daemon-owned `collab-gateway`, combining the official collaboration-client runtime, unit navigation, worktree board, merge preview, lifecycle SSE, and trunk editing gate.
 _Avoid_: Rebuilt OpenWork office shell, legacy local viewer.

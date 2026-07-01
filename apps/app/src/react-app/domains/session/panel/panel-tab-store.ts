@@ -51,6 +51,7 @@ export type PanelTabStore = {
     targets: Array<{ id: string; name: string; preview: OpenTargetPreview }>,
   ) => void;
   syncTranscriptArtifacts: (sessionId: string, targets: OpenTarget[]) => void;
+  upsertTranscriptArtifactTarget: (sessionId: string, target: OpenTarget) => void;
   clearSession: (sessionId: string) => void;
 };
 
@@ -125,6 +126,28 @@ function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]
       );
     })
   );
+}
+
+function mergeUnspecifiedTargetRoutes(currentTargets: OpenTarget[], nextTargets: OpenTarget[]) {
+  const currentById = new Map(currentTargets.map((target) => [target.id, target]));
+
+  return nextTargets.map((target) => {
+    const current = currentById.get(target.id);
+
+    if (target.worktreeId || !current?.worktreeId) {
+      return target;
+    }
+
+    if (target.unitId && target.unitId !== current.unitId) {
+      return target;
+    }
+
+    return {
+      ...target,
+      ...(current.worktreeId ? { worktreeId: current.worktreeId } : {}),
+      ...(current.unitId ? { unitId: current.unitId } : {}),
+    };
+  });
 }
 
 function resolveActiveTabId<Tab extends { id: string }>(
@@ -335,8 +358,9 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       syncTranscriptArtifacts: (sessionId, targets) => set((state) => {
         const currentTranscript = state.transcriptArtifactTargets[sessionId] ?? [];
+        const nextTargets = mergeUnspecifiedTargetRoutes(currentTranscript, targets);
         const session = getWritableSession(state, sessionId);
-        const collectibleTargets = targets
+        const collectibleTargets = nextTargets
           .filter(isCollectibleArtifactTarget)
           .map((target) => ({
             id: target.id,
@@ -344,7 +368,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
             preview: target.preview,
           }));
         const nextSession = reconcileOpenArtifactTabs(session, collectibleTargets);
-        const transcriptChanged = !isSameTranscriptArtifactTargets(currentTranscript, targets);
+        const transcriptChanged = !isSameTranscriptArtifactTargets(currentTranscript, nextTargets);
         const sessionChanged = !isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId);
 
         if (!transcriptChanged && !sessionChanged) {
@@ -356,7 +380,39 @@ export const usePanelTabStore = create<PanelTabStore>()(
         return {
           transcriptArtifactTargets: transcriptChanged ? {
             ...state.transcriptArtifactTargets,
-            [sessionId]: targets,
+            [sessionId]: nextTargets,
+          } : state.transcriptArtifactTargets,
+          sessions: sessionUpdate?.sessions ?? state.sessions,
+        };
+      }),
+      upsertTranscriptArtifactTarget: (sessionId, target) => set((state) => {
+        const currentTranscript = state.transcriptArtifactTargets[sessionId] ?? [];
+        const nextTargets = [
+          ...currentTranscript.filter((item) => item.id !== target.id),
+          target,
+        ];
+        const session = getWritableSession(state, sessionId);
+        const collectibleTargets = nextTargets
+          .filter(isCollectibleArtifactTarget)
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            preview: item.preview,
+          }));
+        const nextSession = reconcileOpenArtifactTabs(session, collectibleTargets);
+        const transcriptChanged = !isSameTranscriptArtifactTargets(currentTranscript, nextTargets);
+        const sessionChanged = !isSameSessionPanelState(session, nextSession.tabs, nextSession.activeTabId);
+
+        if (!transcriptChanged && !sessionChanged) {
+          return state;
+        }
+
+        const sessionUpdate = sessionChanged ? updateSession(state, sessionId, nextSession) : null;
+
+        return {
+          transcriptArtifactTargets: transcriptChanged ? {
+            ...state.transcriptArtifactTargets,
+            [sessionId]: nextTargets,
           } : state.transcriptArtifactTargets,
           sessions: sessionUpdate?.sessions ?? state.sessions,
         };
