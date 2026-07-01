@@ -1145,7 +1145,7 @@ export function ReactSessionComposer(props: ComposerProps) {
         <div
           className={COMPACT_COMPOSER_PANEL_CLASS}
         >
-          {props.topAccessory ? <div className="relative z-10 -mx-2.5">{props.topAccessory}</div> : null}
+          {props.topAccessory ? <div className="relative z-10 -mx-2.5 -mt-1">{props.topAccessory}</div> : null}
 
           {props.toolbar ? (
             <div className={`relative z-10 -mx-2.5 border-b border-dls-border ${props.topAccessory ? "" : "-mt-1"}`} data-testid="composer-toolbar-slot">

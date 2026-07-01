@@ -1,7 +1,8 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { createCoworkController, type CoworkContentViewState, type CoworkContentViewerRequest, type CoworkController, type CoworkSelection, type CoworkSnapshot } from "@univer/cowork";
+import { createCoworkController, type CoworkContentViewState, type CoworkController, type CoworkSelection, type CoworkSnapshot } from "@univer/cowork";
 import { createGatewayCoworkDataSource } from "@univer/cowork/gateway";
+import type { CoworkContentViewerDataSource } from "@univer/cowork/viewer";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { OpenTarget } from "./open-target";
@@ -14,15 +15,6 @@ export type UniverTarget = OpenTarget & {
 
 export function isUniverTarget(target: OpenTarget | null | undefined): target is UniverTarget {
   return target?.kind === "file" && target.preview === "univer";
-}
-
-export function originFromSurface(surface: UniverOpenSurface | undefined): string | null {
-  if (!surface) return null;
-  try {
-    return new URL(surface.url).origin;
-  } catch {
-    return null;
-  }
 }
 
 export function targetFromSelection(target: UniverTarget, selection: CoworkSelection): UniverTarget {
@@ -133,44 +125,6 @@ export function contentViewFromTarget(
   return { scope: "trunk", unitId, trunkEditIntent: "auto" };
 }
 
-export function contentViewFromViewerRequest(
-  request: CoworkContentViewerRequest,
-): CoworkContentViewState {
-  if (request.scope === "trunk") {
-    return {
-      scope: "trunk",
-      unitId: request.unitId,
-      trunkEditIntent: request.editable ? "forceEditing" : "auto",
-    };
-  }
-  if (!request.worktreeId) {
-    throw new Error(`Cowork viewer request for ${request.scope} is missing worktreeId.`);
-  }
-  return {
-    scope: request.scope,
-    worktreeId: request.worktreeId,
-    unitId: request.unitId,
-  };
-}
-
-export function buildUniverEmbeddedViewerUrl(
-  surface: UniverOpenSurface,
-  request: CoworkContentViewerRequest,
-): string {
-  const url = new URL(surface.viewerUrl);
-  url.searchParams.set("file", surface.univerfile);
-  url.searchParams.set("mode", "embedded");
-  url.searchParams.set("scope", request.scope);
-  url.searchParams.set("editable", request.editable ? "true" : "false");
-  url.searchParams.set("unit", request.unitId);
-  if (request.worktreeId) {
-    url.searchParams.set("worktree", request.worktreeId);
-  } else {
-    url.searchParams.delete("worktree");
-  }
-  return url.href;
-}
-
 export function useUniverCoworkSession({
   client,
   workspaceId,
@@ -188,6 +142,7 @@ export function useUniverCoworkSession({
   isLoading: boolean;
   surface: UniverOpenSurface | undefined;
   surfaceTarget: UniverTarget | null;
+  viewerDataSource: CoworkContentViewerDataSource | null;
 } {
   const surfaceTarget = React.useMemo(() => target ? targetForSurface(target) : null, [target]);
   const { data, error, isError, isLoading } = useQuery<UniverOpenSurface>({
@@ -205,13 +160,17 @@ export function useUniverCoworkSession({
     staleTime: 10_000,
   });
 
-  const origin = React.useMemo(() => originFromSurface(data), [data]);
-  const controller = React.useMemo(() => {
+  const origin = data?.origin ?? null;
+  const viewerDataSource = React.useMemo(() => {
     if (!origin) return null;
-    return createCoworkController({
-      dataSource: createGatewayCoworkDataSource({ origin }),
-    });
+    return createGatewayCoworkDataSource({ origin });
   }, [origin]);
+  const controller = React.useMemo(() => {
+    if (!viewerDataSource) return null;
+    return createCoworkController({
+      dataSource: viewerDataSource,
+    });
+  }, [viewerDataSource]);
 
   React.useEffect(() => {
     return () => {
@@ -239,6 +198,7 @@ export function useUniverCoworkSession({
     isLoading,
     surface: data,
     surfaceTarget,
+    viewerDataSource,
   };
 }
 

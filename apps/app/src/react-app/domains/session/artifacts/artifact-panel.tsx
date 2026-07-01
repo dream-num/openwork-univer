@@ -1,9 +1,11 @@
 /** @jsxImportSource react */
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, ExternalLink, FolderOpen, Loader2, Trash2, X } from "lucide-react";
 import { buildCoworkContentSurface, type CoworkContentAction, type CoworkContentEditAction, type CoworkContentSurface, type CoworkContentViewState, type CoworkController } from "@univer/cowork";
 import { useCoworkSnapshot } from "@univer/cowork/react";
+import { CoworkContentViewer, type CoworkContentViewerDataSource, type CoworkContentViewerStatus, type CoworkViewerError } from "@univer/cowork/viewer/react";
+import "@univer/cowork/viewer/styles.css";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -16,7 +18,6 @@ import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-stor
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 import {
-  buildUniverEmbeddedViewerUrl,
   contentViewFromTarget,
   isUniverTarget,
   sameContentView,
@@ -510,7 +511,7 @@ function UniverArtifactWorkspace({
   onReveal,
   onClose,
 }: UniverArtifactWorkspaceProps) {
-  const { controller, error, isError, isLoading, surface } = useUniverCoworkSession({
+  const { controller, error, isError, isLoading, surface, viewerDataSource } = useUniverCoworkSession({
     client,
     workspaceId,
     target,
@@ -523,6 +524,7 @@ function UniverArtifactWorkspace({
         sessionId={sessionId}
         controller={controller}
         surface={surface}
+        viewerDataSource={viewerDataSource}
         target={target}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -543,7 +545,7 @@ function UniverArtifactWorkspace({
         onReveal={onReveal}
         onClose={onClose}
       />
-      <UniverCollabSurface
+      <UniverContentViewerSurface
         target={target}
         surface={surface}
         error={error}
@@ -558,6 +560,7 @@ interface UniverArtifactWorkspaceContentProps {
   sessionId: string;
   controller: CoworkController;
   surface: UniverOpenSurface;
+  viewerDataSource: CoworkContentViewerDataSource | null;
   target: UniverTarget;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
@@ -570,6 +573,7 @@ function UniverArtifactWorkspaceContent({
   sessionId,
   controller,
   surface,
+  viewerDataSource,
   target,
   fileIcon,
   isRemoteWorkspace,
@@ -596,9 +600,6 @@ function UniverArtifactWorkspaceContent({
   }, [contentView, snapshot, target]);
 
   const contentSurface = contentView ? buildCoworkContentSurface(snapshot, contentView) : null;
-  const viewerUrl = contentSurface?.viewerRequest
-    ? buildUniverEmbeddedViewerUrl(surface, contentSurface.viewerRequest)
-    : surface.url;
 
   const syncTargetRoute = (nextTarget: UniverTarget) => {
     const store = usePanelTabStore.getState();
@@ -680,13 +681,14 @@ function UniverArtifactWorkspaceContent({
         onReveal={onReveal}
         onClose={onClose}
       />
-      <UniverCollabSurface
+      <UniverContentViewerSurface
         target={target}
         surface={surface}
+        viewerDataSource={viewerDataSource}
+        contentSurface={contentSurface}
         error={null}
         isError={false}
         isLoading={false}
-        viewerUrl={viewerUrl}
       />
     </>
   );
@@ -979,43 +981,109 @@ function UniverArtifactHeaderActionIcon({ actionId }: { actionId: UniverArtifact
   return <X />;
 }
 
-interface UniverCollabSurfaceProps {
+interface UniverContentViewerSurfaceProps {
   target: OpenTarget;
   surface: UniverOpenSurface | undefined;
+  viewerDataSource?: CoworkContentViewerDataSource | null;
+  contentSurface?: CoworkContentSurface | null;
   error: Error | null;
   isError: boolean;
   isLoading: boolean;
-  viewerUrl?: string;
 }
 
-function UniverCollabSurface({ target, surface, error, isError, isLoading, viewerUrl }: UniverCollabSurfaceProps) {
-  if (isLoading) {
-    return (
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <PreviewLoading />
-      </div>
-    );
-  }
+function UniverContentViewerSurface({
+  target,
+  surface,
+  viewerDataSource,
+  contentSurface,
+  error,
+  isError,
+  isLoading,
+}: UniverContentViewerSurfaceProps) {
+  const [viewerStatus, setViewerStatus] = useState<CoworkContentViewerStatus>("loading");
+  const [viewerError, setViewerError] = useState<CoworkViewerError | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const viewerRequest = contentSurface?.viewerRequest ?? null;
+  const viewerRequestKey = viewerRequest
+    ? `${viewerRequest.container.containerId}:${viewerRequest.unitId}:${viewerRequest.unitKind}:${viewerRequest.scope}:${viewerRequest.worktreeId ?? ""}:${viewerRequest.editable ? "editable" : "readonly"}`
+    : null;
 
-  if (isError || !surface) {
-    return (
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <PreviewError message={error instanceof Error ? error.message : "Failed to open Univer surface."} />
-      </div>
-    );
+  useEffect(() => {
+    setViewerStatus("loading");
+    setViewerError(null);
+    setReloadKey(0);
+  }, [surface?.origin, target.id, viewerRequestKey]);
+
+  let content: ReactNode;
+  if (isLoading) {
+    content = <PreviewLoading />;
+  }
+  else if (isError || !surface) {
+    content = <PreviewError message={error instanceof Error ? error.message : "Failed to open Univer surface."} />;
+  }
+  else {
+    if (!viewerRequest || !viewerDataSource) {
+      content = <PreviewUnavailable />;
+    }
+    else {
+      content = (
+        <>
+          <CoworkContentViewer
+            origin={surface.origin}
+            request={viewerRequest}
+            dataSource={viewerDataSource}
+            reloadKey={reloadKey}
+            className="h-full w-full"
+            onStatusChange={(status) => {
+              setViewerStatus(status);
+              if (status !== "error") {
+                setViewerError(null);
+              }
+            }}
+            onError={setViewerError}
+          />
+          {viewerStatus === "loading" ? (
+            <div className="absolute inset-0 bg-background">
+              <PreviewLoading />
+            </div>
+          ) : null}
+          {viewerStatus === "error" ? (
+            <UniverViewerError
+              message={viewerError?.message ?? `Failed to open ${target.name}.`}
+              onRetry={() => {
+                setViewerStatus("loading");
+                setViewerError(null);
+                setReloadKey((value) => value + 1);
+              }}
+            />
+          ) : null}
+        </>
+      );
+    }
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden">
-      <iframe
-        data-testid="univer-collab-surface"
-        src={viewerUrl ?? surface.url}
-        title={target.name}
-        className="h-full w-full border-0 bg-background"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-        allow="clipboard-read; clipboard-write"
-        referrerPolicy="no-referrer"
-      />
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-background" data-testid="univer-artifact-native-viewer">
+      {content}
+    </div>
+  );
+}
+
+function UniverViewerError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 bg-background p-4">
+      <div className="flex max-w-md flex-col gap-3">
+        <PreviewError message={message} className="p-0" />
+        <Button variant="outline" size="sm" className="w-fit" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
+  - "@univerjs/*"
+  - "@univerjs-pro/*"
 
 packages:
   - "apps/*"

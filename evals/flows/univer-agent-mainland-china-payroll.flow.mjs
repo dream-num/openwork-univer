@@ -294,44 +294,38 @@ export default {
             ctx.assert(tabClicked === true, `Could not select artifact tab for ${payrollArtifact}`);
             await ctx.waitFor(
               `(() => {
-                const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
-                if (!iframe) return false;
-                const rect = iframe.getBoundingClientRect();
-                const url = new URL(iframe.src);
+                const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
+                const viewerMount = document.querySelector('[data-testid="univer-cowork-content-viewer"]');
+                if (!nativeViewer || !viewerMount) return false;
+                const rect = nativeViewer.getBoundingClientRect();
                 return rect.width > 200
                   && rect.height > 200
-                  && iframe.src.includes(${JSON.stringify(encodedArtifactNeedle())})
-                  && url.searchParams.get("mode") === "embedded";
+                  && !document.querySelector('iframe[data-testid="univer-collab-surface"]');
               })()`,
-              { timeoutMs: 90_000, label: "payroll Univer iframe" },
+              { timeoutMs: 90_000, label: "payroll Univer native viewer" },
             );
             await ctx.eval("new Promise((resolve) => setTimeout(resolve, 5000))", { awaitPromise: true });
           },
           assert: async () => {
             const result = await ctx.eval(`(() => {
-              const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
-              if (!iframe) return { ok: false, reason: "iframe missing" };
-              const rect = iframe.getBoundingClientRect();
-              const url = new URL(iframe.src);
+              const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
+              const viewerMount = document.querySelector('[data-testid="univer-cowork-content-viewer"]');
+              const oldIframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
+              if (!nativeViewer || !viewerMount) return { ok: false, reason: "native viewer missing" };
+              const rect = nativeViewer.getBoundingClientRect();
               return {
                 ok: true,
-                src: iframe.src,
-                mode: url.searchParams.get("mode"),
-                title: iframe.title,
+                hasOldIframe: Boolean(oldIframe),
                 width: Math.round(rect.width),
                 height: Math.round(rect.height),
                 bodyText: document.body.innerText,
               };
             })()`);
-            ctx.assert(result.ok, result.reason || "Univer iframe not found.");
-            ctx.assert(/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):/.test(result.src), `Expected local iframe URL, got ${result.src}`);
-            ctx.assert(result.src.includes(encodedArtifactNeedle()), `Iframe URL does not target ${payrollArtifact}: ${result.src}`);
-            ctx.assert(result.mode === "embedded", `Iframe URL did not request embedded mode: ${result.src}`);
-            ctx.assert(result.width > 200 && result.height > 200, `Iframe is not visibly sized (${result.width}x${result.height}).`);
+            ctx.assert(result.ok, result.reason || "Univer native viewer not found.");
+            ctx.assert(!result.hasOldIframe, "Old Univer iframe fallback is still present.");
+            ctx.assert(result.width > 200 && result.height > 200, `Native viewer is not visibly sized (${result.width}x${result.height}).`);
             ctx.assert(!/Failed to open Univer preview|Setup incomplete|remote workspaces only/i.test(result.bodyText), "OpenWork displayed a Univer preview error.");
-            const response = await fetch(result.src);
-            ctx.assert(response.ok, `Iframe URL was not reachable: ${response.status} ${result.src}`);
-            ctx.log(`iframe=${result.width}x${result.height} ${result.src}`);
+            ctx.log(`native viewer=${result.width}x${result.height}`);
           },
           screenshot: {
             name: "payroll-univer-surface",

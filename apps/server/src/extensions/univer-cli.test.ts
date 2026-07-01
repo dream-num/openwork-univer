@@ -106,10 +106,10 @@ if [ "$1" = "open" ]; then
     shift
   done
   if [ -n "$worktree" ] && [ -n "$unit" ]; then
-    printf '{"ok":true,"url":"http://127.0.0.1:5180/?file=%s&worktree=%s&unit=%s","viewerUrl":"http://127.0.0.1:5180/","univerfile":"%s","worktreeId":"%s","unitId":"%s"}\n' "$source" "$worktree" "$unit" "$source" "$worktree" "$unit"
+    printf '{"ok":true,"origin":"http://127.0.0.1:5180","univerfile":"%s","worktreeId":"%s","unitId":"%s"}\n' "$source" "$worktree" "$unit"
     exit 0
   fi
-  printf '{"ok":true,"url":"http://127.0.0.1:5180/?file=%s","viewerUrl":"http://127.0.0.1:5180/","univerfile":"%s"}\n' "$source" "$source"
+  printf '{"ok":true,"origin":"http://127.0.0.1:5180","univerfile":"%s"}\n' "$source"
   exit 0
 fi
 echo "unsupported $*" >&2
@@ -436,13 +436,10 @@ describe("Univer CLI extension", () => {
     expect(result.result).toMatchObject({
       workspaceId: "ws_1",
       path: "reports/budget.univer",
-      viewerUrl: "http://127.0.0.1:5180/",
+      origin: "http://127.0.0.1:5180",
       worktreeId: "wt_1",
       unitId: "unit_1",
     });
-    expect(result.result.url).toContain("worktree=wt_1");
-    expect(result.result.url).toContain("unit=unit_1");
-    expect(result.result.url).toContain("mode=embedded");
   });
 
   test("restarts the Univer daemon when a stale build is already running", async () => {
@@ -465,9 +462,8 @@ describe("Univer CLI extension", () => {
     );
 
     if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
-    const resultUrl = new URL(result.result.url);
-    expect(resultUrl.searchParams.get("file")?.endsWith("/reports/budget.univer")).toBe(true);
-    expect(resultUrl.searchParams.get("mode")).toBe("embedded");
+    expect(result.result.origin).toBe("http://127.0.0.1:5180");
+    expect(result.result.univerfile.endsWith("/reports/budget.univer")).toBe(true);
   });
 
   test("injects the managed Univer bin directory into managed runtime env", async () => {
