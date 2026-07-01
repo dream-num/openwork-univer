@@ -61,6 +61,10 @@ _Avoid_: Custom editor implementation, direct `.univer` renderer, browser-only h
 The default OpenWork presentation mode for the Collab Gateway Office Surface: an in-app embedded web view that keeps the `.univer` office workflow inside OpenWork while still using the gateway-served collab-client assets.
 _Avoid_: External-browser default, static screenshot preview.
 
+**Cowork Content Viewer**:
+A reusable `@univer/cowork` content component extracted from `collab-client` embedded mode that renders a `CoworkContentViewerRequest` directly inside the host app using the same Univer collaboration-client and merge-preview behavior as the gateway-served page.
+_Avoid_: Rebuilt OpenWork editor, iframe wrapper, standalone collab-client shell.
+
 **Univer CLI Adapter**:
 The OpenWork module responsible for invoking the `univer` executable and translating its results into OpenWork extension actions and artifacts.
 _Avoid_: Reimplemented workbook engine, generic shell wrapper.

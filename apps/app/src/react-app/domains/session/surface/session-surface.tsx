@@ -241,7 +241,7 @@ function TodoPanel(props: { todos: TodoItem[] }) {
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2 pb-2 pt-0 text-xs text-gray-9 transition-colors hover:bg-gray-2/50 sm:px-3"
+          className="flex h-8 w-full items-center justify-between px-2.5 py-0 text-xs text-gray-9 transition-colors hover:bg-gray-2/50"
           onClick={() => setExpanded((current) => !current)}
         >
           <div className="flex items-center gap-2">

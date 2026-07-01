@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CoworkContentSurface, CoworkSnapshot } from "@univer/cowork";
@@ -9,11 +10,11 @@ import {
 } from "../src/react-app/domains/session/artifacts/artifact-panel";
 import type { OpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 import {
-  buildUniverEmbeddedViewerUrl,
   contentViewFromTarget,
 } from "../src/react-app/domains/session/artifacts/univer-cowork-session";
 import { deriveUniverArtifactHeaderViewModel } from "../src/react-app/domains/session/artifacts/univer-artifact-header-view-model";
 import type { UniverOpenSurface } from "../src/react-app/domains/session/artifacts/univer-surface";
+import { readUniverOpenSurface } from "../src/react-app/domains/session/artifacts/univer-surface";
 
 function fileTarget(overrides: Partial<OpenTarget> = {}): OpenTarget {
   return {
@@ -259,6 +260,7 @@ describe("artifact headers", () => {
       viewerRequest: {
         container: readyContainer,
         unitId: "unit_1",
+        unitKind: "sheet",
         scope: "worktree",
         worktreeId: "wt_1",
         editable: false,
@@ -286,25 +288,58 @@ describe("artifact headers", () => {
     expect(html).not.toContain("Open externally");
   });
 
-  test("viewer request builds an embedded collab-client URL", () => {
-    const surface: UniverOpenSurface = {
-      url: "http://127.0.0.1:5180/?file=%2Ftmp%2Fpayroll.univer&mode=embedded",
-      viewerUrl: "http://127.0.0.1:5180/",
+  test("Univer open surface is structured around gateway origin", () => {
+    const surface = readUniverOpenSurface({
+      origin: "http://127.0.0.1:5180",
       univerfile: "/tmp/payroll.univer",
-    };
-    const url = new URL(buildUniverEmbeddedViewerUrl(surface, {
-      container: readyContainer,
-      unitId: "unit_1",
-      scope: "mergePreview",
       worktreeId: "wt_1",
-      editable: false,
-    }));
+      unitId: "unit_1",
+    }) satisfies UniverOpenSurface;
 
-    expect(url.searchParams.get("file")).toBe("/tmp/payroll.univer");
-    expect(url.searchParams.get("mode")).toBe("embedded");
-    expect(url.searchParams.get("scope")).toBe("mergePreview");
-    expect(url.searchParams.get("editable")).toBe("false");
-    expect(url.searchParams.get("worktree")).toBe("wt_1");
-    expect(url.searchParams.get("unit")).toBe("unit_1");
+    expect(surface.origin).toBe("http://127.0.0.1:5180");
+    expect(surface.univerfile).toBe("/tmp/payroll.univer");
+    expect(surface.worktreeId).toBe("wt_1");
+    expect(surface.unitId).toBe("unit_1");
+  });
+
+  test("Univer open surface rejects the old URL-only response", () => {
+    expect(() => readUniverOpenSurface({
+      url: "http://127.0.0.1:5180/?file=/tmp/payroll.univer",
+      viewerUrl: "http://127.0.0.1:5180",
+      univerfile: "/tmp/payroll.univer",
+    })).toThrow("Univer surface response is missing origin.");
+  });
+
+  test("Univer content viewer surface does not keep the old iframe fallback", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("univer-artifact-native-viewer");
+    expect(source).toContain("CoworkContentViewer");
+    expect(source).toContain("UniverViewerError");
+    expect(source).toContain("setReloadKey");
+    expect(source).not.toContain("univer-collab-surface");
+    expect(source).not.toContain("<iframe");
+  });
+
+  test("Univer content viewer keeps a stable shell through bootstrap states", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("function UniverContentViewerSurface");
+    const end = source.indexOf("function UniverViewerError");
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const viewerSource = source.slice(start, end);
+
+    expect(viewerSource).toContain("univer-artifact-native-viewer");
+    expect(viewerSource).not.toMatch(/if \(isLoading\) \{\s*return \(/);
+    expect(viewerSource).not.toMatch(/if \(isError \|\| !surface\) \{\s*return \(/);
+    expect(viewerSource).not.toMatch(/if \(!viewerRequest \|\| !viewerDataSource\) \{\s*return \(/);
   });
 });

@@ -221,12 +221,13 @@ export default {
             await ctx.waitFor(
               `(() => {
                 const header = document.querySelector('[data-testid="univer-artifact-header"]');
-                const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
-                if (!header || !iframe) return false;
-                const rect = iframe.getBoundingClientRect();
+                const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
+                if (!header || !nativeViewer) return false;
+                const rect = nativeViewer.getBoundingClientRect();
                 return header.textContent.includes(${JSON.stringify(UNIVER_BASENAME)})
                   && rect.width >= ${MIN_UNIVER_ARTIFACT_IFRAME_WIDTH}
-                  && rect.height > 200;
+                  && rect.height > 200
+                  && !document.querySelector('iframe[data-testid="univer-collab-surface"]');
               })()`,
               { timeoutMs: 60_000, label: "widened Univer artifact panel" },
             );
@@ -235,12 +236,14 @@ export default {
             const metrics = await ctx.eval(compactChatMetricsExpression());
             assertCompactChat(ctx, metrics);
             const artifact = await ctx.eval(`(() => {
-              const iframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
+              const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
               const header = document.querySelector('[data-testid="univer-artifact-header"]');
-              if (!iframe || !header) return { ok: false, reason: "Univer artifact panel missing" };
-              const rect = iframe.getBoundingClientRect();
+              const oldIframe = document.querySelector('iframe[data-testid="univer-collab-surface"]');
+              if (!nativeViewer || !header) return { ok: false, reason: "Univer artifact panel missing" };
+              const rect = nativeViewer.getBoundingClientRect();
               return {
                 ok: true,
+                hasOldIframe: Boolean(oldIframe),
                 width: Math.round(rect.width),
                 height: Math.round(rect.height),
                 headerText: header.textContent || "",
@@ -248,6 +251,7 @@ export default {
               };
             })()`);
             ctx.assert(artifact.ok, artifact.reason || "Univer artifact panel did not open.");
+            ctx.assert(!artifact.hasOldIframe, "Old Univer iframe fallback is still present.");
             ctx.assert(artifact.width >= MIN_UNIVER_ARTIFACT_IFRAME_WIDTH, `Univer artifact panel is not widened: ${JSON.stringify(artifact)}`);
             ctx.assert(artifact.headerText.includes(UNIVER_BASENAME), `Univer artifact header did not show the file: ${artifact.headerText}`);
             ctx.assert(!artifact.errorVisible, "OpenWork displayed a Univer preview error.");

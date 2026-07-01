@@ -2,8 +2,7 @@ import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { OpenTarget } from "./open-target";
 
 export type UniverOpenSurface = {
-  url: string;
-  viewerUrl: string;
+  origin: string;
   univerfile: string;
   worktreeId?: string;
   unitId?: string;
@@ -70,13 +69,12 @@ function optionalString(value: Record<string, unknown>, key: string): string | u
   return typeof field === "string" && field.trim() ? field : undefined;
 }
 
-function readUniverOpenSurface(value: unknown): UniverOpenSurface {
+export function readUniverOpenSurface(value: unknown): UniverOpenSurface {
   if (!isRecord(value)) {
     throw new Error("Univer surface response is invalid.");
   }
   return {
-    url: requiredString(value, "url"),
-    viewerUrl: requiredString(value, "viewerUrl"),
+    origin: requiredString(value, "origin"),
     univerfile: requiredString(value, "univerfile"),
     worktreeId: optionalString(value, "worktreeId"),
     unitId: optionalString(value, "unitId"),
