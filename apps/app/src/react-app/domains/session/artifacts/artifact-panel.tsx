@@ -602,12 +602,8 @@ function UniverArtifactWorkspaceContent({
 
   const syncTargetRoute = (nextTarget: UniverTarget) => {
     const store = usePanelTabStore.getState();
-    const currentTargets = store.transcriptArtifactTargets[sessionId] ?? [];
 
-    store.syncTranscriptArtifacts(sessionId, [
-      ...currentTargets.filter((item) => item.id !== nextTarget.id),
-      nextTarget,
-    ]);
+    store.upsertTranscriptArtifactTarget(sessionId, nextTarget);
     store.openTab(sessionId, {
       id: nextTarget.id,
       type: "artifact",

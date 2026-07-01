@@ -417,11 +417,7 @@ export function WorkspaceFileTree({
         updatedAt: node.mtimeMs,
       };
       const panelStore = store.getState();
-      const currentTargets = panelStore.transcriptArtifactTargets[sessionId] ?? [];
-      panelStore.syncTranscriptArtifacts(sessionId, [
-        ...currentTargets.filter((item) => item.id !== target.id),
-        target,
-      ]);
+      panelStore.upsertTranscriptArtifactTarget(sessionId, target);
       panelStore.openTab(sessionId, {
         id: target.id,
         type: "artifact",

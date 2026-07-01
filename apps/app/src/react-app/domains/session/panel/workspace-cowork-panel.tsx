@@ -37,6 +37,7 @@ type WorkspaceCoworkPanelProps = {
   sessionId: string;
   client: OpenworkServerClient | null;
   workspaceId: string | null;
+  target?: UniverTarget | null;
   isRemoteWorkspace?: boolean;
   onArtifactOpen?: () => void;
 };
@@ -139,6 +140,11 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
   const snapshot = useCoworkSnapshot(controller);
   const panelStore = usePanelTabStore;
   const [openSections, setOpenSections] = React.useState(DEFAULT_OPEN_SECTIONS);
+  const pendingReviewSummaryLoadsRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    setOpenSections(DEFAULT_OPEN_SECTIONS);
+  }, [target.id, target.unitId, target.worktreeId]);
 
   const toggleSection = React.useCallback((key: CoworkSectionKey) => {
     setOpenSections((current) => ({
@@ -165,6 +171,22 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
     }
   }, [controller, snapshot, target]);
 
+  React.useEffect(() => {
+    if (snapshot.loadState !== "ready") return;
+    if (snapshot.selection.type !== "reviewableWorktree" && snapshot.selection.type !== "reviewUnit") return;
+
+    const worktreeId = snapshot.selection.worktreeId;
+    const reviewable = snapshot.reviewableWorktrees.find((worktree) => worktree.worktreeId === worktreeId);
+    if (!reviewable || reviewable.reviewSummary || pendingReviewSummaryLoadsRef.current.has(worktreeId)) {
+      return;
+    }
+
+    pendingReviewSummaryLoadsRef.current.add(worktreeId);
+    void Promise.resolve(controller.loadReviewSummary(worktreeId)).finally(() => {
+      pendingReviewSummaryLoadsRef.current.delete(worktreeId);
+    });
+  }, [controller, snapshot.loadState, snapshot.reviewableWorktrees, snapshot.selection]);
+
   const openSelection = React.useCallback((selection: CoworkSelection) => {
     controller.setSelection(selection);
     const nextTarget = targetFromSelection(target, selection);
@@ -174,12 +196,8 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
     }
 
     const store = panelStore.getState();
-    const currentTargets = store.transcriptArtifactTargets[sessionId] ?? [];
 
-    store.syncTranscriptArtifacts(sessionId, [
-      ...currentTargets.filter((item) => item.id !== nextTarget.id),
-      nextTarget,
-    ]);
+    store.upsertTranscriptArtifactTarget(sessionId, nextTarget);
     store.openTab(sessionId, {
       id: nextTarget.id,
       type: "artifact",
@@ -283,76 +301,66 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
 
             return (
               <div key={worktree.worktreeId}>
-                <button
-                  type="button"
-                  aria-label={`Open reviewable worktree ${worktree.displayName}`}
-                  aria-pressed={selected}
-                  data-cowork-row="reviewable-worktree"
-                  data-worktree-id={worktree.worktreeId}
+                <div
                   className={cn(
-                    "flex h-8 w-full items-center gap-2 px-3 text-left text-xs text-foreground hover:bg-muted",
+                    "flex h-8 w-full items-center gap-1 px-3 text-xs text-foreground hover:bg-muted",
                     selected && "bg-primary/10 text-primary hover:bg-primary/15",
                   )}
-                  onClick={() => {
-                    openSelection({ type: "reviewableWorktree", worktreeId: worktree.worktreeId });
-                    void controller.loadReviewSummary(worktree.worktreeId);
-                  }}
-                  title={worktree.displayName}
                 >
-                  <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{worktree.displayName}</span>
-                  {worktree.reviewSummary?.counts.conflict ? (
-                    <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-                  ) : null}
-                  <span className="shrink-0 text-[10px] text-muted-foreground">#{worktree.headCommit}</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-label={`Open reviewable worktree ${worktree.displayName}`}
+                    aria-pressed={selected}
+                    data-cowork-row="reviewable-worktree"
+                    data-worktree-id={worktree.worktreeId}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => openSelection({ type: "reviewableWorktree", worktreeId: worktree.worktreeId })}
+                    title={worktree.displayName}
+                  >
+                    <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{worktree.displayName}</span>
+                    {worktree.reviewSummary?.counts.conflict ? (
+                      <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+                    ) : null}
+                    <span className="shrink-0 text-[10px] text-muted-foreground">#{worktree.headCommit}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 shrink-0"
+                    disabled={mergeDisabled}
+                    title={mergeAction?.disabledReason === "conflict" ? "Resolve conflicts before merge" : "Merge changes"}
+                    aria-label="Merge changes"
+                    onClick={() => void mergeWorktree(worktree.worktreeId)}
+                  >
+                    {mergeAction?.status === "running" ? <Loader2 className="animate-spin" /> : <Check />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 shrink-0"
+                    disabled={discardDisabled}
+                    title="Discard changes"
+                    aria-label="Discard changes"
+                    onClick={() => void discardWorktree(worktree.worktreeId)}
+                  >
+                    {discardAction?.status === "running" ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 shrink-0"
+                    title="Refresh review"
+                    aria-label="Refresh review"
+                    onClick={() => void controller.loadReviewSummary(worktree.worktreeId)}
+                  >
+                    <RefreshCw />
+                  </Button>
+                </div>
                 {selected ? (
                   <div className="border-y border-border/60 bg-muted/25">
-                    <div className="flex items-center gap-1 px-3 py-1.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="size-7"
-                        disabled={mergeDisabled}
-                        title={mergeAction?.disabledReason === "conflict" ? "Resolve conflicts before merge" : "Merge changes"}
-                        aria-label="Merge changes"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void mergeWorktree(worktree.worktreeId);
-                        }}
-                      >
-                        {mergeAction?.status === "running" ? <Loader2 className="animate-spin" /> : <Check />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="size-7"
-                        disabled={discardDisabled}
-                        title="Discard changes"
-                        aria-label="Discard changes"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void discardWorktree(worktree.worktreeId);
-                        }}
-                      >
-                        {discardAction?.status === "running" ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="ml-auto size-7"
-                        title="Refresh review"
-                        aria-label="Refresh review"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void controller.loadReviewSummary(worktree.worktreeId);
-                        }}
-                      >
-                        <RefreshCw />
-                      </Button>
-                    </div>
                     {worktree.reviewSummary ? (
-                      <div className="pb-1">
+                      <div className="py-1">
                         {worktree.reviewSummary.units.map((unit) => {
                           const unitSelected =
                             snapshot.selection.type === "reviewUnit" &&
@@ -384,7 +392,10 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
                         })}
                       </div>
                     ) : (
-                      <CoworkEmptyRow>Click refresh to load review details.</CoworkEmptyRow>
+                      <div className="flex items-center px-6 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="mr-2 size-3.5 animate-spin" />
+                        Loading review details...
+                      </div>
                     )}
                   </div>
                 ) : null}
@@ -435,35 +446,25 @@ function CoworkRows({ controller, target, sessionId, onArtifactOpen }: CoworkRow
   );
 }
 
-export function WorkspaceCoworkPanel({
+type WorkspaceCoworkPanelContentProps = {
+  sessionId: string;
+  target: UniverTarget;
+  controller: CoworkController | null;
+  error: unknown;
+  isError: boolean;
+  isLoading: boolean;
+  onArtifactOpen?: () => void;
+};
+
+export function WorkspaceCoworkPanelContent({
   sessionId,
-  client,
-  workspaceId,
-  isRemoteWorkspace = false,
+  target,
+  controller,
+  error,
+  isError,
+  isLoading,
   onArtifactOpen,
-}: WorkspaceCoworkPanelProps) {
-  const activeTab = useActivePanelTab(sessionId);
-  const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
-  const target = React.useMemo<UniverTarget | null>(() => {
-    if (activeTab?.type !== "artifact") return null;
-    for (const item of transcriptTargets) {
-      if (item.id === activeTab.id && isUniverTarget(item)) {
-        return item;
-      }
-    }
-    return null;
-  }, [activeTab, transcriptTargets]);
-  const { controller, error, isError, isLoading } = useUniverCoworkSession({
-    client,
-    workspaceId,
-    target,
-    isRemoteWorkspace,
-  });
-
-  if (!target) {
-    return null;
-  }
-
+}: WorkspaceCoworkPanelContentProps) {
   return (
     <div className="shrink-0 border-t border-border bg-background" data-testid="workspace-cowork-panel">
       <div className="flex h-10 shrink-0 items-center gap-2 px-2 mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
@@ -492,5 +493,49 @@ export function WorkspaceCoworkPanel({
         />
       ) : null}
     </div>
+  );
+}
+
+export function WorkspaceCoworkPanel({
+  sessionId,
+  client,
+  workspaceId,
+  target: explicitTarget,
+  isRemoteWorkspace = false,
+  onArtifactOpen,
+}: WorkspaceCoworkPanelProps) {
+  const activeTab = useActivePanelTab(sessionId);
+  const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
+  const activeTarget = React.useMemo<UniverTarget | null>(() => {
+    if (activeTab?.type !== "artifact") return null;
+    for (const item of transcriptTargets) {
+      if (item.id === activeTab.id && isUniverTarget(item)) {
+        return item;
+      }
+    }
+    return null;
+  }, [activeTab, transcriptTargets]);
+  const target = explicitTarget === undefined ? activeTarget : explicitTarget;
+  const { controller, error, isError, isLoading } = useUniverCoworkSession({
+    client,
+    workspaceId,
+    target,
+    isRemoteWorkspace,
+  });
+
+  if (!target) {
+    return null;
+  }
+
+  return (
+    <WorkspaceCoworkPanelContent
+      sessionId={sessionId}
+      target={target}
+      controller={controller}
+      error={error}
+      isError={isError}
+      isLoading={isLoading}
+      onArtifactOpen={onArtifactOpen}
+    />
   );
 }

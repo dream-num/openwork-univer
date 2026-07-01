@@ -3,7 +3,7 @@
  *
  * 1. Start from the active OpenWork workspace/session.
  * 2. Create a real `.univer` file with Univer CLI from a local CSV fixture.
- * 3. Seed it as an agent-created transcript artifact and click the artifact affordance.
+ * 3. Seed it as an agent-created transcript artifact and open the artifact tab.
  * 4. Confirm the artifact panel renders the dedicated Univer header.
  * 5. Confirm the artifact panel embeds the local collab-client URL in an iframe.
  */
@@ -87,6 +87,9 @@ async function createUniverfile(workspaceRoot) {
   await runUniver(["import", "--file", csvPath, absolutePath, "--worktree", worktreeId, "--json"], workspaceRoot, {
     UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspaceRoot,
   });
+  await runUniver(["worktree", "ready", absolutePath, "--worktree", worktreeId, "--json"], workspaceRoot, {
+    UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspaceRoot,
+  });
   return {
     fileStat: await stat(absolutePath),
     worktreeId,
@@ -99,6 +102,16 @@ async function ensureSessionAndSidePanel(ctx) {
     timeoutMs: 60_000,
     label: "control API",
   });
+
+  await ctx.eval(`(() => {
+    for (const label of ["Continue without OpenWork Models", "Close"]) {
+      const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
+        candidate.textContent?.trim() === label && !candidate.disabled
+      );
+      if (button) button.click();
+    }
+    return true;
+  })()`);
 
   const hasCreateTask = await ctx.eval(
     "window.__openworkControl.listActions().some((action) => action.id === 'session.create_task' && !action.disabled)",
@@ -148,29 +161,51 @@ async function ensureSessionAndSidePanel(ctx) {
     `window.__openworkControl.listActions().some((action) => action.id === "eval.artifact_tabs.seed_univer" && !action.disabled)`,
     { timeoutMs: 30_000, label: "Univer artifact seed action enabled" },
   );
+  await closeComposerToolbarPopovers(ctx);
 }
 
-async function openWorkspaceFilesPopover(ctx) {
-  const alreadyOpen = await ctx.eval(`Boolean(document.querySelector('input[placeholder="Search files"]'))`);
+async function closeComposerToolbarPopovers(ctx) {
+  await ctx.eval(`(() => {
+    const buttons = Array.from(document.querySelectorAll(
+      'button[data-testid="composer-toolbar-files"], button[data-testid="composer-toolbar-changes"]'
+    ));
+    const openButton = buttons.find((button) => button.getAttribute("aria-pressed") === "true");
+    if (openButton) {
+      openButton.click();
+      return "clicked";
+    }
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+    document.dispatchEvent(event);
+    window.dispatchEvent(event);
+    return "closed";
+  })()`);
+  await ctx.waitFor(
+    `!document.querySelector('[data-testid="workspace-cowork-panel"]') && !document.querySelector('input[placeholder="Search files"]')`,
+    { timeoutMs: 5_000, label: "composer toolbar popovers closed" },
+  );
+}
+
+async function openChangesPopover(ctx) {
+  const alreadyOpen = await ctx.eval(`Boolean(document.querySelector('[data-testid="workspace-cowork-panel"]'))`);
   if (alreadyOpen) {
     return;
   }
 
   const clicked = await ctx.waitFor(`(() => {
-    const button = Array.from(document.querySelectorAll("button"))
-      .find((item) => item.getAttribute("aria-label") === "Workspace files" && !item.disabled);
+    const button = document.querySelector('button[data-testid="composer-toolbar-changes"]');
+    if (button?.disabled) return false;
     if (!button) return false;
     button.click();
     return true;
   })()`, {
     timeoutMs: 30_000,
-    label: "workspace files popover button",
+    label: "composer toolbar changes button",
   });
-  ctx.assert(clicked === true, "Could not click the workspace files popover button.");
+  ctx.assert(clicked === true, "Could not click the composer toolbar Changes button.");
 
-  await ctx.waitFor(`Boolean(document.querySelector('input[placeholder="Search files"]'))`, {
+  await ctx.waitFor(`Boolean(document.querySelector('[data-testid="workspace-cowork-panel"]'))`, {
     timeoutMs: 30_000,
-    label: "workspace file tree search input",
+    label: "workspace cowork panel",
   });
 }
 
@@ -223,32 +258,15 @@ export default {
     {
       name: "Open the .univer artifact in the embedded collab client",
       run: async (ctx) => {
-        await ctx.prove("Clicking a native .univer artifact mounts a local collab-client iframe inside OpenWork", {
+        await ctx.prove("Opening a native .univer artifact mounts a local collab-client iframe inside OpenWork", {
           action: async () => {
             const seeded = await ctx.control("eval.artifact_tabs.seed_univer", {
               path: RELATIVE_UNIVER_PATH,
               worktreeId: latestDeepLink.worktreeId,
               unitId: latestDeepLink.unitId,
-              open: false,
             });
-            ctx.assert(seeded?.activeTabId === null, "Univer artifact should be seeded without opening the tab.");
-            await ctx.waitFor(
-              `(() => {
-                const button = Array.from(document.querySelectorAll("button"))
-                  .find((item) => (item.getAttribute("aria-label") || "").startsWith("Artifacts (") && !item.disabled);
-                return Boolean(button);
-              })()`,
-              { timeoutMs: 30_000, label: "artifact rail button enabled after agent artifact mention" },
-            );
-            const clicked = await ctx.eval(`(() => {
-              const button = Array.from(document.querySelectorAll("button"))
-                .find((item) => (item.getAttribute("aria-label") || "").startsWith("Artifacts (") && !item.disabled);
-              if (!button) return "missing";
-              button.click();
-              return button.getAttribute("aria-label");
-            })()`);
-            ctx.assert(typeof clicked === "string" && clicked.startsWith("Artifacts ("), `Artifact rail click failed: ${clicked}`);
-            ctx.log(`Clicked artifact rail: ${clicked}`);
+            ctx.assert(seeded?.activeTabId === `file:${RELATIVE_UNIVER_PATH}`, `Univer artifact did not open the seeded tab: ${seeded?.activeTabId}`);
+            await closeComposerToolbarPopovers(ctx);
             await ctx.waitFor(
               `document.querySelectorAll('button[aria-label^="Select tab: ${UNIVER_BASENAME}"]').length >= 1`,
               { timeoutMs: 30_000, label: "seeded Univer artifact tab present" },
@@ -279,6 +297,7 @@ export default {
               })()`,
               { timeoutMs: 60_000, label: "local Univer collab iframe and dedicated header" },
             );
+            await closeComposerToolbarPopovers(ctx);
             await ctx.eval("new Promise((resolve) => setTimeout(resolve, 8000))", { awaitPromise: true });
           },
           assert: async () => {
@@ -347,28 +366,50 @@ export default {
           screenshot: {
             name: "univer-collab-surface-embedded",
             requireText: [UNIVER_BASENAME, "原始修改", "仅查看"],
-            rejectText: ["Open externally", "Failed to open Univer preview", "Setup incomplete", "remote workspaces only"],
+            rejectText: [
+              "Open externally",
+              "Failed to open Univer preview",
+              "Setup incomplete",
+              "remote workspaces only",
+              "MAIN WORKTREE",
+              "READY FOR REVIEW",
+              "ACTIVE CHANGES",
+            ],
           },
         });
       },
     },
     {
-      name: "Open cowork context from the Files popover",
+      name: "Open cowork context from the Changes popover",
       run: async (ctx) => {
-        await ctx.prove("The Files popover shows Univer units and worktrees while the file tree remains available", {
+        await ctx.prove("The composer toolbar Changes popover shows Univer units and worktrees for the active artifact", {
           action: async () => {
-            await openWorkspaceFilesPopover(ctx);
+            await openChangesPopover(ctx);
             await ctx.waitFor(`(() => {
               const panel = document.querySelector('[data-testid="workspace-cowork-panel"]');
               if (!panel) return false;
               const text = panel.textContent || "";
+              const selectedWorktree = Array.from(panel.querySelectorAll("[data-worktree-id]"))
+                .find((row) =>
+                  row.getAttribute("data-worktree-id") === ${JSON.stringify(latestDeepLink.worktreeId)} &&
+                  row.getAttribute("aria-pressed") === "true"
+                );
+              const reviewUnit = Array.from(panel.querySelectorAll('[data-cowork-row="review-unit"]'))
+                .find((row) =>
+                  row.getAttribute("data-worktree-id") === ${JSON.stringify(latestDeepLink.worktreeId)} &&
+                  row.getAttribute("data-unit-id") === ${JSON.stringify(latestDeepLink.unitId)}
+                );
               return text.includes("Main worktree")
                 && text.includes("Active changes")
                 && text.includes("Ready for review")
+                && Boolean(selectedWorktree)
+                && Boolean(reviewUnit)
                 && !text.includes("Opening Univer surface")
                 && !text.includes("Loading Univer workspace")
                 && !text.includes("Failed to open Univer surface")
-                && !text.includes("Failed to load Univer workspace");
+                && !text.includes("Failed to load Univer workspace")
+                && !text.includes("Click refresh to load review details.")
+                && !text.includes("Loading review details...");
             })()`, {
               timeoutMs: 60_000,
               label: "loaded workspace cowork panel",
@@ -386,7 +427,14 @@ export default {
                   row.getAttribute("data-worktree-id") === ${JSON.stringify(latestDeepLink.worktreeId)} &&
                   row.getAttribute("aria-pressed") === "true"
                 );
+              const reviewUnit = Array.from(panel.querySelectorAll('[data-cowork-row="review-unit"]'))
+                .find((row) =>
+                  row.getAttribute("data-worktree-id") === ${JSON.stringify(latestDeepLink.worktreeId)} &&
+                  row.getAttribute("data-unit-id") === ${JSON.stringify(latestDeepLink.unitId)}
+                );
               const fileTreeSearch = document.querySelector('input[placeholder="Search files"]');
+              const filesButton = document.querySelector('button[data-testid="composer-toolbar-files"]');
+              const changesButton = document.querySelector('button[data-testid="composer-toolbar-changes"]');
               return {
                 ok: true,
                 hasMainWorktree: text.includes("Main worktree"),
@@ -394,23 +442,39 @@ export default {
                 hasReadyForReview: text.includes("Ready for review"),
                 hasUnitRow: Boolean(unitRow),
                 hasSelectedWorktree: Boolean(selectedWorktree),
+                hasReviewUnit: Boolean(reviewUnit),
                 selectedWorktreeLabel: selectedWorktree?.getAttribute("aria-label") || "",
                 hasFileTree: Boolean(fileTreeSearch),
+                hasFilesButton: Boolean(filesButton),
+                hasChangesButton: Boolean(changesButton),
                 errorVisible: /Failed to open Univer surface|Failed to load Univer workspace/i.test(text),
+                manualRefreshPromptVisible: text.includes("Click refresh to load review details."),
+                loadingReviewDetailsVisible: text.includes("Loading review details..."),
               };
             })()`);
             ctx.assert(result.ok, result.reason || "Cowork panel was not found.");
             ctx.assert(result.hasMainWorktree && result.hasActiveChanges && result.hasReadyForReview, "Cowork sections are incomplete.");
             ctx.assert(result.hasUnitRow, `Cowork units did not include deep-linked unit ${latestDeepLink.unitId}.`);
             ctx.assert(result.hasSelectedWorktree, `Cowork worktrees did not select deep-linked worktree ${latestDeepLink.worktreeId}.`);
-            ctx.assert(result.hasFileTree, "The workspace file tree disappeared when cowork context mounted.");
+            ctx.assert(result.hasReviewUnit, `Cowork review details did not auto-load deep-linked unit ${latestDeepLink.unitId}.`);
+            ctx.assert(!result.hasFileTree, "Changes popover should not include the workspace file tree.");
+            ctx.assert(result.hasFilesButton, "Composer toolbar Files button disappeared while Changes is open.");
+            ctx.assert(result.hasChangesButton, "Composer toolbar Changes button disappeared while Changes is open.");
             ctx.assert(!result.errorVisible, "Cowork panel displayed an error state.");
+            ctx.assert(!result.manualRefreshPromptVisible, "Cowork panel still asks users to click refresh for review details.");
+            ctx.assert(!result.loadingReviewDetailsVisible, "Cowork panel did not finish loading review details.");
             ctx.log(`Selected cowork worktree row: ${result.selectedWorktreeLabel}`);
           },
           screenshot: {
-            name: "univer-cowork-files-popover",
-            requireText: ["MAIN WORKTREE", "ACTIVE CHANGES", "READY FOR REVIEW"],
-            rejectText: ["Failed to open Univer surface", "Failed to load Univer workspace"],
+            name: "univer-cowork-changes-popover",
+            requireText: ["MAIN WORKTREE", "ACTIVE CHANGES", "READY FOR REVIEW", "OpenWork deep link review"],
+            rejectText: [
+              "Search files",
+              "Failed to open Univer surface",
+              "Failed to load Univer workspace",
+              "Click refresh to load review details.",
+              "Loading review details...",
+            ],
           },
         });
       },

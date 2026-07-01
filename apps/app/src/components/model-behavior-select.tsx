@@ -70,7 +70,7 @@ export function ModelBehaviorSelect({
               size="sm"
               disabled={disabled}
               aria-label={t("composer.behavior_label")}
-              className="h-10 border-0 bg-transparent px-2.5 py-1 text-sm rounded-md text-gray-10 shadow-none hover:bg-gray-3 hover:text-gray-12 data-[size=sm]:h-8"
+              className="h-6 rounded-none border-0 bg-transparent px-0 py-0 text-sm text-gray-10 shadow-none hover:text-gray-12 data-[size=sm]:h-6"
             />
           }
         >

@@ -49,6 +49,8 @@ describe("compact chat pane layout contract", () => {
     expect(COMPACT_CHAT_SCROLL_PADDING_CLASS).toContain("px-2");
     expect(COMPACT_CHAT_EDGE_PADDING_CLASS).toContain("px-1");
     expect(COMPACT_COMPOSER_SHELL_CLASS).toContain("border-t");
+    expect(COMPACT_COMPOSER_SHELL_CLASS).toContain("px-2.5");
+    expect(COMPACT_COMPOSER_SHELL_CLASS).not.toContain("sm:px-3");
     expect(COMPACT_COMPOSER_SHELL_CLASS).not.toContain("rounded");
     expect(COMPACT_COMPOSER_PANEL_CLASS).toContain("bg-transparent");
     expect(COMPACT_COMPOSER_PANEL_CLASS).not.toContain("focus-within");
@@ -66,5 +68,11 @@ describe("compact chat pane layout contract", () => {
     expect(html).toContain("aria-label=\"Branch in new chat\"");
     expect(html).toContain("aria-label=\"Revert\"");
     expect(html).toContain("size-6");
+  });
+
+  test("keeps the empty composer editor at a two-line prompt height", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/surface/composer/editor.tsx", import.meta.url)).text();
+
+    expect(source).toContain("min-h-[56px]");
   });
 });

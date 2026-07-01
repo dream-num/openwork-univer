@@ -99,6 +99,7 @@ type ComposerProps = {
   isSandboxWorkspace: boolean;
   onUploadInboxFiles?: ((files: File[]) => void | Promise<unknown>) | null;
   draftScopeKey?: string;
+  toolbar?: ReactNode;
   topAccessory?: ReactNode;
 };
 
@@ -1144,7 +1145,13 @@ export function ReactSessionComposer(props: ComposerProps) {
         <div
           className={COMPACT_COMPOSER_PANEL_CLASS}
         >
-          {props.topAccessory ? <div className="relative z-10 border-b border-dls-border/70 pb-1">{props.topAccessory}</div> : null}
+          {props.topAccessory ? <div className="relative z-10 -mx-2.5">{props.topAccessory}</div> : null}
+
+          {props.toolbar ? (
+            <div className={`relative z-10 -mx-2.5 border-b border-dls-border ${props.topAccessory ? "" : "-mt-1"}`} data-testid="composer-toolbar-slot">
+              {props.toolbar}
+            </div>
+          ) : null}
 
           {renderMentionMenu()}
           {renderSlashMenu()}
@@ -1286,7 +1293,7 @@ export function ReactSessionComposer(props: ComposerProps) {
 
             {/* Action row — attachments, quick actions, model controls, and send */}
             <div className="mt-1 flex flex-wrap items-end justify-between gap-1.5">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1302,7 +1309,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 />
                 <button
                   type="button"
-                  className={`inline-flex size-8 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-3 ${
+                  className={`inline-flex h-6 w-5 items-center justify-start rounded-none p-0 text-gray-10 transition-colors hover:text-gray-12 ${
                     !props.attachmentsEnabled ? "cursor-not-allowed opacity-60" : ""
                   }`}
                   onClick={() => {
@@ -1312,7 +1319,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   disabled={!props.attachmentsEnabled}
                   title={props.attachmentsDisabledReason ?? t("composer.attach_files")}
                 >
-                  <Paperclip size={16} />
+                  <Paperclip size={14} />
                 </button>
                 <div
                   ref={toolMenuRef}
@@ -1324,7 +1331,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <button
                     type="button"
-                    className={`inline-flex size-8 items-center justify-center rounded-md transition-colors ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
+                    className={`inline-flex h-6 w-5 items-center justify-start rounded-none p-0 transition-colors ${toolMenuOpen ? "text-gray-12" : "text-gray-10 hover:text-gray-12"}`}
                     onClick={() => {
                       setMentionOpen(false);
                       setMentionItems([]);
@@ -1335,7 +1342,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     aria-haspopup="dialog"
                     title={t("composer.tools_label")}
                   >
-                    <Plug size={16} />
+                    <Plug size={14} />
                   </button>
                   {toolMenuOpen ? (
                     <div className="absolute bottom-full left-0 z-40 mb-3 w-[min(calc(100vw-2.5rem),34rem)] overflow-hidden rounded-[22px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
@@ -1561,14 +1568,14 @@ export function ReactSessionComposer(props: ComposerProps) {
                 <div ref={agentMenuRef} className="relative">
                   <button
                     type="button"
-                    className="flex h-8 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
+                    className="flex h-6 items-center gap-1 rounded-none px-0 text-[12px] font-medium text-gray-10 transition-colors hover:text-gray-12"
                     onClick={() => setAgentMenuOpen((value) => !value)}
                     disabled={props.busy}
                     aria-expanded={agentMenuOpen}
                     title={t("composer.agent_label")}
                   >
                     <span className="max-w-[140px] truncate">{props.agentLabel}</span>
-                    <ChevronDown size={13} />
+                    <ChevronDown size={12} />
                   </button>
                   {agentMenuOpen ? (
                     <div className="absolute left-0 bottom-full z-40 mb-2 w-64 overflow-hidden rounded-[18px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
@@ -1730,14 +1737,14 @@ export function ReactSessionComposer(props: ComposerProps) {
                     onClick={canSend ? props.onSend : undefined}
                     disabled={props.disabled || !canSend}
                     aria-label={t("composer.run_task")}
-                    className={`inline-flex size-8 items-center justify-center rounded-md text-[13px] font-medium transition-colors ${
+                    className={`inline-flex h-6 w-5 items-center justify-end rounded-none p-0 text-[13px] font-medium transition-colors ${
                       !canSend || props.disabled
                         ? "text-gray-9"
-                        : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+                        : "text-gray-10 hover:text-gray-12"
                     }`}
                     title={t("composer.run_task")}
                   >
-                    <CornerDownLeft size={15} />
+                    <CornerDownLeft size={14} />
                   </button>
                 )}
               </div>

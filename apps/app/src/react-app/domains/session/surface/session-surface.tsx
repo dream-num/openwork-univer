@@ -142,6 +142,7 @@ export type SessionSurfaceProps = {
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
   environmentRuntimeKey?: string | null;
   onApplyEnvironmentChanges?: () => Promise<ApplyEnvironmentChangesResult>;
+  composerToolbar?: React.ReactNode;
 };
 
 function messageToReadableText(message: UIMessage) {
@@ -240,7 +241,7 @@ function TodoPanel(props: { todos: TodoItem[] }) {
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
         <button
           type="button"
-          className="flex w-full items-center justify-between px-4 py-3 text-xs text-gray-9 transition-colors hover:bg-gray-2/50"
+          className="flex w-full items-center justify-between px-2 pb-2 pt-0 text-xs text-gray-9 transition-colors hover:bg-gray-2/50 sm:px-3"
           onClick={() => setExpanded((current) => !current)}
         >
           <div className="flex items-center gap-2">
@@ -249,7 +250,7 @@ function TodoPanel(props: { todos: TodoItem[] }) {
           <Minimize2 size={12} className={`text-gray-8 transition-transform ${expanded ? "" : "rotate-180"}`} />
         </button>
         {expanded ? (
-          <div className="max-h-60 space-y-2.5 overflow-auto border-t border-dls-border px-4 pb-3">
+          <div className="max-h-60 space-y-2 overflow-auto border-t border-dls-border px-2 pb-2 sm:px-3">
             {todos.map((todo, index) => {
               const done = todo.status === "completed";
               const cancelled = todo.status === "cancelled";
@@ -1330,89 +1331,90 @@ export function SessionSurface(props: SessionSurfaceProps) {
           </button>
         ) : null}
         <DevProfiler id="SessionComposer">
-        <ReactSessionComposer
-          draft={draft}
-          mentions={mentions}
-          onDraftChange={handleComposerDraftChange}
-        onSend={handleSend}
-        onSteer={handleSteer}
-        onQueue={handleQueue}
-        onStop={handleAbort}
-        busy={chatStreaming}
-        queuedCount={queuedMessages.length}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
-        modelUnavailable={Boolean(props.modelUnavailable)}
-        statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
-        modelPickerOpen={props.modelPickerOpen}
-        selectedModel={props.selectedModel}
-        onModelPickerOpenChange={props.onModelPickerOpenChange}
-        onModelChange={props.onModelChange}
-        attachments={attachments}
-        onAttachFiles={handleAttachFiles}
-        onRemoveAttachment={handleRemoveAttachment}
-        attachmentsEnabled={props.attachmentsEnabled}
-        attachmentsDisabledReason={props.attachmentsDisabledReason}
-        modelVariantLabel={props.modelVariantLabel}
-        modelVariant={props.modelVariant}
-        modelBehaviorOptions={props.modelBehaviorOptions}
-        onModelVariantChange={props.onModelVariantChange}
-        agentLabel={props.agentLabel}
-        selectedAgent={props.selectedAgent}
-        listAgents={props.listAgents}
-        onSelectAgent={props.onSelectAgent}
-        listCommands={props.listCommands}
-        listSkills={listSkills}
-        skills={toolSkills}
-        listMcp={listMcp}
-        mcpServers={toolMcpServers}
-        mcpStatus={toolMcpStatus}
-        mcpStatuses={toolMcpStatuses}
-        listImportedPlugins={listImportedPlugins}
-        importedPlugins={toolImportedPlugins}
-        onOpenSettingsSection={props.onOpenSettingsSection}
-        recentFiles={props.recentFiles}
-        searchFiles={props.searchFiles}
-        onInsertMention={handleInsertMention}
-        inputHistory={inputHistory}
-        onPasteText={handlePasteText}
-        onUnsupportedFileLinks={handleUnsupportedFileLinks}
-        pastedText={pasteParts}
-          onExpandPastedText={handleExpandPastedText}
-          onRemovePastedText={handleRemovePastedText}
-          isRemoteWorkspace={props.isRemoteWorkspace}
-          isSandboxWorkspace={props.isSandboxWorkspace}
-          onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          topAccessory={
-            props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
-              <div>
-                {queuedMessages.length > 0 ? (
-                  <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
-                ) : null}
-                {props.activeQuestion ? (
-                  <QuestionPanel
-                    questions={props.activeQuestion.questions}
-                    busy={props.questionReplyBusy ?? false}
-                    onReply={(answers) => {
-                      if (props.activeQuestion) {
-                        props.respondQuestion?.(props.activeQuestion.id, answers);
-                      }
-                    }}
-                  />
-                ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
-                  <TodoPanel todos={props.todos ?? []} />
-                ) : null}
-                {props.activePermission ? (
-                  <PermissionApprovalPanel
-                    permission={props.activePermission}
-                    busy={props.permissionReplyBusy}
-                    respondPermission={props.respondPermission}
-                    safeStringify={props.safeStringify}
-                  />
-                ) : null}
-              </div>
-            ) : null
-          }
-        />
+          <ReactSessionComposer
+            draft={draft}
+            mentions={mentions}
+            onDraftChange={handleComposerDraftChange}
+            onSend={handleSend}
+            onSteer={handleSteer}
+            onQueue={handleQueue}
+            onStop={handleAbort}
+            busy={chatStreaming}
+            queuedCount={queuedMessages.length}
+            disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
+            modelUnavailable={Boolean(props.modelUnavailable)}
+            statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
+            modelPickerOpen={props.modelPickerOpen}
+            selectedModel={props.selectedModel}
+            onModelPickerOpenChange={props.onModelPickerOpenChange}
+            onModelChange={props.onModelChange}
+            attachments={attachments}
+            onAttachFiles={handleAttachFiles}
+            onRemoveAttachment={handleRemoveAttachment}
+            attachmentsEnabled={props.attachmentsEnabled}
+            attachmentsDisabledReason={props.attachmentsDisabledReason}
+            modelVariantLabel={props.modelVariantLabel}
+            modelVariant={props.modelVariant}
+            modelBehaviorOptions={props.modelBehaviorOptions}
+            onModelVariantChange={props.onModelVariantChange}
+            agentLabel={props.agentLabel}
+            selectedAgent={props.selectedAgent}
+            listAgents={props.listAgents}
+            onSelectAgent={props.onSelectAgent}
+            listCommands={props.listCommands}
+            listSkills={listSkills}
+            skills={toolSkills}
+            listMcp={listMcp}
+            mcpServers={toolMcpServers}
+            mcpStatus={toolMcpStatus}
+            mcpStatuses={toolMcpStatuses}
+            listImportedPlugins={listImportedPlugins}
+            importedPlugins={toolImportedPlugins}
+            onOpenSettingsSection={props.onOpenSettingsSection}
+            recentFiles={props.recentFiles}
+            searchFiles={props.searchFiles}
+            onInsertMention={handleInsertMention}
+            inputHistory={inputHistory}
+            onPasteText={handlePasteText}
+            onUnsupportedFileLinks={handleUnsupportedFileLinks}
+            pastedText={pasteParts}
+            onExpandPastedText={handleExpandPastedText}
+            onRemovePastedText={handleRemovePastedText}
+            isRemoteWorkspace={props.isRemoteWorkspace}
+            isSandboxWorkspace={props.isSandboxWorkspace}
+            onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
+            toolbar={props.composerToolbar}
+            topAccessory={
+              props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+                <div>
+                  {queuedMessages.length > 0 ? (
+                    <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />
+                  ) : null}
+                  {props.activeQuestion ? (
+                    <QuestionPanel
+                      questions={props.activeQuestion.questions}
+                      busy={props.questionReplyBusy ?? false}
+                      onReply={(answers) => {
+                        if (props.activeQuestion) {
+                          props.respondQuestion?.(props.activeQuestion.id, answers);
+                        }
+                      }}
+                    />
+                  ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
+                    <TodoPanel todos={props.todos ?? []} />
+                  ) : null}
+                  {props.activePermission ? (
+                    <PermissionApprovalPanel
+                      permission={props.activePermission}
+                      busy={props.permissionReplyBusy}
+                      respondPermission={props.respondPermission}
+                      safeStringify={props.safeStringify}
+                    />
+                  ) : null}
+                </div>
+              ) : null
+            }
+          />
         </DevProfiler>
       </div>
       {/* Error display moved inline into the session conversation area */}
