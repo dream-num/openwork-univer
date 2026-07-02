@@ -49,7 +49,7 @@ export function targetFromPrimaryUniverfile(
     confidence: 100,
     reason: "Primary Univerfile",
     exists: true,
-    ...(worktreeId ? { worktreeId } : {}),
+    ...(worktreeId ? { worktreeId, sessionWorktreeId: worktreeId } : {}),
   };
 }
 
@@ -68,8 +68,17 @@ export function targetFromSelection(target: UniverTarget, selection: CoworkSelec
   return base;
 }
 
+export function targetWithSessionWorktreeOwner(
+  target: UniverTarget,
+  sessionWorktreeId: string | null | undefined,
+): UniverTarget {
+  const worktreeId = sessionWorktreeId?.trim();
+  if (!worktreeId || target.sessionWorktreeId) return target;
+  return { ...target, sessionWorktreeId: worktreeId };
+}
+
 export function targetForSurface(target: UniverTarget): UniverTarget {
-  const { worktreeId: _worktreeId, unitId: _unitId, ...surfaceTarget } = target;
+  const { worktreeId: _worktreeId, sessionWorktreeId: _sessionWorktreeId, unitId: _unitId, ...surfaceTarget } = target;
   return surfaceTarget;
 }
 
@@ -78,6 +87,7 @@ export function sameTargetRoute(left: UniverTarget, right: UniverTarget): boolea
     left.id === right.id &&
     left.value === right.value &&
     left.worktreeId === right.worktreeId &&
+    left.sessionWorktreeId === right.sessionWorktreeId &&
     left.unitId === right.unitId
   );
 }

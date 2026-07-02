@@ -13,6 +13,7 @@ const routedUniverTarget = {
   reason: "test",
   exists: true,
   worktreeId: "wt_1",
+  sessionWorktreeId: "wt_1",
   unitId: "unit_1",
 } satisfies OpenTarget;
 
@@ -45,6 +46,7 @@ describe("panel tab transcript artifact sync", () => {
     const target = usePanelTabStore.getState().transcriptArtifactTargets["session-1"]?.[0];
 
     expect(target?.worktreeId).toBe("wt_1");
+    expect(target?.sessionWorktreeId).toBe("wt_1");
     expect(target?.unitId).toBe("unit_1");
     expect(target?.size).toBe(1024);
   });
@@ -58,6 +60,7 @@ describe("panel tab transcript artifact sync", () => {
     const target = usePanelTabStore.getState().transcriptArtifactTargets["session-1"]?.[0];
 
     expect(target?.worktreeId).toBeUndefined();
+    expect(target?.sessionWorktreeId).toBe("wt_1");
     expect(target?.unitId).toBe("unit_1");
   });
 
@@ -70,6 +73,7 @@ describe("panel tab transcript artifact sync", () => {
     const target = usePanelTabStore.getState().transcriptArtifactTargets["session-1"]?.[0];
 
     expect(target?.worktreeId).toBe("wt_1");
+    expect(target?.sessionWorktreeId).toBe("wt_1");
     expect(target?.unitId).toBe("unit_1");
   });
 });

@@ -178,6 +178,11 @@ function CoworkRows({ controller, client, target, sessionId, workspaceId, onArti
     updateTargetSnapshot(workspaceId, target.value, snapshot);
   }, [snapshot, target.value, updateTargetSnapshot, workspaceId]);
 
+  React.useEffect(() => {
+    if (!target.worktreeId?.trim()) return;
+    void controller.refresh();
+  }, [controller, target.value, target.worktreeId]);
+
   const toggleSection = React.useCallback((key: CoworkSectionKey) => {
     setOpenSections((current) => ({
       ...current,

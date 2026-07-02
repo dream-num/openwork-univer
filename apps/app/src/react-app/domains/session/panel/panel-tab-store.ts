@@ -119,6 +119,7 @@ function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]
         target.name === next.name &&
         target.preview === next.preview &&
         target.worktreeId === next.worktreeId &&
+        target.sessionWorktreeId === next.sessionWorktreeId &&
         target.unitId === next.unitId &&
         target.exists === next.exists &&
         target.size === next.size &&
@@ -128,22 +129,34 @@ function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]
   );
 }
 
+function mergeSessionWorktreeOwner(current: OpenTarget | undefined, target: OpenTarget): OpenTarget {
+  if (target.sessionWorktreeId || !current?.sessionWorktreeId) {
+    return target;
+  }
+
+  return {
+    ...target,
+    sessionWorktreeId: current.sessionWorktreeId,
+  };
+}
+
 function mergeUnspecifiedTargetRoutes(currentTargets: OpenTarget[], nextTargets: OpenTarget[]) {
   const currentById = new Map(currentTargets.map((target) => [target.id, target]));
 
   return nextTargets.map((target) => {
     const current = currentById.get(target.id);
+    const targetWithOwner = mergeSessionWorktreeOwner(current, target);
 
     if (target.worktreeId || !current?.worktreeId) {
-      return target;
+      return targetWithOwner;
     }
 
     if (target.unitId && target.unitId !== current.unitId) {
-      return target;
+      return targetWithOwner;
     }
 
     return {
-      ...target,
+      ...targetWithOwner,
       ...(current.worktreeId ? { worktreeId: current.worktreeId } : {}),
       ...(current.unitId ? { unitId: current.unitId } : {}),
     };
@@ -387,9 +400,11 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       upsertTranscriptArtifactTarget: (sessionId, target) => set((state) => {
         const currentTranscript = state.transcriptArtifactTargets[sessionId] ?? [];
+        const currentTarget = currentTranscript.find((item) => item.id === target.id);
+        const nextTarget = mergeSessionWorktreeOwner(currentTarget, target);
         const nextTargets = [
           ...currentTranscript.filter((item) => item.id !== target.id),
-          target,
+          nextTarget,
         ];
         const session = getWritableSession(state, sessionId);
         const collectibleTargets = nextTargets

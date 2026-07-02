@@ -24,6 +24,7 @@ export type OpenTarget = {
   confidence: number;
   reason: string;
   worktreeId?: string;
+  sessionWorktreeId?: string;
   unitId?: string;
   exists?: boolean;
   size?: number;

@@ -290,6 +290,51 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
       },
     ]);
   });
+
+  test("keeps the session worktree route available while viewing the current version", () => {
+    const reviewable = readySnapshot.reviewableWorktrees[0];
+    if (!reviewable) throw new Error("expected reviewable worktree fixture");
+
+    const snapshot: CoworkSnapshot = {
+      ...readySnapshot,
+      reviewableWorktrees: [
+        {
+          ...reviewable,
+          worktreeId: "wt_current",
+          displayName: "raw-current-worktree",
+          reviewSummary: {
+            ...reviewable.reviewSummary,
+            worktreeId: "wt_current",
+          },
+        },
+      ],
+    };
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" }),
+      isRemoteWorkspace: false,
+      snapshot,
+      currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      sessionWorktreeId: "wt_current",
+      worktreeOwnerTitles: {
+        wt_current: "5月工资表制作",
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.breadcrumb.worktree).toEqual({ label: "Current version" });
+    expect(model.worktreeGroups.map((group) => group.label)).toEqual([
+      "Current version",
+      "This session",
+    ]);
+    expect(model.worktreeGroups[1]?.options[0]).toMatchObject({
+      id: "worktree:wt_current",
+      label: "5月工资表制作",
+      stateLabel: "Ready",
+      selected: false,
+      view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+    });
+  });
 });
 
 describe("artifact headers", () => {
@@ -464,5 +509,16 @@ describe("artifact headers", () => {
     expect(viewerSource).not.toMatch(/if \(isLoading\) \{\s*return \(/);
     expect(viewerSource).not.toMatch(/if \(isError \|\| !surface\) \{\s*return \(/);
     expect(viewerSource).not.toMatch(/if \(!viewerRequest \|\| !viewerDataSource\) \{\s*return \(/);
+  });
+
+  test("Univer artifact workspace refreshes when a session route gains a worktree", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("if (!target.worktreeId?.trim()) return;");
+    expect(source).toContain("void controller.refresh();");
+    expect(source).toContain("[controller, target.value, target.worktreeId]");
   });
 });

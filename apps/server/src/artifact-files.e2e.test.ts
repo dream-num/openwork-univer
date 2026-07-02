@@ -70,7 +70,7 @@ describe("artifact file routes", () => {
           { kind: "file", value: "reports/artifact-eval.csv", confidence: 80 },
           { kind: "file", value: "reports/artifact-eval.xlsx", confidence: 80 },
           { kind: "file", value: "reports/artifact-eval.pptx", confidence: 80 },
-          { kind: "file", value: "reports/native.univer", confidence: 80 },
+          { kind: "file", value: "reports/native.univer", confidence: 80, worktreeId: "wt_review", unitId: "unit_payroll" },
           { kind: "file", value: "reports/index.html", confidence: 80 },
           { kind: "file", value: "reports/missing.md", confidence: 80 },
           { kind: "url", value: "http://localhost:4321", confidence: 80 },
@@ -84,7 +84,13 @@ describe("artifact file routes", () => {
     expect(resolved.items.find((item) => item.value === "reports/artifact-eval.csv")).toMatchObject({ exists: true, preview: "sheet" });
     expect(resolved.items.find((item) => item.value === "reports/artifact-eval.xlsx")).toMatchObject({ exists: true, preview: "sheet" });
     expect(resolved.items.find((item) => item.value === "reports/artifact-eval.pptx")).toMatchObject({ exists: true, preview: "slides", contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-    expect(resolved.items.find((item) => item.value === "reports/native.univer")).toMatchObject({ exists: true, preview: "univer", contentType: "application/vnd.univer" });
+    expect(resolved.items.find((item) => item.value === "reports/native.univer")).toMatchObject({
+      exists: true,
+      preview: "univer",
+      contentType: "application/vnd.univer",
+      worktreeId: "wt_review",
+      unitId: "unit_payroll",
+    });
     expect(resolved.items.find((item) => item.value === "reports/index.html")).toMatchObject({ exists: true, preview: "html" });
     expect(resolved.items.find((item) => item.value === "reports/missing.md")).toMatchObject({ exists: false });
     expect(resolved.items.find((item) => item.value === "http://localhost:4321/")).toMatchObject({ kind: "url", preview: "browser" });

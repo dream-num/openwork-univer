@@ -87,14 +87,14 @@
 
 ## 9. Univer Surface Breadcrumb Route
 
-- [ ] 9.1 Replace the right-side Univer Surface title with a breadcrumb rendered as `<Univerfile> / <Unit> / <Worktree>`.
-- [ ] 9.2 Remove the leading generic file icon from the Univer Surface header.
-- [ ] 9.3 Add Unit breadcrumb dropdown routing for units inside the bound Primary Univerfile.
-- [ ] 9.4 Render Unit breadcrumb text as unit name only, with icons for sheet/document/slide type.
-- [ ] 9.5 Add Worktree breadcrumb dropdown routing for Current version and available worktrees under the bound Primary Univerfile.
-- [ ] 9.6 Group Worktree choices as Current version, This session, and Other sessions.
-- [ ] 9.7 Label Worktree choices with Current version or owning session title plus compact state chip, not raw worktree id.
-- [ ] 9.8 Ensure Unit and Worktree breadcrumb changes do not mutate `primaryUniverTarget` or `sessionUniverWorktreeId`.
-- [ ] 9.9 Keep session-owned worktree state as the default route for working/review sessions without making the right-side surface session-owned.
-- [ ] 9.10 Add focused tests for breadcrumb rendering, route-only selector behavior, and view-only Other sessions worktrees.
-- [ ] 9.11 Produce fraimz evidence for breadcrumb route switching in a bound Univer session.
+- [x] 9.1 Replace the right-side Univer Surface title with a breadcrumb rendered as `<Univerfile> / <Unit> / <Worktree>`.
+- [x] 9.2 Remove the leading generic file icon from the Univer Surface header.
+- [x] 9.3 Add Unit breadcrumb dropdown routing for units inside the bound Primary Univerfile.
+- [x] 9.4 Render Unit breadcrumb text as unit name only, with icons for sheet/document/slide type.
+- [x] 9.5 Add Worktree breadcrumb dropdown routing for Current version and available worktrees under the bound Primary Univerfile.
+- [x] 9.6 Group Worktree choices as Current version, This session, and Other sessions.
+- [x] 9.7 Label Worktree choices with Current version or owning session title plus compact state chip, not raw worktree id.
+- [x] 9.8 Ensure Unit and Worktree breadcrumb changes do not mutate `primaryUniverTarget` or `sessionUniverWorktreeId`.
+- [x] 9.9 Keep session-owned worktree state as the default route for working/review sessions without making the right-side surface session-owned.
+- [x] 9.10 Add focused tests for breadcrumb rendering, route-only selector behavior, and view-only Other sessions worktrees.
+- [x] 9.11 Produce fraimz evidence for breadcrumb route switching in a bound Univer session.

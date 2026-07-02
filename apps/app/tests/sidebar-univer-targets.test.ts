@@ -308,6 +308,14 @@ describe("sidebar Univer target grouping", () => {
     expect(source).toContain("!univerNavigation.hasUniverSurface && wsGroups.length === 0 && activeRootCount > previewCount");
   });
 
+  test("keeps Univerfile child session indentation compact", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+
+    expect(source).toContain('const SESSION_DEPTH_1_CLASS = "ps-8"');
+    expect(source).toContain('const SESSION_DEPTH_DEEP_CLASS = "ps-11"');
+    expect(source).toContain('nested ? "h-7 px-2 ps-8 text-xs"');
+  });
+
   test("offers file-level cleanup for unavailable Univerfiles only", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
 

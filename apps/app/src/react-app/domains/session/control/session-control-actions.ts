@@ -11,6 +11,10 @@ import { useSessionManagementStore } from "../sidebar/session-management-store";
 type SessionLike = {
   id?: string;
   title?: string;
+  primaryUniverTarget?: { path: string; name: string } | null;
+  sessionUniverWorktreeId?: string | null;
+  sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
+  univerSessionKind?: "task" | "overview" | null;
   time?: {
     updated?: number;
     created?: number;
@@ -100,7 +104,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
     return {
       id: "eval.session.bind_primary_univer_target",
-      label: "Bind the selected session to a Primary Univer Target",
+      label: "Bind the selected session to a Primary Univerfile",
       description: "Eval-only helper that writes Univer session metadata and refreshes the route state.",
       sideEffect: "mutation",
       disabled: !openworkClient || !selectedWorkspaceId || !selectedSessionId,
@@ -129,6 +133,38 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     };
   }, [openworkClient, refreshRouteState, selectedSessionId, selectedWorkspaceId]);
   useControlAction(bindPrimaryUniverTargetControlAction);
+
+  const currentUniverMetadataControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.session.current_univer_metadata",
+      label: "Read selected session Univer metadata",
+      description: "Eval-only helper that returns the selected session's Univer binding metadata.",
+      sideEffect: "none",
+      disabled: !selectedWorkspaceId || !selectedSessionId,
+      execute: () => {
+        if (!selectedWorkspaceId || !selectedSessionId) {
+          return { ok: false, error: "No selected workspace/session is available." };
+        }
+        const session = (sessionsByWorkspaceId[selectedWorkspaceId] ?? [])
+          .find((candidate) => candidate.id === selectedSessionId);
+        if (!session) {
+          return { ok: false, error: "Selected session was not found." };
+        }
+        return {
+          ok: true,
+          sessionId: selectedSessionId,
+          title: getDisplaySessionTitle(session.title ?? ""),
+          primaryUniverTarget: session.primaryUniverTarget ?? null,
+          sessionUniverWorktreeId: session.sessionUniverWorktreeId ?? null,
+          sessionUniverWorktreeTerminalState: session.sessionUniverWorktreeTerminalState ?? null,
+          univerSessionKind: session.univerSessionKind ?? null,
+        };
+      },
+    };
+  }, [selectedSessionId, selectedWorkspaceId, sessionsByWorkspaceId]);
+  useControlAction(currentUniverMetadataControlAction);
 
   const listSessionsControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.list_sessions",

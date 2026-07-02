@@ -170,7 +170,13 @@ type ArtifactTargetInput = {
   preview?: unknown;
   confidence?: unknown;
   reason?: unknown;
+  worktreeId?: unknown;
+  unitId?: unknown;
 };
+
+function optionalTrimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
 
 function artifactPreviewForPath(path: string): string {
   const lowered = path.toLowerCase();
@@ -208,6 +214,8 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     if (!rawValue) continue;
     const confidence = typeof target.confidence === "number" && Number.isFinite(target.confidence) ? target.confidence : 0;
     const reason = typeof target.reason === "string" ? target.reason : "server";
+    const worktreeId = optionalTrimmedString(target.worktreeId);
+    const unitId = optionalTrimmedString(target.unitId);
 
     if (kind === "url") {
       const url = normalizeUrlTarget(rawValue);
@@ -222,6 +230,8 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
         confidence,
         reason,
         exists: true,
+        ...(worktreeId ? { worktreeId } : {}),
+        ...(unitId ? { unitId } : {}),
       };
       const previous = results.get(key);
       if (!previous || confidence >= Number(previous.confidence ?? 0)) results.set(key, next);
@@ -269,6 +279,8 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
       size,
       updatedAt,
       contentType: contentTypeForPath(relativePath),
+      ...(worktreeId ? { worktreeId } : {}),
+      ...(unitId ? { unitId } : {}),
     };
     const previous = results.get(key);
     if (!previous || confidence >= Number(previous.confidence ?? 0)) results.set(key, next);

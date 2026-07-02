@@ -629,8 +629,8 @@ const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 rounde
 const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
 const UNIVER_FILE_COUNT_CLASS = "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm px-1 text-[10px] font-medium leading-none";
 const UNIVER_FILE_ACTIONS_CLASS = "absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5";
-const SESSION_DEPTH_1_CLASS = "ps-10";
-const SESSION_DEPTH_DEEP_CLASS = "ps-13";
+const SESSION_DEPTH_1_CLASS = "ps-8";
+const SESSION_DEPTH_DEEP_CLASS = "ps-11";
 
 function sessionDepthClass(depth: number): string {
   if (depth <= 0) return "";
@@ -1689,7 +1689,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
       onClick={onToggle}
       className={cn(
         "group/separator flex w-full items-center gap-1.5 rounded text-left transition-colors hover:bg-sidebar-accent/50",
-        nested ? "h-7 px-2 ps-10 text-xs" : "px-2 pb-1 pt-2.5 first:pt-1",
+        nested ? "h-7 px-2 ps-8 text-xs" : "px-2 pb-1 pt-2.5 first:pt-1",
       )}
       aria-expanded={expanded}
     >

@@ -581,7 +581,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   );
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
-    () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
+    () => openTargets
+      .map((target) => `${target.kind}:${target.value}:${target.confidence}:${target.worktreeId ?? ""}:${target.sessionWorktreeId ?? ""}:${target.unitId ?? ""}`)
+      .join("|"),
     [openTargets],
   );
   const autoOpenTarget = selectAutoOpenTarget(verifiedOpenTargets);

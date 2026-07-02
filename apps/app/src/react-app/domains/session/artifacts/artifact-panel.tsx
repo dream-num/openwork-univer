@@ -95,6 +95,7 @@ import {
   isUniverTarget,
   sameContentView,
   targetFromSelection,
+  targetWithSessionWorktreeOwner,
   type UniverTarget,
   useUniverCoworkSession,
 } from "./univer-cowork-session";
@@ -188,6 +189,20 @@ function buildUniverWorktreeOwnerTitles(
   return titles;
 }
 
+function resolveSessionUniverWorktreeId(
+  workspaceSessions: SidebarSessionItem[],
+  currentSessionId: string,
+  targetPath: string,
+): string | null {
+  const targetKey = normalizeUniverTargetPath(targetPath);
+  const session = workspaceSessions.find((candidate) => candidate.id === currentSessionId);
+  if (!session) return null;
+  const worktreeId = session.sessionUniverWorktreeId?.trim();
+  if (!worktreeId) return null;
+  const sessionTargetKey = normalizeUniverTargetPath(session.primaryUniverTarget?.path);
+  return sessionTargetKey === targetKey ? worktreeId : null;
+}
+
 export function ArtifactPanel({
   sessionId,
   tab,
@@ -251,6 +266,15 @@ function ArtifactPanelView({
   const worktreeOwnerTitles = useMemo(
     () =>
       buildUniverWorktreeOwnerTitles(
+        workspaceSessions,
+        sessionId,
+        target.value,
+      ),
+    [sessionId, target.value, workspaceSessions],
+  );
+  const sessionWorktreeId = useMemo(
+    () =>
+      resolveSessionUniverWorktreeId(
         workspaceSessions,
         sessionId,
         target.value,
@@ -497,6 +521,7 @@ function ArtifactPanelView({
           workspaceId={workspaceId}
           target={target}
           worktreeOwnerTitles={worktreeOwnerTitles}
+          sessionWorktreeId={sessionWorktreeId}
           fileIcon={fileIcon}
           isRemoteWorkspace={isRemoteWorkspace}
           onDownload={download}
@@ -772,6 +797,7 @@ interface UniverArtifactWorkspaceProps {
   workspaceId: string;
   target: UniverTarget;
   worktreeOwnerTitles: Record<string, string>;
+  sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   onDownload: () => void | Promise<void>;
@@ -785,6 +811,7 @@ function UniverArtifactWorkspace({
   workspaceId,
   target,
   worktreeOwnerTitles,
+  sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
   onDownload,
@@ -810,6 +837,7 @@ function UniverArtifactWorkspace({
         viewerDataSource={viewerDataSource}
         target={target}
         worktreeOwnerTitles={worktreeOwnerTitles}
+        sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -824,6 +852,7 @@ function UniverArtifactWorkspace({
       <UniverArtifactHeader
         target={target}
         worktreeOwnerTitles={worktreeOwnerTitles}
+        sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -850,6 +879,7 @@ interface UniverArtifactWorkspaceContentProps {
   viewerDataSource: CoworkContentViewerDataSource | null;
   target: UniverTarget;
   worktreeOwnerTitles: Record<string, string>;
+  sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   onDownload: () => void | Promise<void>;
@@ -866,6 +896,7 @@ function UniverArtifactWorkspaceContent({
   viewerDataSource,
   target,
   worktreeOwnerTitles,
+  sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
   onDownload,
@@ -902,18 +933,29 @@ function UniverArtifactWorkspaceContent({
   const contentSurface = contentView
     ? buildCoworkContentSurface(snapshot, contentView)
     : null;
+  const routeOwnerWorktreeId =
+    sessionWorktreeId ?? target.sessionWorktreeId ?? target.worktreeId ?? null;
+
+  useEffect(() => {
+    if (!target.worktreeId?.trim()) return;
+    void controller.refresh();
+  }, [controller, target.value, target.worktreeId]);
 
   const syncTargetRoute = (nextTarget: UniverTarget) => {
     const store = usePanelTabStore.getState();
+    const nextTargetWithOwner = targetWithSessionWorktreeOwner(
+      nextTarget,
+      routeOwnerWorktreeId,
+    );
 
-    store.upsertTranscriptArtifactTarget(sessionId, nextTarget);
+    store.upsertTranscriptArtifactTarget(sessionId, nextTargetWithOwner);
     store.openTab(sessionId, {
-      id: nextTarget.id,
+      id: nextTargetWithOwner.id,
       type: "artifact",
-      label: nextTarget.name,
-      preview: nextTarget.preview,
+      label: nextTargetWithOwner.name,
+      preview: nextTargetWithOwner.preview,
     });
-    store.selectTab(sessionId, nextTarget.id);
+    store.selectTab(sessionId, nextTargetWithOwner.id);
   };
 
   const setContentViewAndRoute = (view: CoworkContentViewState) => {
@@ -995,6 +1037,7 @@ function UniverArtifactWorkspaceContent({
       <UniverArtifactHeader
         target={target}
         worktreeOwnerTitles={worktreeOwnerTitles}
+        sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         currentView={contentView}
@@ -1036,6 +1079,7 @@ function UniverArtifactWorkspaceContent({
 interface UniverArtifactHeaderProps {
   target: OpenTarget;
   worktreeOwnerTitles?: Record<string, string>;
+  sessionWorktreeId?: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   contentSurface?: CoworkContentSurface | null;
@@ -1054,6 +1098,7 @@ interface UniverArtifactHeaderProps {
 export function UniverArtifactHeader({
   target,
   worktreeOwnerTitles,
+  sessionWorktreeId,
   isRemoteWorkspace,
   contentSurface,
   currentView,
@@ -1067,6 +1112,7 @@ export function UniverArtifactHeader({
   onReveal,
   onClose,
 }: UniverArtifactHeaderProps) {
+  const ownerWorktreeId = sessionWorktreeId ?? target.sessionWorktreeId ?? target.worktreeId;
   const viewModel = deriveUniverArtifactHeaderViewModel({
     target,
     isRemoteWorkspace,
@@ -1075,7 +1121,7 @@ export function UniverArtifactHeader({
       : {}),
     ...(currentView ? { currentView } : {}),
     ...(snapshot ? { snapshot } : {}),
-    ...(target.worktreeId ? { sessionWorktreeId: target.worktreeId } : {}),
+    ...(ownerWorktreeId ? { sessionWorktreeId: ownerWorktreeId } : {}),
     ...(worktreeOwnerTitles ? { worktreeOwnerTitles } : {}),
     ...(contentSurface?.status === "ready"
       ? {

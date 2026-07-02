@@ -169,21 +169,9 @@ async function ensureSession(ctx) {
 
   const beforeSessionId = await selectedSessionId(ctx);
   await ctx.control("session.create_task");
-  await ctx.waitFor(`(() => {
-    const route = window.__openworkControl.snapshot().route || "";
-    return route.includes("/session/") && !route.includes(${JSON.stringify(beforeSessionId ?? "")});
-  })()`, {
+  await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
     timeoutMs: 60_000,
     label: "fresh session route",
-  });
-  await closeBlockingDialogs(ctx);
-}
-
-async function reloadApp(ctx) {
-  await ctx.eval("location.reload()");
-  await ctx.waitFor("Boolean(window.__openworkControl)", {
-    timeoutMs: 60_000,
-    label: "control API after reload",
   });
   await closeBlockingDialogs(ctx);
 }
@@ -229,6 +217,16 @@ async function selectedSessionId(ctx) {
   return route.slice(markerIndex + marker.length).split(/[/?#]/)[0] || null;
 }
 
+function newSessionRouteExpression(beforeSessionId) {
+  const previous = beforeSessionId ? JSON.stringify(beforeSessionId) : "null";
+  return `(() => {
+    const route = window.__openworkControl.snapshot().route || "";
+    if (!route.includes("/session/")) return false;
+    const previous = ${previous};
+    return !previous || !route.includes(previous);
+  })()`;
+}
+
 async function clickTargetNewTask(ctx) {
   const clicked = await ctx.waitFor(`(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -246,9 +244,20 @@ async function clickTargetNewTask(ctx) {
 }
 
 async function clickMergeChanges(ctx) {
+  await ctx.eval(`(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
   const clicked = await ctx.waitFor(`(() => {
-    const button = document.querySelector('button[aria-label="Merge changes"]');
+    const button = Array.from(document.querySelectorAll("button")).find((candidate) => {
+      const text = (candidate.textContent || "").trim();
+      return candidate.getAttribute("aria-label") === "Merge changes" ||
+        text === "Merge changes" ||
+        text === "合入到当前版本";
+    });
     if (!button || button.disabled) return false;
+    button.scrollIntoView({ block: "center", inline: "nearest" });
     button.click();
     return true;
   })()`, {
@@ -285,6 +294,76 @@ async function scrollTargetDoneGroupIntoView(ctx) {
   ctx.assert(visible === true, "Could not reveal the target Done group.");
 }
 
+async function selectedUniverMetadata(ctx) {
+  const metadata = await ctx.control("eval.session.current_univer_metadata");
+  ctx.assert(metadata?.ok === true, `Could not read selected session Univer metadata: ${metadata?.error ?? "unknown error"}`);
+  return metadata;
+}
+
+async function waitForSelectedUniverMetadata(ctx, predicate, label) {
+  const startedAt = Date.now();
+  let lastMetadata = null;
+  let lastError = null;
+  while (Date.now() - startedAt < 60_000) {
+    try {
+      const metadata = await selectedUniverMetadata(ctx);
+      lastMetadata = metadata;
+      if (predicate(metadata)) return metadata;
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+  const lastState = lastMetadata ? JSON.stringify(lastMetadata) : "none";
+  throw new Error(`Timed out waiting for ${label}. Last metadata: ${lastState}${lastError ? ` (${lastError.message})` : ""}`);
+}
+
+async function waitForUniverBreadcrumb(ctx) {
+  const visible = await ctx.waitFor(`(() => {
+    const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+    if (!breadcrumb) return false;
+    const text = breadcrumb.textContent || "";
+    const rect = breadcrumb.getBoundingClientRect();
+    return rect.width > 0
+      && rect.height > 0
+      && text.includes(${JSON.stringify(UNIVER_BASENAME)})
+      && text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)});
+  })()`, {
+    timeoutMs: 60_000,
+    label: "Univer surface breadcrumb",
+  });
+  ctx.assert(visible === true, "Could not find the Univer surface breadcrumb.");
+}
+
+async function openWorktreeBreadcrumbMenu(ctx) {
+  const opened = await ctx.waitFor(`(() => {
+    const trigger = Array.from(document.querySelectorAll("button"))
+      .find((candidate) => candidate.getAttribute("aria-label")?.startsWith("Select worktree."));
+    if (!trigger || trigger.disabled) return false;
+    if (trigger.getAttribute("aria-expanded") === "true") return true;
+    trigger.click();
+    return false;
+  })()`, {
+    timeoutMs: 30_000,
+    label: "worktree breadcrumb menu",
+  });
+  ctx.assert(opened === true, "Could not open the worktree breadcrumb menu.");
+}
+
+async function clickBreadcrumbMenuItem(ctx, selectorExpression, label) {
+  const clicked = await ctx.waitFor(`(() => {
+    const item = ${selectorExpression};
+    if (!item) return false;
+    item.click();
+    return true;
+  })()`, {
+    timeoutMs: 30_000,
+    label,
+  });
+  ctx.assert(clicked === true, `Could not click ${label}.`);
+}
+
 export default {
   id: "univer-target-session-workflow",
   title: "Sessions bind to a Primary Univerfile",
@@ -312,7 +391,11 @@ export default {
             await ctx.control("eval.session.bind_primary_univer_target", {
               path: RELATIVE_UNIVER_PATH,
             });
-            await reloadApp(ctx);
+            await waitForSelectedUniverMetadata(
+              ctx,
+              (metadata) => metadata.primaryUniverTarget?.path === RELATIVE_UNIVER_PATH,
+              "Primary Univerfile metadata",
+            );
           },
           assert: async () => {
             await ctx.waitForText(UNIVER_BASENAME, { timeoutMs: 30_000 });
@@ -377,10 +460,7 @@ export default {
             await closeBoundUniverPopovers(ctx);
             const beforeSessionId = await selectedSessionId(ctx);
             await clickTargetNewTask(ctx);
-            await ctx.waitFor(`(() => {
-              const route = window.__openworkControl.snapshot().route || "";
-              return route.includes("/session/") && !route.includes(${JSON.stringify(beforeSessionId ?? "")});
-            })()`, {
+            await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
               timeoutMs: 30_000,
               label: "new univerfile task route",
             });
@@ -411,6 +491,11 @@ export default {
               path: RELATIVE_UNIVER_PATH,
               worktreeId: readyWorktreeId,
             });
+            await waitForSelectedUniverMetadata(
+              ctx,
+              (metadata) => metadata.sessionUniverWorktreeId === readyWorktreeId,
+              "transcript-derived session worktree metadata",
+            );
             await closeBoundUniverPopovers(ctx);
             await openTasks(ctx);
           },
@@ -429,6 +514,84 @@ export default {
       },
     },
     {
+      name: "Switch the Univer Surface breadcrumb route",
+      run: async (ctx) => {
+        await ctx.prove("Breadcrumb worktree route switching does not change the session-owned Univer worktree", {
+          action: async () => {
+            ctx.assert(typeof readyWorktreeId === "string", "Ready worktree id was not captured.");
+            await closeBoundUniverPopovers(ctx);
+            await ctx.waitFor(`(() => {
+              const actions = window.__openworkControl.listActions();
+              return actions.some((action) => action.id === "eval.session.current_univer_metadata" && !action.disabled);
+            })()`, {
+              timeoutMs: 30_000,
+              label: "current Univer metadata control action",
+            });
+            const before = await selectedUniverMetadata(ctx);
+            ctx.assert(before.primaryUniverTarget?.path === RELATIVE_UNIVER_PATH, "Selected session is not bound to the expected Primary Univerfile.");
+            ctx.assert(before.sessionUniverWorktreeId === readyWorktreeId, "Selected session is not bound to the ready worktree before route switching.");
+
+            await waitForUniverBreadcrumb(ctx);
+            await openWorktreeBreadcrumbMenu(ctx);
+            await clickBreadcrumbMenuItem(
+              ctx,
+              `Array.from(document.querySelectorAll('[role="menuitem"]'))
+                .find((candidate) => (candidate.textContent || "").trim().startsWith("Current version"))`,
+              "Current version breadcrumb option",
+            );
+            await ctx.waitFor(`(() => {
+              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              return Boolean(breadcrumb && (breadcrumb.textContent || "").includes("Current version"));
+            })()`, {
+              timeoutMs: 30_000,
+              label: "breadcrumb switched to Current version",
+            });
+
+            await openWorktreeBreadcrumbMenu(ctx);
+            await clickBreadcrumbMenuItem(
+              ctx,
+              `document.querySelector(${JSON.stringify(`[title="${readyWorktreeId}"]`)})`,
+              "session worktree breadcrumb option",
+            );
+            await ctx.waitFor(`(() => {
+              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              const text = breadcrumb?.textContent || "";
+              return text.includes(${JSON.stringify(UNIVER_BASENAME)})
+                && text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                && !text.includes(${JSON.stringify(readyWorktreeId)});
+            })()`, {
+              timeoutMs: 30_000,
+              label: "breadcrumb switched back to session worktree label",
+            });
+
+            const after = await selectedUniverMetadata(ctx);
+            ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Breadcrumb route switching changed the Primary Univerfile.");
+            ctx.assert(after.sessionUniverWorktreeId === before.sessionUniverWorktreeId, "Breadcrumb route switching changed the session-owned worktree.");
+            await openWorktreeBreadcrumbMenu(ctx);
+          },
+          assert: async () => {
+            const result = await ctx.eval(`(() => {
+              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              return {
+                breadcrumbText: breadcrumb?.textContent || "",
+                bodyText: document.body.innerText || "",
+              };
+            })()`);
+            ctx.assert(result.breadcrumbText.includes(UNIVER_BASENAME), `Breadcrumb missing Univerfile: ${result.breadcrumbText}`);
+            ctx.assert(result.breadcrumbText.includes(UNIT_DISPLAY_NAME), `Breadcrumb missing unit: ${result.breadcrumbText}`);
+            ctx.assert(!result.breadcrumbText.includes(readyWorktreeId), "Breadcrumb shows the raw worktree id.");
+            ctx.assert(result.bodyText.includes("Current version"), "Worktree menu does not show Current version.");
+            ctx.assert(result.bodyText.includes("This session"), "Worktree menu does not group the session worktree.");
+          },
+          screenshot: {
+            name: "breadcrumb-route-switching",
+            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "Current version", "This session"],
+            rejectText: ["Something went wrong", "Application error"],
+          },
+        });
+      },
+    },
+    {
       name: "Merge moves the session to Done",
       run: async (ctx) => {
         await ctx.prove("Merging the session-owned worktree makes the task terminal and exposes Done state", {
@@ -437,8 +600,11 @@ export default {
             ctx.assert(typeof readyWorktreeId === "string", "Ready worktree id was not captured.");
             await clickMergeChanges(ctx);
             await waitForWorktreeStatus(evalWorkspaceRoot, readyWorktreeId, "merged");
-            await sleep(1_000);
-            await reloadApp(ctx);
+            await waitForSelectedUniverMetadata(
+              ctx,
+              (metadata) => metadata.sessionUniverWorktreeTerminalState === "merged",
+              "merged session worktree metadata",
+            );
             await openTasks(ctx);
             await scrollTargetDoneGroupIntoView(ctx);
           },
@@ -463,10 +629,7 @@ export default {
             await closeBoundUniverPopovers(ctx);
             const beforeSessionId = await selectedSessionId(ctx);
             await clickTargetNewTask(ctx);
-            await ctx.waitFor(`(() => {
-              const route = window.__openworkControl.snapshot().route || "";
-              return route.includes("/session/") && !route.includes(${JSON.stringify(beforeSessionId ?? "")});
-            })()`, {
+            await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
               timeoutMs: 30_000,
               label: "missing-state task route",
             });
@@ -474,7 +637,11 @@ export default {
               path: RELATIVE_UNIVER_PATH,
               worktreeId: `missing-${RUN_SUFFIX}`,
             });
-            await reloadApp(ctx);
+            await waitForSelectedUniverMetadata(
+              ctx,
+              (metadata) => metadata.sessionUniverWorktreeId === `missing-${RUN_SUFFIX}`,
+              "missing session worktree metadata",
+            );
             await openTasks(ctx);
           },
           assert: async () => {
@@ -493,14 +660,15 @@ export default {
           action: async () => {
             const beforeSessionId = await selectedSessionId(ctx);
             await ctx.clickText("Create new task", { timeoutMs: 30_000 });
-            await ctx.waitFor(`(() => {
-              const route = window.__openworkControl.snapshot().route || "";
-              return route.includes("/session/") && !route.includes(${JSON.stringify(beforeSessionId ?? "")});
-            })()`, {
+            await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
               timeoutMs: 30_000,
               label: "clean recovery task route",
             });
-            await reloadApp(ctx);
+            await waitForSelectedUniverMetadata(
+              ctx,
+              (metadata) => metadata.primaryUniverTarget?.path === RELATIVE_UNIVER_PATH && !metadata.sessionUniverWorktreeId,
+              "clean recovery task metadata",
+            );
             await openTasks(ctx);
             await ctx.waitForText("No changes in this session", { timeoutMs: 30_000 });
           },
