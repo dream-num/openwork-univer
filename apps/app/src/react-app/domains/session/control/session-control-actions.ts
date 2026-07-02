@@ -95,6 +95,41 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
   }), [canCreateTask, createTaskInWorkspace, selectedWorkspaceId]);
   useControlAction(createTaskControlAction);
 
+  const bindPrimaryUniverTargetControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.session.bind_primary_univer_target",
+      label: "Bind the selected session to a Primary Univer Target",
+      description: "Eval-only helper that writes Univer session metadata and refreshes the route state.",
+      sideEffect: "mutation",
+      disabled: !openworkClient || !selectedWorkspaceId || !selectedSessionId,
+      args: [
+        { name: "path", type: "string", required: true, description: "Workspace-relative .univer path." },
+        { name: "worktreeId", type: "string", description: "Optional session-owned Univer worktree id." },
+      ],
+      execute: async (args) => {
+        if (!openworkClient || !selectedWorkspaceId || !selectedSessionId) {
+          return { ok: false, error: "No selected workspace/session is available." };
+        }
+        const path = stringArg(args, "path");
+        if (!path.endsWith(".univer")) {
+          return { ok: false, error: "A workspace-relative .univer path is required." };
+        }
+        const name = path.split("/").filter(Boolean).pop() ?? path;
+        const worktreeId = stringArg(args, "worktreeId");
+        await openworkClient.updateSessionUniverMetadata(selectedWorkspaceId, selectedSessionId, {
+          primaryUniverTarget: { path, name },
+          univerSessionKind: "task",
+          ...(worktreeId ? { sessionUniverWorktreeId: worktreeId } : {}),
+        });
+        await refreshRouteState();
+        return { ok: true, sessionId: selectedSessionId, primaryUniverTarget: { path, name } };
+      },
+    };
+  }, [openworkClient, refreshRouteState, selectedSessionId, selectedWorkspaceId]);
+  useControlAction(bindPrimaryUniverTargetControlAction);
+
   const listSessionsControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.list_sessions",
     label: "List available sessions",

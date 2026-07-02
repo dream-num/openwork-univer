@@ -172,6 +172,124 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
 
     expect(view).toEqual({ scope: "trunk", unitId: "unit_2", trunkEditIntent: "auto" });
   });
+
+  test("derives breadcrumb route selectors from units and session-owned worktrees", () => {
+    const baseReviewable = readySnapshot.reviewableWorktrees[0];
+    if (!baseReviewable?.reviewSummary) throw new Error("expected base review summary");
+
+    const snapshot: CoworkSnapshot = {
+      ...readySnapshot,
+      units: [
+        {
+          unitId: "unit_1",
+          kind: "sheet",
+          displayName: "中国大陆工资表",
+          headRev: 2,
+        },
+        {
+          unitId: "unit_2",
+          kind: "doc",
+          displayName: "2026年第二季度员工工资汇总报告",
+          headRev: 1,
+        },
+      ],
+      activeWorktrees: [
+        {
+          worktreeId: "wt_current",
+          status: "draft",
+          displayName: "raw-current-worktree",
+          headCommit: 4,
+        },
+      ],
+      reviewableWorktrees: [
+        {
+          ...baseReviewable,
+          worktreeId: "wt_other",
+          displayName: "raw-other-worktree",
+          reviewSummary: {
+            ...baseReviewable.reviewSummary,
+            worktreeId: "wt_other",
+          },
+        },
+      ],
+    };
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer", worktreeId: "wt_current" }),
+      isRemoteWorkspace: false,
+      snapshot,
+      currentView: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+      sessionWorktreeId: "wt_current",
+      worktreeOwnerTitles: {
+        wt_current: "5月工资表制作",
+        wt_other: "季度总结更新",
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.breadcrumb).toEqual({
+      univerfile: { label: "工资表.univer" },
+      unit: { label: "中国大陆工资表", kind: "sheet" },
+      worktree: { label: "5月工资表制作", stateLabel: "Working" },
+    });
+    expect(model.unitOptions.map((option) => ({
+      label: option.label,
+      kind: option.kind,
+      selected: option.selected,
+      view: option.view,
+    }))).toEqual([
+      {
+        label: "中国大陆工资表",
+        kind: "sheet",
+        selected: true,
+        view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+      },
+      {
+        label: "2026年第二季度员工工资汇总报告",
+        kind: "doc",
+        selected: false,
+        view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_2" },
+      },
+    ]);
+    expect(model.worktreeGroups.map((group) => group.label)).toEqual([
+      "Current version",
+      "This session",
+      "Other sessions",
+    ]);
+    expect(model.worktreeGroups.flatMap((group) => group.options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      stateLabel: option.stateLabel,
+      selected: option.selected,
+      tooltip: option.tooltip,
+      view: option.view,
+    })))).toEqual([
+      {
+        id: "current-version",
+        label: "Current version",
+        stateLabel: undefined,
+        selected: false,
+        tooltip: undefined,
+        view: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      },
+      {
+        id: "worktree:wt_current",
+        label: "5月工资表制作",
+        stateLabel: "Working",
+        selected: true,
+        tooltip: "wt_current",
+        view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+      },
+      {
+        id: "worktree:wt_other",
+        label: "季度总结更新",
+        stateLabel: "Ready",
+        selected: false,
+        tooltip: "wt_other",
+        view: { scope: "worktree", worktreeId: "wt_other", unitId: "unit_1" },
+      },
+    ]);
+  });
 });
 
 describe("artifact headers", () => {
@@ -194,6 +312,10 @@ describe("artifact headers", () => {
     expect(html).toContain("Show in folder");
     expect(html).toContain("Close artifact");
     expect(html).not.toContain("Open externally");
+
+    const headerClass = html.match(/class="([^"]*)" data-testid="univer-artifact-header"/)?.[1];
+    expect(headerClass).not.toContain("border-b");
+    expect(html).toContain("h-10 items-center gap-3 border-b border-border");
   });
 
   test("generic artifact header keeps the external open action", () => {
@@ -279,12 +401,13 @@ describe("artifact headers", () => {
     );
 
     expect(html).toContain("中国大陆工资表");
-    expect(html).toContain("原始修改");
     expect(html).toContain("工资表.univer");
     expect(html).toContain("仅查看");
     expect(html).toContain("合并预览");
     expect(html).toContain("合入到当前版本");
     expect(html).toContain("丢弃");
+    expect(html).not.toContain("原始修改");
+    expect(html).not.toContain("artifacts/工资表.univer");
     expect(html).not.toContain("Open externally");
   });
 

@@ -2,6 +2,13 @@ import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
+  mergeSessionUniverMetadata,
+  normalizeSessionUniverMetadataPatch,
+  readSessionUniverMetadataState,
+  updateSessionUniverMetadata,
+  type SessionUniverMetadataState,
+} from "../session-univer-metadata.js";
+import {
   createSessionGroupId,
   normalizeSessionGroupState,
   readSessionGroupState,
@@ -11,6 +18,7 @@ import {
   type SessionGroupState,
 } from "../session-groups.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { discoverUniverTargets } from "../univer-targets.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
@@ -81,31 +89,50 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSessionList(
-        unwrapOpencodeResult(
-          await opencode.session.list({
-            roots: input.roots,
-            start: input.start,
-            search: input.search,
-            limit: input.limit,
-          }),
-          "/session",
+      const [sessions, metadata] = await Promise.all([
+        opencode.session.list({
+          roots: input.roots,
+          start: input.start,
+          search: input.search,
+          limit: input.limit,
+        }).then((result) =>
+          buildSessionList(
+            unwrapOpencodeResult(
+              result,
+              "/session",
+            ),
+          )
         ),
-      );
+        readSessionUniverMetadataState(config, workspace.id),
+      ]);
+      return sessions.map((session) => mergeSessionUniverMetadata(session, metadata.state));
     } catch (error) {
       remapSessionReadError(error);
     }
   }
 
+  async function readWorkspaceSessionUniverMetadataState(workspace: WorkspaceInfo): Promise<{
+    state: SessionUniverMetadataState;
+    updatedAt: number | null;
+  }> {
+    return readSessionUniverMetadataState(config, workspace.id);
+  }
+
   async function readWorkspaceSession(workspace: WorkspaceInfo, sessionId: string) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSession(
-        unwrapOpencodeResult(
-          await opencode.session.get({ sessionID: sessionId }),
-          `/session/${encodeURIComponent(sessionId)}`,
+      const [session, metadata] = await Promise.all([
+        opencode.session.get({ sessionID: sessionId }).then((result) =>
+          buildSession(
+            unwrapOpencodeResult(
+              result,
+              `/session/${encodeURIComponent(sessionId)}`,
+            ),
+          )
         ),
-      );
+        readWorkspaceSessionUniverMetadataState(workspace),
+      ]);
+      return mergeSessionUniverMetadata(session, metadata.state);
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -136,7 +163,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      const [session, messages, todos, statuses] = await Promise.all([
+      const [session, messages, todos, statuses, metadata] = await Promise.all([
         opencode.session
           .get({ sessionID: sessionId })
           .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}`)),
@@ -147,8 +174,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
           .todo({ sessionID: sessionId })
           .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/todo`)),
         opencode.session.status().then((result) => unwrapOpencodeResult(result, "/session/status")),
+        readWorkspaceSessionUniverMetadataState(workspace),
       ]);
-      return buildSessionSnapshot({ session, messages, todos, statuses });
+      const snapshot = buildSessionSnapshot({ session, messages, todos, statuses });
+      return { ...snapshot, session: mergeSessionUniverMetadata(snapshot.session, metadata.state) };
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -178,6 +207,18 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
     });
     return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/univer-targets", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const items = workspace.workspaceType === "remote" ? [] : await discoverUniverTargets(workspace.path);
+    return jsonResponse({ items });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/session-univer-metadata", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const result = await readWorkspaceSessionUniverMetadataState(workspace);
+    return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "GET", "/workspace/:id/session-groups", "client", async (ctx) => {
@@ -314,6 +355,20 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
     const item = await readWorkspaceSession(workspace, sessionId);
     return jsonResponse({ item });
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/sessions/:sessionId/univer-metadata", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = (ctx.params.sessionId ?? "").trim();
+    if (!sessionId) {
+      throw new ApiError(400, "invalid_payload", "sessionId is required");
+    }
+    const body = await readJsonBody(ctx.request);
+    const patch = normalizeSessionUniverMetadataPatch(body);
+    const result = await updateSessionUniverMetadata(config, workspace.id, sessionId, patch);
+    return jsonResponse({ metadata: result.metadata, state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/messages", "client", async (ctx) => {

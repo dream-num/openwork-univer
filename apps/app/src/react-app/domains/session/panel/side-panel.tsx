@@ -12,14 +12,25 @@ import {
 import { useDragControls } from "motion/react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
-import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
+import type { SidebarSessionItem } from "@/app/types";
+import {
+  PanelTab,
+  PanelTabClose,
+  PanelTabItem,
+  PanelTabList,
+} from "@/components/panel-tabs";
 import { Button } from "@/components/ui/button";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
@@ -30,7 +41,10 @@ import {
   useActivePanelTab,
   useSessionPanelState,
 } from "./panel-tab-store";
-import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
+import {
+  useControlAction,
+  type OpenworkControlAction,
+} from "../../../shell/control/control-provider";
 import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import {
@@ -46,6 +60,7 @@ type SidePanelProps = {
   client: OpenworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  workspaceSessions?: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
   onClose: () => void;
 };
@@ -75,7 +90,10 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
     }
   }, [active]);
 
-  const showBrowserTabContextMenu = (point?: { clientX: number; clientY: number }) => {
+  const showBrowserTabContextMenu = (point?: {
+    clientX: number;
+    clientY: number;
+  }) => {
     void getElectronBrowser()?.showTabContextMenu?.(
       tab.id,
       getNativeMenuPoint(tabRef.current, point),
@@ -87,37 +105,59 @@ function SidePanelTab({ tab, active, onSelect, onClose }: SidePanelTabProps) {
       value={tab.id}
       id={tab.id}
       dragControls={tab.type === "browser" ? dragControls : undefined}
-      onContextMenu={tab.type === "browser" ? (event: React.MouseEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-        showBrowserTabContextMenu({ clientX: event.clientX, clientY: event.clientY });
-      } : undefined}
+      onContextMenu={
+        tab.type === "browser"
+          ? (event: React.MouseEvent<HTMLDivElement>) => {
+              event.preventDefault();
+              event.stopPropagation();
+              showBrowserTabContextMenu({
+                clientX: event.clientX,
+                clientY: event.clientY,
+              });
+            }
+          : undefined
+      }
     >
       <div ref={tabRef} className="relative">
         <PanelTab
           active={active}
           onClick={() => onSelect(tab.id)}
-          onPointerDown={tab.type === "browser" ? (event) => {
-            if (event.button !== 0) {
-              return;
-            }
+          onPointerDown={
+            tab.type === "browser"
+              ? (event) => {
+                  if (event.button !== 0) {
+                    return;
+                  }
 
-            dragControls.start(event);
-          } : undefined}
-          onKeyDown={tab.type === "browser" ? (event: React.KeyboardEvent<HTMLButtonElement>) => {
-            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
-              return;
-            }
+                  dragControls.start(event);
+                }
+              : undefined
+          }
+          onKeyDown={
+            tab.type === "browser"
+              ? (event: React.KeyboardEvent<HTMLButtonElement>) => {
+                  if (
+                    event.key !== "ContextMenu" &&
+                    !(event.shiftKey && event.key === "F10")
+                  ) {
+                    return;
+                  }
 
-            event.preventDefault();
-            showBrowserTabContextMenu();
-          } : undefined}
+                  event.preventDefault();
+                  showBrowserTabContextMenu();
+                }
+              : undefined
+          }
           title={tab.label}
           aria-label={`Select tab: ${tab.label}`}
         >
           {tab.type === "browser" ? (
             tab.favicon ? (
-              <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-[2px]" />
+              <img
+                src={tab.favicon}
+                alt=""
+                className="size-3.5 shrink-0 rounded-[2px]"
+              />
             ) : tab.status === "loading" ? (
               <Loader2 className="animate-spin" />
             ) : (
@@ -143,10 +183,7 @@ type BrowserPanelContentProps = {
   onClose: () => void;
 };
 
-function BrowserPanelContent({
-  tab,
-  onClose,
-}: BrowserPanelContentProps) {
+function BrowserPanelContent({ tab, onClose }: BrowserPanelContentProps) {
   const isAvailable = Boolean(getElectronBrowser());
   const [urlInput, setUrlInput] = React.useState(tab.url);
   const urlFocusedRef = React.useRef(false);
@@ -154,7 +191,12 @@ function BrowserPanelContent({
   const urlInputRef = React.useRef<HTMLInputElement>(null);
   const shownRef = React.useRef(false);
   const boundsFrameRef = React.useRef<number | null>(null);
-  const lastBoundsRef = React.useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const lastBoundsRef = React.useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   React.useEffect(() => {
     if (!urlFocusedRef.current) {
@@ -178,13 +220,16 @@ function BrowserPanelContent({
     void getElectronBrowser()?.reload?.();
   }, []);
 
-  const handleUrlKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      navigate();
-      urlInputRef.current?.blur();
-    }
-  }, [navigate]);
+  const handleUrlKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        navigate();
+        urlInputRef.current?.blur();
+      }
+    },
+    [navigate],
+  );
 
   React.useLayoutEffect(() => {
     const browser = getElectronBrowser();
@@ -296,7 +341,7 @@ function BrowserPanelContent({
           <>
             <Tooltip>
               <TooltipTrigger
-                render={(
+                render={
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -306,13 +351,13 @@ function BrowserPanelContent({
                   >
                     <ArrowLeft />
                   </Button>
-                )}
+                }
               />
               <TooltipContent>Back</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger
-                render={(
+                render={
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -322,22 +367,26 @@ function BrowserPanelContent({
                   >
                     <ArrowRight />
                   </Button>
-                )}
+                }
               />
               <TooltipContent>Forward</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger
-                render={(
+                render={
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={reload}
                     aria-label="Reload page"
                   >
-                    {tab.status === "loading" ? <Loader2 className="animate-spin" /> : <RotateCw />}
+                    {tab.status === "loading" ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <RotateCw />
+                    )}
                   </Button>
-                )}
+                }
               />
               <TooltipContent>Reload</TooltipContent>
             </Tooltip>
@@ -381,7 +430,9 @@ function BrowserPanelContent({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isAvailable ? <div ref={contentRef} className="h-full overflow-hidden" /> : null}
+        {isAvailable ? (
+          <div ref={contentRef} className="h-full overflow-hidden" />
+        ) : null}
       </div>
     </>
   );
@@ -392,6 +443,7 @@ export function SidePanel({
   client,
   workspaceId,
   workspaceRoot,
+  workspaceSessions = [],
   isRemoteWorkspace = false,
   onClose,
 }: SidePanelProps) {
@@ -399,193 +451,293 @@ export function SidePanel({
   const activeTab = useActivePanelTab(sessionId);
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
-  const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
+  const { createTab, closeTab, selectTab, reorderTabs } =
+    useSidePanelTabs(sessionId);
 
-  const seedArtifactOverflowControlAction = React.useMemo<OpenworkControlAction | null>(() => {
-    if (!import.meta.env.DEV) return null;
+  const seedArtifactOverflowControlAction =
+    React.useMemo<OpenworkControlAction | null>(() => {
+      if (!import.meta.env.DEV) return null;
 
-    return {
-      id: "eval.artifact_tabs.seed_overflow",
-      label: "Seed artifact tab overflow eval data",
-      description: "Create many markdown artifacts and open them in the right-side artifact tab strip.",
-      sideEffect: "mutation",
-      disabled: !client || !workspaceId,
-      args: [
-        { name: "count", type: "number", description: "Number of artifact tabs to create." },
-        { name: "longNameLast", type: "boolean", description: "Give the last (active) artifact a very long filename to exercise header truncation." },
-      ],
-      previewArgs: { count: 18 },
-      execute: async (args) => {
-        if (!client || !workspaceId) return { ok: false, error: "Workspace client is not ready." };
+      return {
+        id: "eval.artifact_tabs.seed_overflow",
+        label: "Seed artifact tab overflow eval data",
+        description:
+          "Create many markdown artifacts and open them in the right-side artifact tab strip.",
+        sideEffect: "mutation",
+        disabled: !client || !workspaceId,
+        args: [
+          {
+            name: "count",
+            type: "number",
+            description: "Number of artifact tabs to create.",
+          },
+          {
+            name: "longNameLast",
+            type: "boolean",
+            description:
+              "Give the last (active) artifact a very long filename to exercise header truncation.",
+          },
+        ],
+        previewArgs: { count: 18 },
+        execute: async (args) => {
+          if (!client || !workspaceId)
+            return { ok: false, error: "Workspace client is not ready." };
 
-        let count = 18;
-        if (args && typeof args === "object" && "count" in args && typeof args.count === "number") {
-          count = Math.max(12, Math.min(30, Math.floor(args.count)));
-        }
-        const longNameLast = Boolean(args && typeof args === "object" && "longNameLast" in args && args.longNameLast);
+          let count = 18;
+          if (
+            args &&
+            typeof args === "object" &&
+            "count" in args &&
+            typeof args.count === "number"
+          ) {
+            count = Math.max(12, Math.min(30, Math.floor(args.count)));
+          }
+          const longNameLast = Boolean(
+            args &&
+            typeof args === "object" &&
+            "longNameLast" in args &&
+            args.longNameLast,
+          );
 
-        const targets: OpenTarget[] = [];
-        const store = usePanelTabStore.getState();
+          const targets: OpenTarget[] = [];
+          const store = usePanelTabStore.getState();
 
-        for (let index = 1; index <= count; index += 1) {
-          const padded = String(index).padStart(2, "0");
-          const baseName = longNameLast && index === count
-            ? `openwork-self-managed-subscription-and-licensing-overview-very-long-${padded}`
-            : `overflow-tab-${padded}`;
-          const value = `artifacts/${baseName}.md`;
-          const label = `${baseName}.md`;
-          const content = `# Overflow tab ${padded}\n\nGenerated by the artifact tab overflow eval.\n`;
+          for (let index = 1; index <= count; index += 1) {
+            const padded = String(index).padStart(2, "0");
+            const baseName =
+              longNameLast && index === count
+                ? `openwork-self-managed-subscription-and-licensing-overview-very-long-${padded}`
+                : `overflow-tab-${padded}`;
+            const value = `artifacts/${baseName}.md`;
+            const label = `${baseName}.md`;
+            const content = `# Overflow tab ${padded}\n\nGenerated by the artifact tab overflow eval.\n`;
 
-          await client.writeWorkspaceFile(workspaceId, { path: value, content, baseUpdatedAt: null });
+            await client.writeWorkspaceFile(workspaceId, {
+              path: value,
+              content,
+              baseUpdatedAt: null,
+            });
+
+            const target: OpenTarget = {
+              id: `file:${value}`,
+              kind: "file",
+              value,
+              name: label,
+              preview: "markdown",
+              confidence: 100,
+              reason: "eval",
+              exists: true,
+              size: content.length,
+            };
+
+            targets.push(target);
+            store.openTab(sessionId, {
+              id: target.id,
+              type: "artifact",
+              label: target.name,
+              preview: target.preview,
+            });
+          }
+
+          store.syncTranscriptArtifacts(sessionId, targets);
+          store.selectTab(sessionId, targets[targets.length - 1]?.id ?? "");
+
+          return {
+            ok: true,
+            count: targets.length,
+            activeTabId: targets[targets.length - 1]?.id ?? null,
+          };
+        },
+      };
+    }, [client, sessionId, workspaceId]);
+  useControlAction(seedArtifactOverflowControlAction);
+
+  const seedPdfArtifactControlAction =
+    React.useMemo<OpenworkControlAction | null>(() => {
+      if (!import.meta.env.DEV) return null;
+
+      return {
+        id: "eval.artifact_tabs.seed_pdf",
+        label: "Seed a PDF artifact",
+        description:
+          "Write a small valid PDF and open it as an artifact tab to verify inline PDF rendering.",
+        sideEffect: "mutation",
+        disabled: !client || !workspaceId,
+        execute: async () => {
+          if (!client || !workspaceId)
+            return { ok: false, error: "Workspace client is not ready." };
+
+          // Minimal single-page PDF that draws "OpenWork PDF" — base64 encoded.
+          const pdfBase64 =
+            "JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCAzMDAgMTQ0XS9SZXNvdXJjZXM8PC9Gb250PDwvRjEgNCAwIFI+Pj4+L0NvbnRlbnRzIDUgMCBSPj4KZW5kb2JqCjQgMCBvYmoKPDwvVHlwZS9Gb250L1N1YnR5cGUvVHlwZTEvQmFzZUZvbnQvSGVsdmV0aWNhPj4KZW5kb2JqCjUgMCBvYmoKPDwvTGVuZ3RoIDQ0Pj4Kc3RyZWFtCkJUCi9GMSAyNCBUZgo3MiA3MCBUZAooT3BlbldvcmsgUERGKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzEyIDAwMDAwIG4gCnRyYWlsZXIKPDwvU2l6ZSA2L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNDA2CiUlRU9G";
+          const binary = atob(pdfBase64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1)
+            bytes[i] = binary.charCodeAt(i);
+
+          const value = "artifacts/sample-document.pdf";
+          await client.writeWorkspaceBinaryFile(workspaceId, {
+            path: value,
+            data: bytes.buffer,
+            baseUpdatedAt: null,
+          });
 
           const target: OpenTarget = {
             id: `file:${value}`,
             kind: "file",
             value,
-            name: label,
-            preview: "markdown",
+            name: "sample-document.pdf",
+            preview: "pdf",
             confidence: 100,
             reason: "eval",
             exists: true,
-            size: content.length,
+            size: bytes.length,
           };
 
-          targets.push(target);
+          const store = usePanelTabStore.getState();
+          store.syncTranscriptArtifacts(sessionId, [target]);
           store.openTab(sessionId, {
             id: target.id,
             type: "artifact",
             label: target.name,
             preview: target.preview,
           });
-        }
+          store.selectTab(sessionId, target.id);
 
-        store.syncTranscriptArtifacts(sessionId, targets);
-        store.selectTab(sessionId, targets[targets.length - 1]?.id ?? "");
-
-        return { ok: true, count: targets.length, activeTabId: targets[targets.length - 1]?.id ?? null };
-      },
-    };
-  }, [client, sessionId, workspaceId]);
-  useControlAction(seedArtifactOverflowControlAction);
-
-  const seedPdfArtifactControlAction = React.useMemo<OpenworkControlAction | null>(() => {
-    if (!import.meta.env.DEV) return null;
-
-    return {
-      id: "eval.artifact_tabs.seed_pdf",
-      label: "Seed a PDF artifact",
-      description: "Write a small valid PDF and open it as an artifact tab to verify inline PDF rendering.",
-      sideEffect: "mutation",
-      disabled: !client || !workspaceId,
-      execute: async () => {
-        if (!client || !workspaceId) return { ok: false, error: "Workspace client is not ready." };
-
-        // Minimal single-page PDF that draws "OpenWork PDF" — base64 encoded.
-        const pdfBase64 =
-          "JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCAzMDAgMTQ0XS9SZXNvdXJjZXM8PC9Gb250PDwvRjEgNCAwIFI+Pj4+L0NvbnRlbnRzIDUgMCBSPj4KZW5kb2JqCjQgMCBvYmoKPDwvVHlwZS9Gb250L1N1YnR5cGUvVHlwZTEvQmFzZUZvbnQvSGVsdmV0aWNhPj4KZW5kb2JqCjUgMCBvYmoKPDwvTGVuZ3RoIDQ0Pj4Kc3RyZWFtCkJUCi9GMSAyNCBUZgo3MiA3MCBUZAooT3BlbldvcmsgUERGKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzEyIDAwMDAwIG4gCnRyYWlsZXIKPDwvU2l6ZSA2L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNDA2CiUlRU9G";
-        const binary = atob(pdfBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-
-        const value = "artifacts/sample-document.pdf";
-        await client.writeWorkspaceBinaryFile(workspaceId, { path: value, data: bytes.buffer, baseUpdatedAt: null });
-
-        const target: OpenTarget = {
-          id: `file:${value}`,
-          kind: "file",
-          value,
-          name: "sample-document.pdf",
-          preview: "pdf",
-          confidence: 100,
-          reason: "eval",
-          exists: true,
-          size: bytes.length,
-        };
-
-        const store = usePanelTabStore.getState();
-        store.syncTranscriptArtifacts(sessionId, [target]);
-        store.openTab(sessionId, { id: target.id, type: "artifact", label: target.name, preview: target.preview });
-        store.selectTab(sessionId, target.id);
-
-        return { ok: true, activeTabId: target.id };
-      },
-    };
-  }, [client, sessionId, workspaceId]);
+          return { ok: true, activeTabId: target.id };
+        },
+      };
+    }, [client, sessionId, workspaceId]);
   useControlAction(seedPdfArtifactControlAction);
 
-  const seedUniverArtifactControlAction = React.useMemo<OpenworkControlAction | null>(() => {
-    if (!import.meta.env.DEV) return null;
+  const seedUniverArtifactControlAction =
+    React.useMemo<OpenworkControlAction | null>(() => {
+      if (!import.meta.env.DEV) return null;
 
-    return {
-      id: "eval.artifact_tabs.seed_univer",
-      label: "Seed a Univer artifact",
-      description: "Open an existing .univer workspace file as a right-side artifact tab.",
-      sideEffect: "mutation",
-      disabled: !workspaceId,
-      args: [
-        { name: "path", type: "string", required: true, description: "Workspace-relative .univer path." },
-        { name: "size", type: "number", description: "Optional file size for artifact metadata." },
-        { name: "worktreeId", type: "string", description: "Optional Univer worktree id to open." },
-        { name: "unitId", type: "string", description: "Optional Univer unit id to select." },
-        { name: "open", type: "boolean", description: "Whether to open the artifact tab immediately. Defaults to true." },
-      ],
-      previewArgs: { path: "artifacts/native-univer-eval.univer" },
-      execute: async (args) => {
-        if (!workspaceId) return { ok: false, error: "Workspace is not ready." };
-        if (!args || typeof args !== "object" || !("path" in args) || typeof args.path !== "string") {
-          return { ok: false, error: "A workspace-relative .univer path is required." };
-        }
+      return {
+        id: "eval.artifact_tabs.seed_univer",
+        label: "Seed a Univer artifact",
+        description:
+          "Open an existing .univer workspace file as a right-side artifact tab.",
+        sideEffect: "mutation",
+        disabled: !workspaceId,
+        args: [
+          {
+            name: "path",
+            type: "string",
+            required: true,
+            description: "Workspace-relative .univer path.",
+          },
+          {
+            name: "size",
+            type: "number",
+            description: "Optional file size for artifact metadata.",
+          },
+          {
+            name: "worktreeId",
+            type: "string",
+            description: "Optional Univer worktree id to open.",
+          },
+          {
+            name: "unitId",
+            type: "string",
+            description: "Optional Univer unit id to select.",
+          },
+          {
+            name: "open",
+            type: "boolean",
+            description:
+              "Whether to open the artifact tab immediately. Defaults to true.",
+          },
+        ],
+        previewArgs: { path: "artifacts/native-univer-eval.univer" },
+        execute: async (args) => {
+          if (!workspaceId)
+            return { ok: false, error: "Workspace is not ready." };
+          if (
+            !args ||
+            typeof args !== "object" ||
+            !("path" in args) ||
+            typeof args.path !== "string"
+          ) {
+            return {
+              ok: false,
+              error: "A workspace-relative .univer path is required.",
+            };
+          }
 
-        const value = args.path.trim().replace(/^\.\/+/, "");
-        if (!value.endsWith(".univer")) {
-          return { ok: false, error: "Expected a .univer file path." };
-        }
+          const value = args.path.trim().replace(/^\.\/+/, "");
+          if (!value.endsWith(".univer")) {
+            return { ok: false, error: "Expected a .univer file path." };
+          }
 
-        const size = "size" in args && typeof args.size === "number" ? args.size : undefined;
-        const worktreeId = "worktreeId" in args && typeof args.worktreeId === "string" && args.worktreeId.trim()
-          ? args.worktreeId.trim()
-          : undefined;
-        const unitId = "unitId" in args && typeof args.unitId === "string" && args.unitId.trim()
-          ? args.unitId.trim()
-          : undefined;
-        const name = value.split("/").filter(Boolean).pop() ?? value;
-        const target: OpenTarget = {
-          id: `file:${value}`,
-          kind: "file",
-          value,
-          name,
-          preview: "univer",
-          confidence: 100,
-          reason: "eval",
-          exists: true,
-          size,
-          worktreeId,
-          unitId,
-        };
+          const size =
+            "size" in args && typeof args.size === "number"
+              ? args.size
+              : undefined;
+          const worktreeId =
+            "worktreeId" in args &&
+            typeof args.worktreeId === "string" &&
+            args.worktreeId.trim()
+              ? args.worktreeId.trim()
+              : undefined;
+          const unitId =
+            "unitId" in args &&
+            typeof args.unitId === "string" &&
+            args.unitId.trim()
+              ? args.unitId.trim()
+              : undefined;
+          const name = value.split("/").filter(Boolean).pop() ?? value;
+          const target: OpenTarget = {
+            id: `file:${value}`,
+            kind: "file",
+            value,
+            name,
+            preview: "univer",
+            confidence: 100,
+            reason: "eval",
+            exists: true,
+            size,
+            worktreeId,
+            unitId,
+          };
 
-        const store = usePanelTabStore.getState();
-        store.syncTranscriptArtifacts(sessionId, [target]);
-        const shouldOpen = !("open" in args) || args.open !== false;
-        if (shouldOpen) {
-          store.openTab(sessionId, { id: target.id, type: "artifact", label: target.name, preview: target.preview });
-          store.selectTab(sessionId, target.id);
-        } else {
-          store.closeTab(sessionId, target.id);
-        }
+          const store = usePanelTabStore.getState();
+          store.syncTranscriptArtifacts(sessionId, [target]);
+          const shouldOpen = !("open" in args) || args.open !== false;
+          if (shouldOpen) {
+            store.openTab(sessionId, {
+              id: target.id,
+              type: "artifact",
+              label: target.name,
+              preview: target.preview,
+            });
+            store.selectTab(sessionId, target.id);
+          } else {
+            store.closeTab(sessionId, target.id);
+          }
 
-        return { ok: true, activeTabId: shouldOpen ? target.id : null };
-      },
-    };
-  }, [sessionId, workspaceId]);
+          return { ok: true, activeTabId: shouldOpen ? target.id : null };
+        },
+      };
+    }, [sessionId, workspaceId]);
   useControlAction(seedUniverArtifactControlAction);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || tabs.length < 2) {
+      if (
+        !event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.key !== "Tab" ||
+        tabs.length < 2
+      ) {
         return;
       }
 
-      const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
+      const activeIndex = activeTab
+        ? tabs.findIndex((tab) => tab.id === activeTab.id)
+        : -1;
       if (activeIndex === -1) {
         return;
       }
@@ -602,8 +754,8 @@ export function SidePanel({
   return (
     <TooltipProvider delay={1000}>
       <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <div className="flex h-10 items-center gap-1 border-b border-border/60 px-2">
+        <div className="shrink-0 bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+          <div className="flex h-10 items-center gap-1 border-b border-border/80 px-2">
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
               <PanelTabList
                 values={tabs.map((tab) => tab.id)}
@@ -623,7 +775,7 @@ export function SidePanel({
             {isBrowserAvailable ? (
               <Tooltip>
                 <TooltipTrigger
-                  render={(
+                  render={
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -632,16 +784,14 @@ export function SidePanel({
                     >
                       <Plus />
                     </Button>
-                  )}
+                  }
                 />
                 <TooltipContent>New tab</TooltipContent>
               </Tooltip>
             ) : null}
           </div>
         </div>
-        {!activeTab ? (
-          <PanelEmpty />
-        ) : null}
+        {!activeTab ? <PanelEmpty /> : null}
         {activeTab?.type === "browser" ? (
           <BrowserPanelContent tab={activeTab} onClose={onClose} />
         ) : activeTab?.type === "artifact" ? (
@@ -652,6 +802,7 @@ export function SidePanel({
               client={client}
               workspaceId={workspaceId}
               workspaceRoot={workspaceRoot}
+              workspaceSessions={workspaceSessions}
               isRemoteWorkspace={isRemoteWorkspace}
               onClose={onClose}
             />
@@ -665,7 +816,9 @@ export function SidePanel({
 function PanelEmpty() {
   return (
     <div className="flex h-full items-center justify-center p-4 text-center">
-      <p className="text-sm text-muted-foreground">Open an artifact or browser tab to get started.</p>
+      <p className="text-sm text-muted-foreground">
+        Open an artifact or browser tab to get started.
+      </p>
     </div>
   );
 }

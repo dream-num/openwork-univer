@@ -150,7 +150,7 @@ export function isTrustedBuiltInExtension(manifest: OpenWorkExtensionManifest | 
 }
 
 const UNIVER_CLI_COMPOSER_PROMPT =
-  "Use Univer CLI to work on native .univer office files. Create .univer by default for spreadsheets, docs, and slides; import/export xlsx, csv, docx, or pptx only as exchange formats when asked. ";
+  "Use Univer CLI to work on native .univer files. Create .univer by default for spreadsheets, docs, and slides; import/export xlsx, csv, docx, or pptx only as exchange formats when asked. ";
 
 export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] = [
   {

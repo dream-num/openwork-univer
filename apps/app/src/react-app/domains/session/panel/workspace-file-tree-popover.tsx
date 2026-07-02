@@ -2,7 +2,7 @@
 import * as React from "react";
 import { useCoworkSnapshot } from "@univer/cowork/react";
 import type { CoworkController } from "@univer/cowork";
-import { FolderTree, GitPullRequest } from "lucide-react";
+import { FolderTree, GitPullRequest, Table2 } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ type WorkspaceFilesPopoverProps = {
   onArtifactOpen: () => void;
 };
 
-type OfficeWorktreePopoverProps = {
+type UniverWorktreePopoverProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sessionId: string | null;
@@ -35,6 +35,16 @@ type OfficeWorktreePopoverProps = {
   target: UniverTarget | null;
   isRemoteWorkspace?: boolean;
   onArtifactOpen: () => void;
+  onCreateTaskFromHere?: () => void;
+  worktreeIssue?: {
+    kind: "multiple";
+    worktreeIds: string[];
+  } | null;
+  terminalState?: "merged" | "discarded" | null;
+  label?: string;
+  testId?: string;
+  panelVariant?: "changes" | "currentTarget" | "tasks" | "units";
+  toolbarKind?: "tasks" | "units";
 };
 
 function ToolbarButton({
@@ -83,22 +93,28 @@ function ToolbarButton({
 function ChangesBadge({
   active,
   controller,
+  label,
+  toolbarKind,
+  testId,
   ...props
 }: Omit<React.ComponentProps<typeof Button>, "children"> & {
   active: boolean;
   controller: CoworkController;
+  label: string;
+  toolbarKind: "tasks" | "units";
+  testId: string;
 }) {
   const snapshot = useCoworkSnapshot(controller);
-  const reviewCount = snapshot.loadState === "ready" ? snapshot.reviewableWorktrees.length : 0;
+  const reviewCount = toolbarKind === "tasks" && snapshot.loadState === "ready" ? snapshot.reviewableWorktrees.length : 0;
   return (
     <ToolbarButton
       {...props}
       active={active}
       badge={reviewCount > 0 ? reviewCount : undefined}
-      label="Changes"
-      testId="composer-toolbar-changes"
+      label={label}
+      testId={testId}
     >
-      <GitPullRequest className="size-3.5" />
+      {toolbarKind === "units" ? <Table2 className="size-3.5" /> : <GitPullRequest className="size-3.5" />}
     </ToolbarButton>
   );
 }
@@ -150,7 +166,7 @@ export function WorkspaceFilesPopover({
   );
 }
 
-export function OfficeWorktreePopover({
+export function UniverWorktreePopover({
   open,
   onOpenChange,
   sessionId,
@@ -159,7 +175,14 @@ export function OfficeWorktreePopover({
   target,
   isRemoteWorkspace = false,
   onArtifactOpen,
-}: OfficeWorktreePopoverProps) {
+  onCreateTaskFromHere,
+  worktreeIssue = null,
+  terminalState = null,
+  label = "Changes",
+  testId = "composer-toolbar-changes",
+  panelVariant = "changes",
+  toolbarKind = "tasks",
+}: UniverWorktreePopoverProps) {
   const { controller, error, isError, isLoading } = useUniverCoworkSession({
     client,
     workspaceId,
@@ -178,14 +201,14 @@ export function OfficeWorktreePopover({
       <PopoverTrigger
         render={
           controller ? (
-            <ChangesBadge active={open} controller={controller} />
+            <ChangesBadge active={open} controller={controller} label={label} toolbarKind={toolbarKind} testId={testId} />
           ) : (
             <ToolbarButton
               active={open}
-              label="Changes"
-              testId="composer-toolbar-changes"
+              label={label}
+              testId={testId}
             >
-              <GitPullRequest className="size-3.5" />
+              {toolbarKind === "units" ? <Table2 className="size-3.5" /> : <GitPullRequest className="size-3.5" />}
             </ToolbarButton>
           )
         }
@@ -199,12 +222,18 @@ export function OfficeWorktreePopover({
         {sessionId ? (
           <WorkspaceCoworkPanelContent
             sessionId={sessionId}
+            workspaceId={workspaceId}
+            client={client}
             target={target}
             controller={controller}
             error={error}
             isError={isError}
             isLoading={isLoading}
             onArtifactOpen={onArtifactOpen}
+            onCreateTaskFromHere={onCreateTaskFromHere}
+            worktreeIssue={worktreeIssue}
+            terminalState={terminalState}
+            variant={panelVariant}
           />
         ) : null}
       </PopoverContent>

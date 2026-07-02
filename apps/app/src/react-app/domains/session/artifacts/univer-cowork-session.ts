@@ -13,8 +13,44 @@ export type UniverTarget = OpenTarget & {
   preview: "univer";
 };
 
+type PrimaryUniverfileRef = {
+  path?: string | null;
+  name?: string | null;
+};
+
+function normalizeUniverfileValue(value: string): string {
+  return value.trim().replace(/[\\]+/g, "/").replace(/^\.\//, "");
+}
+
+function basename(value: string): string {
+  return value.split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? value;
+}
+
 export function isUniverTarget(target: OpenTarget | null | undefined): target is UniverTarget {
   return target?.kind === "file" && target.preview === "univer";
+}
+
+export function targetFromPrimaryUniverfile(
+  primaryUniverfile: PrimaryUniverfileRef | null | undefined,
+  sessionUniverWorktreeId?: string | null,
+): UniverTarget | null {
+  const path = primaryUniverfile?.path ? normalizeUniverfileValue(primaryUniverfile.path) : "";
+  if (!path) return null;
+
+  const name = primaryUniverfile?.name?.trim();
+  const worktreeId = sessionUniverWorktreeId?.trim();
+
+  return {
+    id: `file:${path.toLowerCase()}`,
+    kind: "file",
+    value: path,
+    name: name && name.length > 0 ? name : basename(path),
+    preview: "univer",
+    confidence: 100,
+    reason: "Primary Univerfile",
+    exists: true,
+    ...(worktreeId ? { worktreeId } : {}),
+  };
 }
 
 export function targetFromSelection(target: UniverTarget, selection: CoworkSelection): UniverTarget {

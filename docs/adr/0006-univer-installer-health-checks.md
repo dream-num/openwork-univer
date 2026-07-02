@@ -1,6 +1,6 @@
 # Univer installer health checks
 
-The v1 Univer CLI Extension health check requires four probes: the resolved `univer` executable responds to version or help, the complete `univer-cli` skill package is installed, `univer inspect tools list --json` succeeds, and `univer sac migration templates --json` succeeds. The installer does not run a real `.univer` create/apply/verify smoke in readiness because that would make setup heavier than necessary and blur install health with office workflow validation.
+The v1 Univer CLI Extension health check requires four probes: the resolved `univer` executable responds to version or help, the complete `univer-cli` skill package is installed, `univer inspect tools list --json` succeeds, and `univer sac migration templates --json` succeeds. The installer does not run a real `.univer` create/apply/verify smoke in readiness because that would make setup heavier than necessary and blur install health with Univer workflow validation.
 
 **Consequences**
 

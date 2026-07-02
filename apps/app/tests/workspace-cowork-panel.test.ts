@@ -9,4 +9,45 @@ describe("workspace cowork panel", () => {
     expect(source).toContain("Loading review details...");
     expect(source).not.toContain("Click refresh to load review details.");
   });
+
+  test("offers a clean new task path from missing worktree state", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
+
+    expect(source).toContain("Worktree missing or stale");
+    expect(source).toContain("onCreateTaskFromHere");
+    expect(source).toContain("Create new task");
+    expect(source).toContain("controller.refresh()");
+  });
+
+  test("summarizes terminal session worktrees in the Univerfile panel", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
+
+    expect(source).toContain("terminalState === \"merged\"");
+    expect(source).toContain("Merged into current Univerfile");
+    expect(source).toContain("terminalState === \"discarded\"");
+    expect(source).toContain("Changes discarded");
+  });
+
+  test("keeps refresh read-only and makes reassociation explicit", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
+
+    expect(source).toContain("Refresh status");
+    expect(source).toContain("controller.refresh()");
+    expect(source).toContain("Manual reassociation");
+    expect(source).toContain("allowWorktreeReassociation: true");
+    expect(source).toContain("reassociateWorktree");
+    expect(source).toContain("Multiple active worktrees in this session");
+    expect(source).toContain("Split into new task");
+  });
+
+  test("keeps split Units and Tasks panels compact", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
+
+    expect(source).toContain("variant !== \"tasks\"");
+    expect(source).toContain("variant !== \"units\"");
+    expect(source).toContain("compact={variant === \"units\"}");
+    expect(source).toContain("compact={variant === \"tasks\"}");
+    expect(source).toContain("const compactPanel = variant === \"units\" || variant === \"tasks\"");
+    expect(source).toContain("!compactPanel && \"border-t border-border\"");
+  });
 });

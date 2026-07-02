@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import type { WorkspaceConnectionState } from "../../../../app/types";
+import type { WorkspaceConnectionState, WorkspaceSessionGroup } from "../../../../app/types";
 
 export type SidebarContextValue = {
   selectedWorkspaceId: string;
@@ -15,6 +15,9 @@ export type SidebarContextValue = {
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
+  onCreateTaskForUniverTarget?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
+  onOpenUniverTargetOverview?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
+  onOpenDeleteUnavailableUniverTarget?: (workspaceId: string, name: string, path: string, sessionIds: string[]) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;

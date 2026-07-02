@@ -12,6 +12,10 @@ directories:
 files:
   - electron/**/*
   - server/**/*
+  - "!server/dist/bin/**"
+  - "!server/dist/**/*.test.js"
+  - "!server/dist/**/*.test.js.map"
+  - "!server/vendor/univer-cowork/**"
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
@@ -27,6 +31,8 @@ extraResources:
       - "**/*.md"
       - "**/*.mdx"
       - "docs.json"
+  - from: server/vendor/univer-cowork
+    to: univer-cowork
 asar: true
 asarUnpack:
   - node_modules/.pnpm/@lydell+node-pty*/**

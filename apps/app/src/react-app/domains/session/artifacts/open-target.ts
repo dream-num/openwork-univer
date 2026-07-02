@@ -52,7 +52,7 @@ const WRITE_TOOL_NAMES = new Set([
   "write",
   "write_file",
 ]);
-const FILE_METADATA_KEYS = ["path", "file", "filePath", "filepath"];
+const FILE_METADATA_KEYS = ["path", "file", "filePath", "filepath", "univerfile", "univerfilePath", "targetPath"];
 const WORKTREE_METADATA_KEYS = ["worktreeId", "worktree"];
 const UNIT_METADATA_KEYS = ["unitId", "unit", "localUnitId"];
 const PATCH_FILE_PATTERN = /^\*\*\* (?:Add File|Update File):\s*(.+)$/gmi;
@@ -308,6 +308,70 @@ function collectNestedFileMetadataTargets(value: unknown, confidence: number, re
   return [value, value.args, value.result].flatMap((entry) => collectFileMetadataTargets(entry, confidence, reason));
 }
 
+function parseJsonCandidates(value: string): unknown[] {
+  const candidates: unknown[] = [];
+  const seen = new Set<string>();
+  const parseCandidate = (candidate: string) => {
+    const trimmed = candidate.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      candidates.push(parsed);
+    } catch {
+      // Tool output often contains logs around the JSON envelope; line parsing below
+      // still catches the common CLI shape without treating arbitrary text as metadata.
+    }
+  };
+
+  parseCandidate(value);
+  for (const line of value.split(/\r?\n/)) {
+    parseCandidate(line);
+  }
+  return candidates;
+}
+
+function collectUniverWorktreeMetadataTargets(value: unknown, confidence: number, reason: string) {
+  const targets = new Map<string, OpenTarget>();
+  const visit = (entry: unknown, depth: number) => {
+    if (depth > 4) return;
+
+    if (typeof entry === "string") {
+      for (const parsed of parseJsonCandidates(entry)) {
+        visit(parsed, depth + 1);
+      }
+      return;
+    }
+
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+
+    if (!isObject(entry)) return;
+
+    const metadata = routeMetadata(entry);
+    if (metadata.worktreeId) {
+      for (const file of collectFileMetadataValues(entry)) {
+        const target = targetFromFile(file, confidence, reason, metadata);
+        if (target?.preview === "univer") {
+          addTarget(targets, target);
+        }
+      }
+    }
+
+    visit(entry.args, depth + 1);
+    visit(entry.result, depth + 1);
+    visit(entry.output, depth + 1);
+  };
+
+  visit(value, 0);
+  return Array.from(targets.values());
+}
+
 function collectPatchFileValues(value: unknown) {
   if (!isObject(value)) return [];
   const patchText = value.patchText ?? value.patch ?? value.diff;
@@ -365,6 +429,11 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
       const discoveryTool = isDiscoveryTool(part.toolName);
       const writeTool = isWriteTool(part.toolName);
       const artifactMetadataTool = isArtifactMetadataTool(part.toolName);
+
+      addFileTargets(
+        targets,
+        [part.input, part.output].flatMap((entry) => collectUniverWorktreeMetadataTargets(entry, 95, "univer worktree metadata")),
+      );
 
       if (writeTool) {
         addFileValues(

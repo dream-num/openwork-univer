@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { UniverTarget } from "../src/react-app/domains/session/artifacts/univer-cowork-session";
-import { OfficeWorktreePopover, WorkspaceFilesPopover } from "../src/react-app/domains/session/panel/workspace-file-tree-popover";
+import { UniverWorktreePopover, WorkspaceFilesPopover } from "../src/react-app/domains/session/panel/workspace-file-tree-popover";
 
 function noop() {}
 
@@ -54,7 +54,7 @@ describe("composer toolbar context entrypoints", () => {
 
   test("renders Changes only when a Univer artifact target is active", () => {
     const noTargetHtml = renderWithQueryClient(
-      <OfficeWorktreePopover
+      <UniverWorktreePopover
         open={false}
         onOpenChange={noop}
         sessionId="session-1"
@@ -65,7 +65,7 @@ describe("composer toolbar context entrypoints", () => {
       />,
     );
     const univerHtml = renderWithQueryClient(
-      <OfficeWorktreePopover
+      <UniverWorktreePopover
         open={false}
         onOpenChange={noop}
         sessionId="session-1"
@@ -79,6 +79,50 @@ describe("composer toolbar context entrypoints", () => {
     expect(noTargetHtml).not.toContain("composer-toolbar-changes");
     expect(univerHtml).toContain("composer-toolbar-changes");
     expect(univerHtml).toContain("Changes");
+  });
+
+  test("renders split Units and Tasks entry points for bound Univer sessions", async () => {
+    const unitsHtml = renderWithQueryClient(
+      <UniverWorktreePopover
+        open={false}
+        onOpenChange={noop}
+        sessionId="session-1"
+        client={null}
+        workspaceId="workspace-1"
+        target={univerTarget}
+        onArtifactOpen={noop}
+        label="Units"
+        testId="composer-toolbar-units"
+        panelVariant="units"
+        toolbarKind="units"
+      />,
+    );
+    const tasksHtml = renderWithQueryClient(
+      <UniverWorktreePopover
+        open={false}
+        onOpenChange={noop}
+        sessionId="session-1"
+        client={null}
+        workspaceId="workspace-1"
+        target={univerTarget}
+        onArtifactOpen={noop}
+        label="Tasks"
+        testId="composer-toolbar-tasks"
+        panelVariant="tasks"
+        toolbarKind="tasks"
+      />,
+    );
+    const source = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
+
+    expect(unitsHtml).toContain("composer-toolbar-units");
+    expect(unitsHtml).toContain("Units");
+    expect(tasksHtml).toContain("composer-toolbar-tasks");
+    expect(tasksHtml).toContain("Tasks");
+    expect(source).toContain("composer-toolbar-units");
+    expect(source).toContain("composer-toolbar-tasks");
+    expect(source).toContain("composer-toolbar-univerfile-context");
+    expect(source).toContain("Open current Univerfile");
+    expect(source).not.toContain("composer-toolbar-current-target");
   });
 
   test("places transient composer accessories above the toolbar slot", async () => {

@@ -3,9 +3,11 @@
 // settings-route was missing the remote-workspace clobber fix in
 // mergeRouteWorkspaces and used older session-status logic. One copy now.
 
-import type { Session } from "@opencode-ai/sdk/v2/client";
-
-import type { OpenworkWorkspaceInfo } from "@/app/lib/openwork-server";
+import type {
+  OpenworkSession,
+  OpenworkUniverTargetSummary,
+  OpenworkWorkspaceInfo,
+} from "@/app/lib/openwork-server";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import {
@@ -24,7 +26,7 @@ export type RouteWorkspace = OpenworkWorkspaceInfo & {
  * openwork-server's listSessions, optionally enriched with run-status
  * fields that the sidebar probes defensively via getSessionStatus.
  */
-export type RouteSession = Session & {
+export type RouteSession = OpenworkSession & {
   status?: unknown;
   state?: unknown;
   runStatus?: unknown;
@@ -197,10 +199,12 @@ export function toSessionGroups(
   sessionsByWorkspaceId: Record<string, RouteSession[]>,
   errorsByWorkspaceId: Record<string, string | null>,
   loadingWorkspaceIds: Set<string>,
+  univerTargetsByWorkspaceId: Record<string, OpenworkUniverTargetSummary[]> = {},
 ): WorkspaceSessionGroup[] {
   return workspaces.map((workspace) => ({
     workspace,
     sessions: sessionsByWorkspaceId[workspace.id] ?? [],
+    univerTargets: univerTargetsByWorkspaceId[workspace.id] ?? [],
     status: loadingWorkspaceIds.has(workspace.id)
       ? "loading"
       : errorsByWorkspaceId[workspace.id]

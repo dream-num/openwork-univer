@@ -1,22 +1,95 @@
 /** @jsxImportSource react */
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, ExternalLink, FolderOpen, Loader2, Trash2, X } from "lucide-react";
-import { buildCoworkContentSurface, type CoworkContentAction, type CoworkContentEditAction, type CoworkContentSurface, type CoworkContentViewState, type CoworkController } from "@univer/cowork";
+import {
+  Check,
+  ChevronDown,
+  Database,
+  Download,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  Loader2,
+  Presentation,
+  Sheet,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  buildCoworkContentSurface,
+  type CoworkContentAction,
+  type CoworkContentEditAction,
+  type CoworkContentSurface,
+  type CoworkContentViewState,
+  type CoworkController,
+  type CoworkSnapshot,
+} from "@univer/cowork";
 import { useCoworkSnapshot } from "@univer/cowork/react";
-import { CoworkContentViewer, type CoworkContentViewerDataSource, type CoworkContentViewerStatus, type CoworkViewerError } from "@univer/cowork/viewer/react";
+import {
+  CoworkContentViewer,
+  type CoworkContentViewerDataSource,
+  type CoworkContentViewerStatus,
+  type CoworkViewerError,
+} from "@univer/cowork/viewer/react";
 import "@univer/cowork/viewer/styles.css";
 
+import type { SidebarSessionItem } from "@/app/types";
+import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
-import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import {
+  getDesktopFileIcon,
+  openDesktopPath,
+  revealDesktopItemInDir,
+} from "@/app/lib/desktop";
 import { isElectronRuntime } from "@/app/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn, formatFileSize } from "@/lib/utils";
-import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
-import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
-import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import {
+  type ArtifactPanelTab,
+  usePanelTabStore,
+} from "../panel/panel-tab-store";
+import { notifyUniverSessionMetadataUpdated } from "../univer-session-events";
+import { normalizeUniverTargetPath } from "../univer-worktree-status-store";
+import {
+  isCollectibleArtifactTarget,
+  type BinaryData,
+  type Data,
+  type OpenTarget,
+  type TextData,
+} from "./open-target";
+import {
+  HTMLPreview,
+  ImagePreview,
+  MarkdownPreview,
+  PdfPreview,
+  PlainText,
+  PreviewError,
+  PreviewLoading,
+  PreviewUnavailable,
+} from "./preview";
 import {
   contentViewFromTarget,
   isUniverTarget,
@@ -28,15 +101,21 @@ import {
 import {
   deriveUniverArtifactHeaderViewModel,
   type UniverArtifactHeaderFileActionId,
+  type UniverArtifactHeaderUnitOption,
   type UniverArtifactHeaderViewModel,
+  type UniverArtifactHeaderWorktreeOption,
 } from "./univer-artifact-header-view-model";
 import type { UniverOpenSurface } from "./univer-surface";
 
 const ArtifactTextEditor = lazy(() =>
-  import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
+  import("./artifact-text-editor").then((module) => ({
+    default: module.ArtifactTextEditor,
+  })),
 );
 const ArtifactSpreadsheetEditor = lazy(() =>
-  import("./artifact-spreadsheet-editor").then((module) => ({ default: module.ArtifactSpreadsheetEditor })),
+  import("./artifact-spreadsheet-editor").then((module) => ({
+    default: module.ArtifactSpreadsheetEditor,
+  })),
 );
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
@@ -48,6 +127,7 @@ type ArtifactPanelProps = {
   client: OpenworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  workspaceSessions?: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
   onClose: () => void;
 };
@@ -57,6 +137,7 @@ type ArtifactPanelViewProps = {
   client: OpenworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
+  workspaceSessions: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
   onClose: () => void;
@@ -71,17 +152,60 @@ type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
 function absoluteWorkspacePath(root: string, path: string) {
   const cleanRoot = root.trim().replace(/[/\\]+$/, "");
   const cleanPath = path.trim().replace(/^\.\//, "");
-  
+
   return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
 }
 
 function isTextContent(target: OpenTarget): boolean {
-  return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
+  return (
+    ["markdown", "text", "sheet", "html"].includes(target.preview) &&
+    !/\.(xlsx|xls|ods)$/i.test(target.value)
+  );
 }
 
-export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
-  const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
-  const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
+function buildUniverWorktreeOwnerTitles(
+  workspaceSessions: SidebarSessionItem[],
+  currentSessionId: string,
+  targetPath: string,
+): Record<string, string> {
+  const targetKey = normalizeUniverTargetPath(targetPath);
+  const titles: Record<string, string> = {};
+  const orderedSessions = [
+    ...workspaceSessions.filter((session) => session.id === currentSessionId),
+    ...workspaceSessions.filter((session) => session.id !== currentSessionId),
+  ];
+
+  for (const session of orderedSessions) {
+    const worktreeId = session.sessionUniverWorktreeId?.trim();
+    if (!worktreeId || titles[worktreeId]) continue;
+    const sessionTargetKey = normalizeUniverTargetPath(
+      session.primaryUniverTarget?.path,
+    );
+    if (sessionTargetKey !== targetKey) continue;
+    titles[worktreeId] = getDisplaySessionTitle(session.title);
+  }
+
+  return titles;
+}
+
+export function ArtifactPanel({
+  sessionId,
+  tab,
+  client,
+  workspaceId,
+  workspaceRoot,
+  workspaceSessions = [],
+  isRemoteWorkspace = false,
+  onClose,
+}: ArtifactPanelProps) {
+  const transcriptTargets = usePanelTabStore(
+    (state) =>
+      state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS,
+  );
+  const artifactTargets = useMemo(
+    () => transcriptTargets.filter(isCollectibleArtifactTarget),
+    [transcriptTargets],
+  );
   const target = artifactTargets.find((item) => item.id === tab.id) ?? null;
 
   if (!target || !client || !workspaceId) {
@@ -94,6 +218,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
       client={client}
       workspaceId={workspaceId}
       workspaceRoot={workspaceRoot}
+      workspaceSessions={workspaceSessions}
       isRemoteWorkspace={isRemoteWorkspace}
       target={target}
       onClose={onClose}
@@ -101,24 +226,52 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
-function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+function ArtifactPanelView({
+  sessionId,
+  client,
+  workspaceId,
+  workspaceRoot,
+  workspaceSessions,
+  isRemoteWorkspace = false,
+  target,
+  onClose,
+}: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
-  const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
+  const isDirectTextEdit =
+    isTextContent(target) && target.preview === "markdown";
+  const externalPath = useMemo(
+    () =>
+      target.kind === "file"
+        ? absoluteWorkspacePath(workspaceRoot, target.value)
+        : target.value,
+    [target.kind, target.value, workspaceRoot],
+  );
+  const worktreeOwnerTitles = useMemo(
+    () =>
+      buildUniverWorktreeOwnerTitles(
+        workspaceSessions,
+        sessionId,
+        target.value,
+      ),
+    [sessionId, target.value, workspaceSessions],
+  );
 
   useEffect(() => {
     if (target.preview !== "univer") return;
-    window.dispatchEvent(new CustomEvent(UNIVER_ARTIFACT_ACTIVE_EVENT, {
-      detail: { targetId: target.id },
-    }));
+    window.dispatchEvent(
+      new CustomEvent(UNIVER_ARTIFACT_ACTIVE_EVENT, {
+        detail: { targetId: target.id },
+      }),
+    );
   }, [target.id, target.preview]);
 
   const { data: fileIcon } = useQuery<string | null>({
     queryKey: ["desktop-file-icon", externalPath] as const,
     queryFn: async () => getDesktopFileIcon(externalPath, "small"),
-    enabled: target.kind === "file" && !isRemoteWorkspace && isElectronRuntime(),
+    enabled:
+      target.kind === "file" && !isRemoteWorkspace && isElectronRuntime(),
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
   });
@@ -127,24 +280,40 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     queryKey: ["artifact-panel", workspaceId, target.id] as const,
     queryFn: async () => {
       if (target.preview === "univer") {
-        throw new Error("Univer artifacts open through the embedded Univer surface.");
+        throw new Error(
+          "Univer artifacts open through the embedded Univer surface.",
+        );
       }
       if (target.kind === "url") {
         throw new Error("URLs open in browser tabs.");
-      }
-      else if (target.exists === false) {
+      } else if (target.exists === false) {
         throw new Error("File not found in this workspace.");
       }
 
       if (isTextContent(target)) {
-        const result = await client.readWorkspaceFile(workspaceId, target.value);
-        
-        return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
+        const result = await client.readWorkspaceFile(
+          workspaceId,
+          target.value,
+        );
+
+        return {
+          kind: "text",
+          data: result.content,
+          updatedAt: result.updatedAt ?? null,
+        };
       }
 
-      const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+      const result = await client.downloadWorkspaceFile(
+        workspaceId,
+        target.value,
+      );
 
-      return { kind: "binary", data: result.data, contentType: result.contentType, updatedAt: target.updatedAt ?? null };
+      return {
+        kind: "binary",
+        data: result.data,
+        contentType: result.contentType,
+        updatedAt: target.updatedAt ?? null,
+      };
     },
     enabled: target.preview !== "univer",
     refetchOnReconnect: false,
@@ -161,8 +330,11 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       return;
     }
 
-    const fallbackType = target.preview === "pdf" ? "application/pdf" : "application/octet-stream";
-    const url = URL.createObjectURL(new Blob([data.data], { type: data.contentType ?? fallbackType }));
+    const fallbackType =
+      target.preview === "pdf" ? "application/pdf" : "application/octet-stream";
+    const url = URL.createObjectURL(
+      new Blob([data.data], { type: data.contentType ?? fallbackType }),
+    );
 
     setBinaryObjectUrl(url);
 
@@ -180,24 +352,45 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     }
   }, [data]);
 
-  const { mutate, mutateAsync, isPending: isSaving } = useMutation({
+  const {
+    mutate,
+    mutateAsync,
+    isPending: isSaving,
+  } = useMutation({
     mutationFn: async (input: SaveArtifactInput) => {
       if (target.kind !== "file") {
         throw new Error("Cannot save non-file artifact.");
       }
 
       if (input.kind === "text") {
-        return client.writeWorkspaceFile(workspaceId, { path: target.value, content: input.data, baseUpdatedAt: input.baseUpdatedAt });
+        return client.writeWorkspaceFile(workspaceId, {
+          path: target.value,
+          content: input.data,
+          baseUpdatedAt: input.baseUpdatedAt,
+        });
       }
 
-      return client.writeWorkspaceBinaryFile(workspaceId, { path: target.value, data: input.data, baseUpdatedAt: input.baseUpdatedAt });
+      return client.writeWorkspaceBinaryFile(workspaceId, {
+        path: target.value,
+        data: input.data,
+        baseUpdatedAt: input.baseUpdatedAt,
+      });
     },
     onSuccess: (result, input) => {
       queryClient.setQueryData<ArtifactQueryState>(
         ["artifact-panel", workspaceId, target.id] as const,
         input.kind === "text"
-          ? { kind: "text", data: input.data, updatedAt: result.updatedAt ?? null }
-          : { kind: "binary", data: input.data, contentType: data?.kind === "binary" ? data.contentType : null, updatedAt: result.updatedAt ?? null },
+          ? {
+              kind: "text",
+              data: input.data,
+              updatedAt: result.updatedAt ?? null,
+            }
+          : {
+              kind: "binary",
+              data: input.data,
+              contentType: data?.kind === "binary" ? data.contentType : null,
+              updatedAt: result.updatedAt ?? null,
+            },
       );
 
       if (input.kind === "text") {
@@ -210,9 +403,16 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     if (target.kind === "url") {
       return;
     }
-    
-    const result = await client.downloadWorkspaceFile(workspaceId, target.value);
-    const url = URL.createObjectURL(new Blob([result.data], { type: result.contentType ?? "application/octet-stream" }));
+
+    const result = await client.downloadWorkspaceFile(
+      workspaceId,
+      target.value,
+    );
+    const url = URL.createObjectURL(
+      new Blob([result.data], {
+        type: result.contentType ?? "application/octet-stream",
+      }),
+    );
     const anchor = document.createElement("a");
 
     anchor.href = url;
@@ -227,12 +427,13 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       window.open(target.value, "_blank", "noopener,noreferrer");
 
       return;
-    }
-    else if (!isRemoteWorkspace) {
+    } else if (!isRemoteWorkspace) {
       try {
         await openDesktopPath(externalPath);
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : "Could not open this file.");
+        toast.error(
+          cause instanceof Error ? cause.message : "Could not open this file.",
+        );
       }
 
       return;
@@ -246,12 +447,20 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     try {
       await revealDesktopItemInDir(externalPath);
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not show this file in your file manager.");
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : "Could not show this file in your file manager.",
+      );
     }
   };
 
   const save = () => {
-    if (target.kind !== "file" || !isTextContent(target) || data?.kind !== "text") {
+    if (
+      target.kind !== "file" ||
+      !isTextContent(target) ||
+      data?.kind !== "text"
+    ) {
       return;
     }
 
@@ -272,7 +481,10 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
 
     await mutateAsync({
       ...payload,
-      baseUpdatedAt: data?.kind === payload.kind ? data.updatedAt : target.updatedAt ?? null,
+      baseUpdatedAt:
+        data?.kind === payload.kind
+          ? data.updatedAt
+          : (target.updatedAt ?? null),
     });
   };
 
@@ -284,6 +496,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           client={client}
           workspaceId={workspaceId}
           target={target}
+          worktreeOwnerTitles={worktreeOwnerTitles}
           fileIcon={fileIcon}
           isRemoteWorkspace={isRemoteWorkspace}
           onDownload={download}
@@ -318,9 +531,19 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
               <PreviewLoading />
             ) : isError ? (
-              <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />
+              <PreviewError
+                message={
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to load artifact"
+                }
+              />
             ) : data?.kind === "text" && (editing || isDirectTextEdit) ? (
-              <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
+              <TextEditor
+                value={draft}
+                language={target.preview === "markdown" ? "markdown" : "text"}
+                onChange={setDraft}
+              />
             ) : target.preview === "markdown" && data?.kind === "text" ? (
               <MarkdownPreview content={data.data} />
             ) : target.preview === "sheet" ? (
@@ -331,13 +554,27 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                 onSave={saveSpreadsheetContent}
               />
             ) : target.preview === "html" && data?.kind === "text" ? (
-              <HTMLPreview type="text" title={target.name} content={data.data} />
-            ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
+              <HTMLPreview
+                type="text"
+                title={target.name}
+                content={data.data}
+              />
+            ) : target.preview === "image" &&
+              data?.kind === "binary" &&
+              binaryObjectUrl ? (
               <ImagePreview src={binaryObjectUrl} alt={target.name} />
-            ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
+            ) : target.preview === "pdf" &&
+              data?.kind === "binary" &&
+              binaryObjectUrl ? (
               <PdfPreview url={binaryObjectUrl} title={target.name} />
-            ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
-              <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
+            ) : data?.kind === "binary" &&
+              binaryObjectUrl &&
+              target.preview === "html" ? (
+              <HTMLPreview
+                type="binary"
+                title={target.name}
+                url={binaryObjectUrl}
+              />
             ) : data?.kind === "text" ? (
               <PlainText content={data.data} />
             ) : (
@@ -386,17 +623,25 @@ export function ArtifactPanelHeader({
   onClose,
 }: ArtifactPanelHeaderProps) {
   return (
-    <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-      <div className="flex h-10 items-center gap-2 pe-2 ps-4">
+    <div className="shrink-0 bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+      <div className="flex h-10 items-center gap-2 border-b border-border pe-2 ps-4">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {fileIcon ? (
-            <img src={fileIcon} alt="" className="h-4 w-4 shrink-0 object-contain" />
+            <img
+              src={fileIcon}
+              alt=""
+              className="h-4 w-4 shrink-0 object-contain"
+            />
           ) : null}
           <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
             {target.name}
           </h3>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {target.exists === false ? "missing" : target.size !== undefined ? `${formatFileSize(target.size)}` : ""}
+            {target.exists === false
+              ? "missing"
+              : target.size !== undefined
+                ? `${formatFileSize(target.size)}`
+                : ""}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -405,7 +650,7 @@ export function ArtifactPanelHeader({
               <>
                 <Tooltip>
                   <TooltipTrigger
-                    render={(
+                    render={
                       <Button
                         variant="ghost"
                         size="sm"
@@ -414,15 +659,22 @@ export function ArtifactPanelHeader({
                       >
                         Discard
                       </Button>
-                    )}
+                    }
                   />
                   <TooltipContent>Discard changes</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
-                    render={(
-                      <Button variant="default" size="sm" onClick={() => void onSave()} disabled={isSaving || draft === data.data}>{isSaving ? "Saving" : "Save"}</Button>
-                    )}
+                    render={
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => void onSave()}
+                        disabled={isSaving || draft === data.data}
+                      >
+                        {isSaving ? "Saving" : "Save"}
+                      </Button>
+                    }
                   />
                   <TooltipContent>Save changes</TooltipContent>
                 </Tooltip>
@@ -430,9 +682,11 @@ export function ArtifactPanelHeader({
             ) : (
               <Tooltip>
                 <TooltipTrigger
-                  render={(
-                    <Button variant="ghost" size="sm" onClick={onEdit}>Edit</Button>
-                  )}
+                  render={
+                    <Button variant="ghost" size="sm" onClick={onEdit}>
+                      Edit
+                    </Button>
+                  }
                 />
                 <TooltipContent>Edit artifact</TooltipContent>
               </Tooltip>
@@ -441,11 +695,16 @@ export function ArtifactPanelHeader({
           {target.kind === "file" ? (
             <Tooltip>
               <TooltipTrigger
-                render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void onDownload()} aria-label="Download artifact">
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void onDownload()}
+                    aria-label="Download artifact"
+                  >
                     <Download />
                   </Button>
-                )}
+                }
               />
               <TooltipContent>Download artifact</TooltipContent>
             </Tooltip>
@@ -453,32 +712,51 @@ export function ArtifactPanelHeader({
           {target.kind === "file" && !isRemoteWorkspace ? (
             <Tooltip>
               <TooltipTrigger
-                render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void onReveal()} aria-label="Show in folder">
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void onReveal()}
+                    aria-label="Show in folder"
+                  >
                     <FolderOpen />
                   </Button>
-                )}
+                }
               />
               <TooltipContent>Show in folder</TooltipContent>
             </Tooltip>
           ) : null}
           <Tooltip>
             <TooltipTrigger
-              render={(
-                <Button variant="ghost" size="icon-sm" onClick={() => void onOpenExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void onOpenExternal()}
+                  aria-label={
+                    isRemoteWorkspace ? "Download artifact" : "Open externally"
+                  }
+                >
                   <ExternalLink />
                 </Button>
-              )}
+              }
             />
-            <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
+            <TooltipContent>
+              {isRemoteWorkspace ? "Download artifact" : "Open externally"}
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
-              render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close artifact">
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={onClose}
+                  aria-label="Close artifact"
+                >
                   <X />
                 </Button>
-              )}
+              }
             />
             <TooltipContent>Close artifact</TooltipContent>
           </Tooltip>
@@ -493,6 +771,7 @@ interface UniverArtifactWorkspaceProps {
   client: OpenworkServerClient;
   workspaceId: string;
   target: UniverTarget;
+  worktreeOwnerTitles: Record<string, string>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   onDownload: () => void | Promise<void>;
@@ -505,27 +784,32 @@ function UniverArtifactWorkspace({
   client,
   workspaceId,
   target,
+  worktreeOwnerTitles,
   fileIcon,
   isRemoteWorkspace,
   onDownload,
   onReveal,
   onClose,
 }: UniverArtifactWorkspaceProps) {
-  const { controller, error, isError, isLoading, surface, viewerDataSource } = useUniverCoworkSession({
-    client,
-    workspaceId,
-    target,
-    isRemoteWorkspace,
-  });
+  const { controller, error, isError, isLoading, surface, viewerDataSource } =
+    useUniverCoworkSession({
+      client,
+      workspaceId,
+      target,
+      isRemoteWorkspace,
+    });
 
   if (controller && surface) {
     return (
       <UniverArtifactWorkspaceContent
         sessionId={sessionId}
+        client={client}
+        workspaceId={workspaceId}
         controller={controller}
         surface={surface}
         viewerDataSource={viewerDataSource}
         target={target}
+        worktreeOwnerTitles={worktreeOwnerTitles}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -539,6 +823,7 @@ function UniverArtifactWorkspace({
     <>
       <UniverArtifactHeader
         target={target}
+        worktreeOwnerTitles={worktreeOwnerTitles}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -558,10 +843,13 @@ function UniverArtifactWorkspace({
 
 interface UniverArtifactWorkspaceContentProps {
   sessionId: string;
+  client: OpenworkServerClient;
+  workspaceId: string;
   controller: CoworkController;
   surface: UniverOpenSurface;
   viewerDataSource: CoworkContentViewerDataSource | null;
   target: UniverTarget;
+  worktreeOwnerTitles: Record<string, string>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   onDownload: () => void | Promise<void>;
@@ -571,10 +859,13 @@ interface UniverArtifactWorkspaceContentProps {
 
 function UniverArtifactWorkspaceContent({
   sessionId,
+  client,
+  workspaceId,
   controller,
   surface,
   viewerDataSource,
   target,
+  worktreeOwnerTitles,
   fileIcon,
   isRemoteWorkspace,
   onDownload,
@@ -582,14 +873,23 @@ function UniverArtifactWorkspaceContent({
   onClose,
 }: UniverArtifactWorkspaceContentProps) {
   const snapshot = useCoworkSnapshot(controller);
-  const [contentView, setContentView] = useState<CoworkContentViewState | null>(null);
+  const [contentView, setContentView] = useState<CoworkContentViewState | null>(
+    null,
+  );
 
   useEffect(() => {
     if (snapshot.loadState !== "ready" || !target.worktreeId) return;
-    const reviewable = snapshot.reviewableWorktrees.find((worktree) => worktree.worktreeId === target.worktreeId);
+    const reviewable = snapshot.reviewableWorktrees.find(
+      (worktree) => worktree.worktreeId === target.worktreeId,
+    );
     if (!reviewable || reviewable.reviewSummary) return;
     void controller.loadReviewSummary(target.worktreeId);
-  }, [controller, snapshot.loadState, snapshot.reviewableWorktrees, target.worktreeId]);
+  }, [
+    controller,
+    snapshot.loadState,
+    snapshot.reviewableWorktrees,
+    target.worktreeId,
+  ]);
 
   useEffect(() => {
     if (snapshot.loadState !== "ready") return;
@@ -599,7 +899,9 @@ function UniverArtifactWorkspaceContent({
     }
   }, [contentView, snapshot, target]);
 
-  const contentSurface = contentView ? buildCoworkContentSurface(snapshot, contentView) : null;
+  const contentSurface = contentView
+    ? buildCoworkContentSurface(snapshot, contentView)
+    : null;
 
   const syncTargetRoute = (nextTarget: UniverTarget) => {
     const store = usePanelTabStore.getState();
@@ -617,34 +919,61 @@ function UniverArtifactWorkspaceContent({
   const setContentViewAndRoute = (view: CoworkContentViewState) => {
     setContentView(view);
     if (view.scope === "trunk") {
-      syncTargetRoute(targetFromSelection(target, { type: "unit", unitId: view.unitId }));
+      syncTargetRoute(
+        targetFromSelection(target, { type: "unit", unitId: view.unitId }),
+      );
       return;
     }
-    syncTargetRoute(targetFromSelection(target, { type: "reviewUnit", worktreeId: view.worktreeId, unitId: view.unitId }));
+    syncTargetRoute(
+      targetFromSelection(target, {
+        type: "reviewUnit",
+        worktreeId: view.worktreeId,
+        unitId: view.unitId,
+      }),
+    );
   };
 
-  const setTrunkEditIntent = (intent: CoworkContentViewState & { scope: "trunk" }) => {
+  const setTrunkEditIntent = (
+    intent: CoworkContentViewState & { scope: "trunk" },
+  ) => {
     setContentView(intent);
+  };
+
+  const markWorktreeTerminal = async (
+    nextTerminalState: "merged" | "discarded",
+  ) => {
+    await client.updateSessionUniverMetadata(workspaceId, sessionId, {
+      sessionUniverWorktreeTerminalState: nextTerminalState,
+    });
+    notifyUniverSessionMetadataUpdated();
   };
 
   const mergeWorktree = async (worktreeId: string) => {
     try {
       const result = await controller.mergeWorktree(worktreeId);
-      if (result.status === "merged" && contentView) {
-        setContentViewAndRoute({
-          scope: "trunk",
-          unitId: contentView.unitId,
-          trunkEditIntent: "auto",
-        });
+      if (result.status === "merged") {
+        await markWorktreeTerminal("merged");
+        if (contentView) {
+          setContentViewAndRoute({
+            scope: "trunk",
+            unitId: contentView.unitId,
+            trunkEditIntent: "auto",
+          });
+        }
       }
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not merge these changes.");
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : "Could not merge these changes.",
+      );
     }
   };
 
   const discardWorktree = async (worktreeId: string) => {
     try {
       await controller.discardWorktree(worktreeId);
+      await markWorktreeTerminal("discarded");
       if (contentView) {
         setContentViewAndRoute({
           scope: "trunk",
@@ -653,7 +982,11 @@ function UniverArtifactWorkspaceContent({
         });
       }
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not discard these changes.");
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : "Could not discard these changes.",
+      );
     }
   };
 
@@ -661,13 +994,19 @@ function UniverArtifactWorkspaceContent({
     <>
       <UniverArtifactHeader
         target={target}
+        worktreeOwnerTitles={worktreeOwnerTitles}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
+        currentView={contentView}
+        snapshot={snapshot}
         contentSurface={contentSurface}
         onContentViewChange={setContentViewAndRoute}
         onRequestTrunkEdit={() => {
           if (contentView?.scope === "trunk") {
-            setTrunkEditIntent({ ...contentView, trunkEditIntent: "forceEditing" });
+            setTrunkEditIntent({
+              ...contentView,
+              trunkEditIntent: "forceEditing",
+            });
           }
         }}
         onStopTrunkEdit={() => {
@@ -696,9 +1035,12 @@ function UniverArtifactWorkspaceContent({
 
 interface UniverArtifactHeaderProps {
   target: OpenTarget;
+  worktreeOwnerTitles?: Record<string, string>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   contentSurface?: CoworkContentSurface | null;
+  currentView?: CoworkContentViewState | null;
+  snapshot?: CoworkSnapshot | null;
   onContentViewChange?: (view: CoworkContentViewState) => void;
   onRequestTrunkEdit?: () => void;
   onStopTrunkEdit?: () => void;
@@ -711,9 +1053,11 @@ interface UniverArtifactHeaderProps {
 
 export function UniverArtifactHeader({
   target,
-  fileIcon,
+  worktreeOwnerTitles,
   isRemoteWorkspace,
   contentSurface,
+  currentView,
+  snapshot,
   onContentViewChange,
   onRequestTrunkEdit,
   onStopTrunkEdit,
@@ -726,16 +1070,24 @@ export function UniverArtifactHeader({
   const viewModel = deriveUniverArtifactHeaderViewModel({
     target,
     isRemoteWorkspace,
-    ...(target.size !== undefined ? { fileSizeLabel: formatFileSize(target.size) } : {}),
-    ...(contentSurface?.status === "ready" ? {
-      contentState: {
-        unitTitle: contentSurface.title,
-        scopeLabel: contentSurface.scopeLabel,
-        badges: contentSurface.badges,
-        editGate: contentSurface.editGate,
-        actions: contentSurface.actions,
-      },
-    } : {}),
+    ...(target.size !== undefined
+      ? { fileSizeLabel: formatFileSize(target.size) }
+      : {}),
+    ...(currentView ? { currentView } : {}),
+    ...(snapshot ? { snapshot } : {}),
+    ...(target.worktreeId ? { sessionWorktreeId: target.worktreeId } : {}),
+    ...(worktreeOwnerTitles ? { worktreeOwnerTitles } : {}),
+    ...(contentSurface?.status === "ready"
+      ? {
+          contentState: {
+            unitTitle: contentSurface.title,
+            scopeLabel: contentSurface.scopeLabel,
+            badges: contentSurface.badges,
+            editGate: contentSurface.editGate,
+            actions: contentSurface.actions,
+          },
+        }
+      : {}),
   });
 
   if (!viewModel) {
@@ -744,35 +1096,20 @@ export function UniverArtifactHeader({
 
   return (
     <div
-      className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150"
+      className="shrink-0 bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150"
       data-testid="univer-artifact-header"
     >
-      <div className="flex min-h-12 items-center gap-3 pe-2 ps-4 py-1.5">
+      <div className="flex h-10 items-center gap-3 border-b border-border pe-2 ps-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {fileIcon ? (
-            <img src={fileIcon} alt="" className="h-4 w-4 shrink-0 object-contain" />
-          ) : null}
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
-                {viewModel.primaryTitle}
-              </h3>
-              {viewModel.scopeLabel ? (
-                <span className="shrink-0 text-xs text-muted-foreground">· {viewModel.scopeLabel}</span>
-              ) : null}
-              {viewModel.fileMetaLabel ? (
-                <span className="shrink-0 text-xs text-muted-foreground">{viewModel.fileMetaLabel}</span>
-              ) : null}
-            </div>
-            {viewModel.secondaryTitle ? (
-              <div className="truncate text-xs text-muted-foreground">
-                {viewModel.secondaryTitle}
-              </div>
-            ) : null}
+          <div className="min-w-0 flex-1">
+            <UniverSurfaceBreadcrumb
+              viewModel={viewModel}
+              onContentViewChange={onContentViewChange}
+            />
           </div>
         </div>
         <div
-          className="hidden min-w-0 flex-1 items-center justify-end gap-1 md:flex"
+          className="hidden shrink-0 items-center justify-end gap-1 md:flex"
           data-testid="univer-artifact-header-content-actions"
         >
           <UniverArtifactHeaderContentControls
@@ -788,16 +1125,22 @@ export function UniverArtifactHeader({
           {viewModel.fileActions.map((action) => (
             <Tooltip key={action.id}>
               <TooltipTrigger
-                render={(
+                render={
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => runUniverArtifactHeaderAction(action.id, { onDownload, onReveal, onClose })}
+                    onClick={() =>
+                      runUniverArtifactHeaderAction(action.id, {
+                        onDownload,
+                        onReveal,
+                        onClose,
+                      })
+                    }
                     aria-label={action.label}
                   >
                     <UniverArtifactHeaderActionIcon actionId={action.id} />
                   </Button>
-                )}
+                }
               />
               <TooltipContent>{action.tooltip}</TooltipContent>
             </Tooltip>
@@ -806,6 +1149,204 @@ export function UniverArtifactHeader({
       </div>
     </div>
   );
+}
+
+function UniverSurfaceBreadcrumb({
+  viewModel,
+  onContentViewChange,
+}: {
+  viewModel: UniverArtifactHeaderViewModel;
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+}) {
+  const unit = viewModel.breadcrumb.unit;
+  const worktree = viewModel.breadcrumb.worktree;
+
+  return (
+    <div
+      className="flex min-w-0 items-center gap-1 text-[13px] font-medium leading-5 text-foreground"
+      data-testid="univer-surface-breadcrumb"
+    >
+      <span
+        className="min-w-0 max-w-[28ch] shrink-0 truncate"
+        title={viewModel.breadcrumb.univerfile.label}
+      >
+        {viewModel.breadcrumb.univerfile.label}
+      </span>
+      {unit ? (
+        <>
+          <BreadcrumbDivider />
+          <UniverUnitBreadcrumbSegment
+            current={unit}
+            options={viewModel.unitOptions}
+            onContentViewChange={onContentViewChange}
+          />
+        </>
+      ) : null}
+      {worktree ? (
+        <>
+          <BreadcrumbDivider />
+          <UniverWorktreeBreadcrumbSegment
+            current={worktree}
+            groups={viewModel.worktreeGroups}
+            onContentViewChange={onContentViewChange}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function BreadcrumbDivider() {
+  return <span className="shrink-0 text-muted-foreground/70">/</span>;
+}
+
+function UniverUnitBreadcrumbSegment({
+  current,
+  options,
+  onContentViewChange,
+}: {
+  current: { label: string; kind?: string };
+  options: UniverArtifactHeaderUnitOption[];
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+}) {
+  const content = (
+    <>
+      {unitIcon(current.kind ?? "")}
+      <span className="min-w-0 truncate">{current.label}</span>
+    </>
+  );
+
+  if (!options.length || !onContentViewChange) {
+    return (
+      <span className="flex min-w-0 max-w-[34ch] items-center gap-1.5 truncate">
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex min-w-0 max-w-[34ch] items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Select unit. Current unit: ${current.label}`}
+      >
+        {content}
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-64">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Units</DropdownMenuLabel>
+          {options.map((option) => (
+            <DropdownMenuItem
+              key={option.unitId}
+              onClick={() => onContentViewChange(option.view)}
+              aria-pressed={option.selected}
+            >
+              {unitIcon(option.kind)}
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.selected ? <Check className="size-3.5 shrink-0" /> : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function UniverWorktreeBreadcrumbSegment({
+  current,
+  groups,
+  onContentViewChange,
+}: {
+  current: { label: string; stateLabel?: string };
+  groups: UniverArtifactHeaderViewModel["worktreeGroups"];
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+}) {
+  const content = (
+    <>
+      <span className="min-w-0 truncate">{current.label}</span>
+      {current.stateLabel ? (
+        <WorktreeStateChip label={current.stateLabel} />
+      ) : null}
+    </>
+  );
+
+  if (!groups.length || !onContentViewChange) {
+    return (
+      <span className="flex min-w-0 max-w-[26ch] items-center gap-1.5 truncate">
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex min-w-0 max-w-[26ch] items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Select worktree. Current route: ${current.label}`}
+      >
+        {content}
+        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-72">
+        {groups.map((group, index) => (
+          <Fragment key={group.label}>
+            {index > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+              {group.options.map((option) => (
+                <WorktreeDropdownItem
+                  key={option.id}
+                  option={option}
+                  onContentViewChange={onContentViewChange}
+                />
+              ))}
+            </DropdownMenuGroup>
+          </Fragment>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function WorktreeDropdownItem({
+  option,
+  onContentViewChange,
+}: {
+  option: UniverArtifactHeaderWorktreeOption;
+  onContentViewChange: (view: CoworkContentViewState) => void;
+}) {
+  return (
+    <DropdownMenuItem
+      onClick={() => onContentViewChange(option.view)}
+      aria-pressed={option.selected}
+      title={option.tooltip}
+    >
+      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+      {option.stateLabel ? (
+        <WorktreeStateChip label={option.stateLabel} />
+      ) : null}
+      {option.selected ? <Check className="size-3.5 shrink-0" /> : null}
+    </DropdownMenuItem>
+  );
+}
+
+function WorktreeStateChip({ label }: { label: string }) {
+  return (
+    <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {label}
+    </span>
+  );
+}
+
+function unitIcon(kind: string) {
+  if (kind === "sheet")
+    return <Sheet className="size-3.5 shrink-0 text-muted-foreground" />;
+  if (kind === "doc")
+    return <FileText className="size-3.5 shrink-0 text-muted-foreground" />;
+  if (kind === "slide")
+    return <Presentation className="size-3.5 shrink-0 text-muted-foreground" />;
+  return <Database className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
 function runUniverArtifactHeaderAction(
@@ -842,7 +1383,10 @@ function UniverArtifactHeaderContentControls({
   onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
   onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
 }) {
-  const editAction = viewModel.editGate && "action" in viewModel.editGate ? viewModel.editGate.action : undefined;
+  const editAction =
+    viewModel.editGate && "action" in viewModel.editGate
+      ? viewModel.editGate.action
+      : undefined;
 
   return (
     <>
@@ -851,7 +1395,9 @@ function UniverArtifactHeaderContentControls({
           key={`${badge.type}:${badge.label}`}
           className={cn(
             "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]",
-            badge.tone === "warn" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
+            badge.tone === "warn"
+              ? "bg-destructive/10 text-destructive"
+              : "bg-muted text-muted-foreground",
           )}
         >
           {badge.label}
@@ -861,7 +1407,9 @@ function UniverArtifactHeaderContentControls({
         <span
           className={cn(
             "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]",
-            viewModel.editGate.editable ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground",
+            viewModel.editGate.editable
+              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "bg-muted text-muted-foreground",
           )}
           data-testid="univer-artifact-header-edit-gate"
         >
@@ -872,7 +1420,12 @@ function UniverArtifactHeaderContentControls({
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => runCoworkEditAction(editAction, { onRequestTrunkEdit, onStopTrunkEdit })}
+          onClick={() =>
+            runCoworkEditAction(editAction, {
+              onRequestTrunkEdit,
+              onStopTrunkEdit,
+            })
+          }
         >
           {editAction.label}
         </Button>
@@ -920,10 +1473,16 @@ function UniverArtifactHeaderContentAction({
       <Button
         variant="ghost"
         size="xs"
-        disabled={action.status === "running" || action.disabledReason !== undefined}
+        disabled={
+          action.status === "running" || action.disabledReason !== undefined
+        }
         onClick={() => void onMergeWorktree?.(action.worktreeId)}
       >
-        {action.status === "running" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Check data-icon="inline-start" />}
+        {action.status === "running" ? (
+          <Loader2 data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <Check data-icon="inline-start" />
+        )}
         {action.label}
       </Button>
     );
@@ -935,10 +1494,16 @@ function UniverArtifactHeaderContentAction({
         variant="ghost"
         size="xs"
         className="text-destructive hover:text-destructive"
-        disabled={action.status === "running" || action.disabledReason === "busy"}
+        disabled={
+          action.status === "running" || action.disabledReason === "busy"
+        }
         onClick={() => void onDiscardWorktree?.(action.worktreeId)}
       >
-        {action.status === "running" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Trash2 data-icon="inline-start" />}
+        {action.status === "running" ? (
+          <Loader2 data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <Trash2 data-icon="inline-start" />
+        )}
         {action.label}
       </Button>
     );
@@ -971,7 +1536,11 @@ function contentActionKey(action: CoworkContentAction): string {
   return action.type;
 }
 
-function UniverArtifactHeaderActionIcon({ actionId }: { actionId: UniverArtifactHeaderFileActionId }) {
+function UniverArtifactHeaderActionIcon({
+  actionId,
+}: {
+  actionId: UniverArtifactHeaderFileActionId;
+}) {
   if (actionId === "download") {
     return <Download />;
   }
@@ -1000,8 +1569,11 @@ function UniverContentViewerSurface({
   isError,
   isLoading,
 }: UniverContentViewerSurfaceProps) {
-  const [viewerStatus, setViewerStatus] = useState<CoworkContentViewerStatus>("loading");
-  const [viewerError, setViewerError] = useState<CoworkViewerError | null>(null);
+  const [viewerStatus, setViewerStatus] =
+    useState<CoworkContentViewerStatus>("loading");
+  const [viewerError, setViewerError] = useState<CoworkViewerError | null>(
+    null,
+  );
   const [reloadKey, setReloadKey] = useState(0);
   const viewerRequest = contentSurface?.viewerRequest ?? null;
   const viewerRequestKey = viewerRequest
@@ -1017,15 +1589,20 @@ function UniverContentViewerSurface({
   let content: ReactNode;
   if (isLoading) {
     content = <PreviewLoading />;
-  }
-  else if (isError || !surface) {
-    content = <PreviewError message={error instanceof Error ? error.message : "Failed to open Univer surface."} />;
-  }
-  else {
+  } else if (isError || !surface) {
+    content = (
+      <PreviewError
+        message={
+          error instanceof Error
+            ? error.message
+            : "Failed to open Univer surface."
+        }
+      />
+    );
+  } else {
     if (!viewerRequest || !viewerDataSource) {
       content = <PreviewUnavailable />;
-    }
-    else {
+    } else {
       content = (
         <>
           <CoworkContentViewer
@@ -1063,7 +1640,10 @@ function UniverContentViewerSurface({
   }
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-background" data-testid="univer-artifact-native-viewer">
+    <div
+      className="relative min-h-0 flex-1 overflow-hidden bg-background"
+      data-testid="univer-artifact-native-viewer"
+    >
       {content}
     </div>
   );
@@ -1088,7 +1668,9 @@ function UniverViewerError({
   );
 }
 
-interface TextEditorProps extends React.ComponentProps<typeof ArtifactTextEditor> {
+interface TextEditorProps extends React.ComponentProps<
+  typeof ArtifactTextEditor
+> {
   value: string;
   language: "markdown" | "text";
   onChange: (value: string) => void;
@@ -1097,22 +1679,24 @@ interface TextEditorProps extends React.ComponentProps<typeof ArtifactTextEditor
 function TextEditor({ value, language, onChange, ...props }: TextEditorProps) {
   return (
     <Suspense fallback={<PreviewLoading />}>
-      <ArtifactTextEditor value={value} language={language} onChange={onChange} {...props} />
+      <ArtifactTextEditor
+        value={value}
+        language={language}
+        onChange={onChange}
+        {...props}
+      />
     </Suspense>
   );
 }
 
-interface SheetEditorProps extends React.ComponentProps<typeof ArtifactSpreadsheetEditor> {
-  
-}
+interface SheetEditorProps extends React.ComponentProps<
+  typeof ArtifactSpreadsheetEditor
+> {}
 
 function SheetEditor({ className, ...props }: SheetEditorProps) {
   return (
     <Suspense fallback={<PreviewLoading />}>
-      <ArtifactSpreadsheetEditor
-        className={className}
-        {...props}
-      />
+      <ArtifactSpreadsheetEditor className={className} {...props} />
     </Suspense>
   );
 }

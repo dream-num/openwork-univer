@@ -2,7 +2,7 @@
 
 OpenWork will make the compact chat pane the default session conversation layout. The transcript and composer share a dense, full-width rhythm with small refined padding and only a broad safety cap for extreme displays. The composer becomes a bottom input bar separated from the transcript by a divider instead of a rounded floating card.
 
-This is not a `.univer`-specific layout branch. Wide `.univer` artifact review is the forcing scenario, because the chat pane should not compete with a Native Office Target for attention or vertical space, but the agent chat model remains the same across sessions.
+This is not a `.univer`-specific layout branch. Wide `.univer` artifact review is the forcing scenario, because the chat pane should not compete with a Native Univer Target for attention or vertical space, but the agent chat model remains the same across sessions.
 
 **Consequences**
 

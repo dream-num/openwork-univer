@@ -20,9 +20,13 @@ import { trackSessionActive, trackTaskStarted } from "@/app/lib/den-telemetry";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
+import { buildUniverSessionSystemContext, combineSystemContexts } from "@/react-app/domains/session/univer-session-context";
+import { UNIVER_SESSION_METADATA_UPDATED_EVENT } from "@/react-app/domains/session/univer-session-events";
+import { seedUniverTaskTitleFromPrompt } from "@/react-app/domains/session/univer-task-title";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
+  type OpenworkUniverTargetSummary,
   readOpenworkServerSettings,
   type OpenworkServerClient,
   type OpenworkWorkspaceInfo,
@@ -309,6 +313,10 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
   return parts;
 }
 
+function normalizeUniverTargetPath(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
 export function SessionRoute() {
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -320,6 +328,7 @@ export function SessionRoute() {
   const restrictionNotice = useRestrictionNotice();
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
+  const [univerTargetsByWorkspaceId, setUniverTargetsByWorkspaceId] = useState<Record<string, OpenworkUniverTargetSummary[]>>({});
   const {
     navigateToWorkspaceSession,
     routeWorkspaceId,
@@ -512,9 +521,46 @@ export function SessionRoute() {
 
 
   const workspaceSessionGroups = useMemo(
-    () => toSessionGroups(workspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
-    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, workspaces],
+    () => toSessionGroups(
+      workspaces,
+      sessionsByWorkspaceId,
+      errorsByWorkspaceId,
+      new Set(retryingWorkspaceIds),
+      univerTargetsByWorkspaceId,
+    ),
+    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, univerTargetsByWorkspaceId, workspaces],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUniverTargets = async () => {
+      const entries = await Promise.all(workspaces.map(async (workspace) => {
+        const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+        if (!endpoint) return { workspaceId: workspace.id, items: [] };
+        try {
+          const result = await endpoint.client.listUniverTargets(endpoint.workspaceId);
+          return { workspaceId: workspace.id, items: result.items };
+        } catch {
+          return { workspaceId: workspace.id, items: [] };
+        }
+      }));
+
+      if (cancelled) return;
+      const next: Record<string, OpenworkUniverTargetSummary[]> = {};
+      for (const entry of entries) {
+        next[entry.workspaceId] = entry.items;
+      }
+      setUniverTargetsByWorkspaceId(next);
+    };
+
+    void loadUniverTargets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, token, workspaces]);
+
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const selectedWorkspaceGroupState = sessionManagementStore((state) => (
     selectedWorkspaceId ? state.groupsByWorkspace[selectedWorkspaceId] : undefined
@@ -751,6 +797,14 @@ export function SessionRoute() {
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
   }, [engineReloadVersion, opencodeClient]);
 
+  useEffect(() => {
+    const refresh = () => {
+      void refreshRouteState();
+    };
+    window.addEventListener(UNIVER_SESSION_METADATA_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(UNIVER_SESSION_METADATA_UPDATED_EVENT, refresh);
+  }, [refreshRouteState]);
+
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
     const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
     const tab = route.replace(/^\/settings\/?/, "").replace(/^\/+|\/+$/g, "") || "general";
@@ -816,11 +870,65 @@ export function SessionRoute() {
         handleOpenSettings(section === "skills" ? "/settings/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
-        const targetSessionId = sessionId.trim() || selectedSessionId;
+        let targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
+
+        const workspaceSessions = sessionsByWorkspaceId[selectedWorkspaceId] ?? [];
+        const sourceSession = workspaceSessions.find((session) => session.id === targetSessionId);
+        const sourceTarget = sourceSession?.primaryUniverTarget ?? null;
+        let univerContextSession = sourceSession ?? null;
+        if (
+          sourceSession &&
+          sourceTarget &&
+          draft.mode !== "shell" &&
+          !draft.command &&
+          (
+            sourceSession.univerSessionKind === "overview" ||
+            Boolean(sourceSession.sessionUniverWorktreeTerminalState)
+          )
+        ) {
+          if (!selectedWorkspaceEndpoint) {
+            throw new Error("OpenWork workspace endpoint is unavailable.");
+          }
+          const seededTitle = seedUniverTaskTitleFromPrompt(text);
+          const created = unwrap(
+            await opencodeClient.session.create({
+              directory: selectedWorkspace?.path?.trim() || undefined,
+              ...(seededTitle ? { title: seededTitle } : {}),
+            }),
+          );
+          const primaryUniverTarget = { path: sourceTarget.path, name: sourceTarget.name };
+          const univerSessionKind: "task" = "task";
+          await selectedWorkspaceEndpoint.client.updateSessionUniverMetadata(selectedWorkspaceEndpoint.workspaceId, created.id, {
+            primaryUniverTarget,
+            univerSessionKind,
+            univerSourceSessionId: sourceSession.id,
+          });
+          const boundSession = {
+            ...created,
+            primaryUniverTarget,
+            univerSessionKind,
+            univerSourceSessionId: sourceSession.id,
+          };
+          univerContextSession = boundSession;
+          writeActiveWorkspaceId(selectedWorkspaceId || null);
+          writeLastSessionFor(selectedWorkspaceId, created.id);
+          rememberPendingCreatedSession(selectedWorkspaceId, created.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = {
+              ...current,
+              [selectedWorkspaceId]: [boundSession, ...(current[selectedWorkspaceId] ?? [])],
+            };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          navigateToWorkspaceSession(selectedWorkspaceId, created.id);
+          void refreshRouteState();
+          targetSessionId = created.id;
+        }
 
         captureAnalyticsEvent("task_message_sent", {
           mode: draft.mode ?? "prompt",
@@ -860,13 +968,15 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+        const univerSessionContext = buildUniverSessionSystemContext(univerContextSession);
+        const systemContext = combineSystemContexts([envSystemContext, univerSessionContext]);
         const result = await opencodeClient.session.promptAsync({
           sessionID: targetSessionId,
           parts,
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(envSystemContext ? { system: envSystemContext } : {}),
+          ...(systemContext ? { system: systemContext } : {}),
         });
         if (result.error) {
           throw new Error(serializeSDKError(result.error));
@@ -970,16 +1080,22 @@ export function SessionRoute() {
     modelVariantLabel,
     modelVariantValue,
     navigate,
+    navigateToWorkspaceSession,
     opencodeBaseUrl,
     opencodeClient,
     providerConnectedIds,
+    refreshRouteState,
+    rememberPendingCreatedSession,
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
     selectedWorkspace,
+    selectedWorkspaceEndpoint,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionsByWorkspaceId,
+    sessionsByWorkspaceIdRef,
+    setSessionsByWorkspaceId,
     token,
   ]);
 
@@ -1052,6 +1168,24 @@ export function SessionRoute() {
   const handleShareWorkspace = useCallback((workspaceId: string) => {
     shareWorkspaceState.openShareWorkspace(workspaceId);
   }, [shareWorkspaceState]);
+
+  const handleDeleteSessions = useCallback(
+    async (workspaceId: string, sessionIds: string[]) => {
+      if (sessionIds.length === 0) return;
+      const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
+      const endpoint = endpointForWorkspace(workspace);
+      if (!endpoint) return;
+
+      await Promise.all(
+        sessionIds.map((sessionId) => endpoint.client.deleteSession(endpoint.workspaceId, sessionId)),
+      );
+      if (workspaceId === selectedWorkspaceId && selectedSessionId && sessionIds.includes(selectedSessionId)) {
+        navigateToWorkspaceSession(workspaceId);
+      }
+      await refreshRouteState();
+    },
+    [endpointForWorkspace, navigateToWorkspaceSession, refreshRouteState, selectedSessionId, selectedWorkspaceId, workspaces],
+  );
 
   const handleSaveShareRemoteAccess = useCallback(
     async (enabled: boolean) => {
@@ -1150,6 +1284,7 @@ export function SessionRoute() {
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
+      return session.id;
     } catch (error) {
       const message = describeTaskCreateError(error);
       setRouteError(message);
@@ -1173,8 +1308,110 @@ export function SessionRoute() {
           }, 1_000);
         }
       }
+      return undefined;
     }
   }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+
+  const bindSessionToUniverTarget = useCallback(async (
+    workspaceId: string,
+    sessionId: string,
+    target: OpenworkUniverTargetSummary,
+    univerSessionKind: "task" | "overview",
+    sourceSessionId?: string,
+  ) => {
+    const workspace = workspaces.find((item) => item.id === workspaceId);
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    if (!endpoint) return false;
+
+    const primaryUniverTarget = { path: target.path, name: target.name };
+    try {
+      await endpoint.client.updateSessionUniverMetadata(endpoint.workspaceId, sessionId, {
+        primaryUniverTarget,
+        univerSessionKind,
+        ...(sourceSessionId ? { univerSourceSessionId: sourceSessionId } : {}),
+      });
+      setSessionsByWorkspaceId((current) => {
+        const next = {
+          ...current,
+          [workspaceId]: (current[workspaceId] ?? []).map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  primaryUniverTarget,
+                  univerSessionKind,
+                  ...(sourceSessionId ? { univerSourceSessionId: sourceSessionId } : {}),
+                }
+              : session
+          ),
+        };
+        sessionsByWorkspaceIdRef.current = next;
+        return next;
+      });
+      void refreshRouteState();
+      return true;
+    } catch (error) {
+      toast.error("Could not bind Univer target", {
+        description: describeRouteError(error),
+      });
+      return false;
+    }
+  }, [baseUrl, refreshRouteState, setSessionsByWorkspaceId, token, workspaces]);
+
+  const handleCreateTaskForUniverTarget = useCallback(async (
+    workspaceId: string,
+    target: OpenworkUniverTargetSummary,
+  ) => {
+    const sessionId = await handleCreateTaskInWorkspace(workspaceId);
+    if (!sessionId) return;
+    await bindSessionToUniverTarget(workspaceId, sessionId, target, "task");
+  }, [bindSessionToUniverTarget, handleCreateTaskInWorkspace]);
+
+  const handleCreateTaskFromUniverSession = useCallback(async (
+    workspaceId: string,
+    sourceSessionId: string,
+  ) => {
+    const sourceSession = (sessionsByWorkspaceIdRef.current[workspaceId] ?? []).find((session) => session.id === sourceSessionId);
+    const sourceTarget = sourceSession?.primaryUniverTarget ?? null;
+    if (!sourceSession || !sourceTarget) return;
+    const sessionId = await handleCreateTaskInWorkspace(workspaceId);
+    if (!sessionId) return;
+    await bindSessionToUniverTarget(
+      workspaceId,
+      sessionId,
+      {
+        path: sourceTarget.path,
+        name: sourceTarget.name,
+        size: 0,
+        updatedAt: 0,
+        unitCount: null,
+      },
+      "task",
+      sourceSession.id,
+    );
+  }, [bindSessionToUniverTarget, handleCreateTaskInWorkspace, sessionsByWorkspaceIdRef]);
+
+  const handleOpenUniverTargetOverview = useCallback(async (
+    workspaceId: string,
+    target: OpenworkUniverTargetSummary,
+  ) => {
+    const targetPath = normalizeUniverTargetPath(target.path);
+    if (!targetPath) return;
+    const existing = (sessionsByWorkspaceIdRef.current[workspaceId] ?? []).find((session) =>
+      session.univerSessionKind === "overview" &&
+      normalizeUniverTargetPath(session.primaryUniverTarget?.path) === targetPath
+    );
+    if (existing) {
+      setLegacySelectedWorkspaceId(workspaceId);
+      writeActiveWorkspaceId(workspaceId || null);
+      writeLastSessionFor(workspaceId, existing.id);
+      navigateToWorkspaceSession(workspaceId, existing.id);
+      return;
+    }
+
+    const sessionId = await handleCreateTaskInWorkspace(workspaceId);
+    if (!sessionId) return;
+    await bindSessionToUniverTarget(workspaceId, sessionId, target, "overview");
+  }, [bindSessionToUniverTarget, handleCreateTaskInWorkspace, navigateToWorkspaceSession, sessionsByWorkspaceIdRef, setLegacySelectedWorkspaceId]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -1215,7 +1452,9 @@ export function SessionRoute() {
   } = useShellShortcuts({
     canCreateTask,
     workspaceId: selectedWorkspaceId,
-    onCreateTask: handleCreateTaskInWorkspace,
+    onCreateTask: (workspaceId) => {
+      void handleCreateTaskInWorkspace(workspaceId);
+    },
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1801,6 +2040,15 @@ export function SessionRoute() {
         onCreateTaskInWorkspace: (workspaceId) => {
           void handleCreateTaskInWorkspace(workspaceId);
         },
+        onCreateTaskForUniverTarget: (workspaceId, target) => {
+          void handleCreateTaskForUniverTarget(workspaceId, target);
+        },
+        onCreateTaskFromUniverSession: (workspaceId, sourceSessionId) => {
+          void handleCreateTaskFromUniverSession(workspaceId, sourceSessionId);
+        },
+        onOpenUniverTargetOverview: (workspaceId, target) => {
+          void handleOpenUniverTargetOverview(workspaceId, target);
+        },
         onCreateTaskWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1917,6 +2165,7 @@ export function SessionRoute() {
             }
           : undefined
       }
+      onDeleteSessions={client ? handleDeleteSessions : undefined}
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
       statusBar={{ loading: showPreparingStatus, reloadBusy: reloadCoordinator.reloadBusy, reloadError: reloadCoordinator.reloadError }}
       notFoundMessage={routeNotFoundMessage}

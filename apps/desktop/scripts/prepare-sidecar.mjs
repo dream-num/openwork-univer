@@ -11,10 +11,11 @@ import {
   readSync,
   readdirSync,
   statSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
@@ -260,6 +261,29 @@ const adHocSignDarwinSidecars = (paths) => {
   }
 };
 
+const linkOrCopyExecutableAlias = (aliasPath, targetPath) => {
+  if (!aliasPath || !targetPath || aliasPath === targetPath || !existsSync(targetPath)) return;
+  try {
+    if (existsSync(aliasPath)) {
+      unlinkSync(aliasPath);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (isWindowsTarget) {
+    copyFileSync(targetPath, aliasPath);
+    try {
+      chmodSync(aliasPath, 0o755);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  symlinkSync(basename(targetPath), aliasPath);
+};
+
 const parseChecksum = (content, assetName) => {
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
@@ -410,6 +434,8 @@ if (shouldDownloadOpencode) {
   console.log(`OpenCode sidecar updated to ${normalizedOpencodeVersion}.`);
 }
 
+linkOrCopyExecutableAlias(opencodePath, opencodeTargetPath);
+
 // Build orchestrator sidecar
 let didBuildOrchestrator = false;
 const shouldBuildOrchestrator =
@@ -483,12 +509,12 @@ if (existsSync(orchestratorBuildPath)) {
   }
 }
 
+linkOrCopyExecutableAlias(orchestratorPath, orchestratorTargetPath);
+
 adHocSignDarwinSidecars([
-  opencodePath,
   opencodeTargetPath,
   // openwork-server runs in-process — no binary to sign.
   orchestratorBuildPath,
-  orchestratorPath,
   orchestratorTargetPath,
 ]);
 

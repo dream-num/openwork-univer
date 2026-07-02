@@ -70,8 +70,9 @@ describe("openwork runtime config file", () => {
     expect(parsed.default_agent).toBe("openwork");
     expect(Array.isArray(parsed.plugin)).toBe(true);
     const serialized = JSON.stringify(parsed);
-    expect(serialized).toContain("native Univer office files (.univer)");
+    expect(serialized).toContain("native Univer files (.univer)");
     expect(serialized).toContain("Do not hand-edit .univer internals");
+    expect(serialized).toContain("If the session has a Primary Univer Target");
     expect(serialized).toContain("Treat .xlsx, .csv, .docx, and .pptx files as exchange formats");
     expect(serialized).toContain("Do not create secondary export files such as .xlsx, .csv, .docx, or .pptx unless the user explicitly asks");
   });

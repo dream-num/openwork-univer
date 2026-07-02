@@ -1,6 +1,6 @@
-# Wrap collab-gateway office surface
+# Wrap collab-gateway Univer surface
 
-OpenWork will implement the native `.univer` office surface by wrapping `univer-cli`'s current `collab-gateway` / `collab-client` surface, not by rebuilding a spreadsheet/document/slide shell in OpenWork and not by targeting the legacy `univerfile-viewer` package.
+OpenWork will implement the native `.univer` Univer surface by wrapping `univer-cli`'s current `collab-gateway` / `collab-client` surface, not by rebuilding a spreadsheet/document/slide shell in OpenWork and not by targeting the legacy `univerfile-viewer` package.
 
 The current Univer implementation already provides the relevant product surface: the daemon-owned gateway serves the browser client, the client uses the official `@univerjs-pro/collaboration-client`, URL state carries `file`, `worktree`, and `unit`, SSE keeps worktree/unit state current, and the worktree flow covers review, merge preview, merge, discard, and reset handling. OpenWork's job is to host that surface cleanly and connect it to OpenWork extension/artifact flows.
 

@@ -6,9 +6,7 @@ const computerUseHelperAppName = "OpenWork Computer Use.app";
 
 const sidecarBases = [
   "opencode",
-  "openwork-server",
   "openwork-orchestrator",
-  "chrome-devtools-mcp",
 ];
 
 function targetTriple(platformName, arch) {
@@ -71,14 +69,19 @@ function signComputerUseHelper(context) {
   }
 }
 
-function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
+function linkOrCopyExecutableTargetToAlias(sidecarsDir, targetName, aliasName, isWindows) {
   const targetPath = path.join(sidecarsDir, targetName);
   if (!fs.existsSync(targetPath)) {
     throw new Error(`Missing packaged sidecar for target: ${targetName}`);
   }
 
   const aliasPath = path.join(sidecarsDir, aliasName);
-  fs.copyFileSync(targetPath, aliasPath);
+  fs.rmSync(aliasPath, { force: true, recursive: true });
+  if (isWindows) {
+    fs.copyFileSync(targetPath, aliasPath);
+  } else {
+    fs.symlinkSync(path.basename(targetPath), aliasPath);
+  }
   try {
     fs.chmodSync(aliasPath, 0o755);
   } catch {
@@ -100,7 +103,7 @@ async function afterPack(context) {
   for (const base of sidecarBases) {
     const aliasName = `${base}${executableSuffix}`;
     const targetName = `${base}-${triple}${executableSuffix}`;
-    copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName);
+    linkOrCopyExecutableTargetToAlias(sidecarsDir, targetName, aliasName, isWindows);
     keep.add(aliasName);
     keep.add(targetName);
   }

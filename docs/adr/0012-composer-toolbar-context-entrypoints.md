@@ -1,8 +1,10 @@
 # Composer toolbar context entrypoints
 
-OpenWork will move durable workspace context entry points into a Composer Toolbar in the Compact Chat Composer stack. The toolbar will expose `Files` for ordinary Workspace Files and `Changes` for the active `.univer` artifact's Office Worktree.
+OpenWork will move durable workspace context entry points into a Composer Toolbar in the Compact Chat Composer stack. For General Sessions and other unbound workspace sessions, the toolbar will expose `Files` for ordinary Workspace Files and `Changes` for the active `.univer` artifact's Univer Worktree.
 
-The previous header button combined Workspace Files and Office Worktree into one Files popover near notifications. That made a workspace navigation task and an office review task look like one concept. The new toolbar keeps these controls near the agent work loop while splitting them into two user tasks: find files and review changes.
+This decision is superseded for sessions bound to a Primary Univer Target by ADR 0016, where the composer toolbar uses a Current Target panel instead of a Files popover.
+
+The previous header button combined Workspace Files and Univer Worktree into one Files popover near notifications. That made a workspace navigation task and a Univer review task look like one concept. The new toolbar keeps these controls near the agent work loop while splitting them into two user tasks: find files and review changes.
 
 `Changes` follows the active right-side `.univer` artifact tab, not the selected row inside Files. Opening a `.univer` file from Files opens or selects the artifact, but Files remains open until the user closes it or chooses another toolbar popover.
 

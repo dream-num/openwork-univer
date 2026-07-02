@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { Check, Minimize2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
@@ -185,6 +185,16 @@ function controlTextArgument(args: unknown) {
     if (typeof text === "string") return text;
   }
   return DEFAULT_COMPOSER_CONTROL_TEXT;
+}
+
+function readControlArgument(args: unknown, name: string) {
+  if (args === null || typeof args !== "object") return undefined;
+  return Object.getOwnPropertyDescriptor(args, name)?.value;
+}
+
+function controlStringArgument(args: unknown, name: string) {
+  const value = readControlArgument(args, name);
+  return typeof value === "string" ? value.trim() : "";
 }
 
 const waitForControl = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -401,6 +411,7 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
 
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
+  const queryClient = useQueryClient();
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
   const sessionActivityStatus = useSessionActivityStore(
@@ -1211,6 +1222,45 @@ export function SessionSurface(props: SessionSurfaceProps) {
     },
   }), [props.sessionId, renderedMessages]);
   useControlAction(sessionReadTranscriptControlAction);
+
+  const appendUniverWorktreeToolOutputControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+    return {
+      id: "eval.session.append_univer_worktree_tool_output",
+      label: "Append Univer worktree tool output",
+      description: "Eval-only helper that appends ordinary tool output to the current session transcript.",
+      sideEffect: "mutation",
+      requiresArgs: true,
+      args: [
+        { name: "path", type: "string", required: true, description: "Workspace-relative .univer path." },
+        { name: "worktreeId", type: "string", required: true, description: "Session-owned Univer worktree id." },
+      ],
+      execute: (args) => {
+        const path = controlStringArgument(args, "path");
+        const worktreeId = controlStringArgument(args, "worktreeId");
+        if (!path.endsWith(".univer")) return { ok: false, error: "A workspace-relative .univer path is required." };
+        if (!worktreeId) return { ok: false, error: "worktreeId is required." };
+
+        const message = {
+          id: `eval-univer-worktree-${Date.now()}`,
+          role: "assistant",
+          parts: [
+            {
+              type: "dynamic-tool",
+              toolName: "bash",
+              toolCallId: `eval-univer-worktree-tool-${Date.now()}`,
+              state: "output-available",
+              input: { command: `univer worktree add ${path} --json` },
+              output: JSON.stringify({ path, worktreeId }),
+            },
+          ],
+        } satisfies UIMessage;
+        queryClient.setQueryData<UIMessage[]>(transcriptQueryKey, (current = []) => [...current, message]);
+        return { ok: true, sessionId: props.sessionId, path, worktreeId };
+      },
+    };
+  }, [props.sessionId, queryClient, transcriptQueryKey]);
+  useControlAction(appendUniverWorktreeToolOutputControlAction);
 
   return (
     <DevProfiler id="SessionSurface">

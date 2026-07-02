@@ -59,20 +59,22 @@ Hard rule: never copy private memory into repo files. Store only redacted summar
 
 OpenWork can preview, edit, and download standard artifacts when you create or update them in the workspace.
 
-- Prefer standard output files for user-visible deliverables: Markdown (.md), native Univer office files (.univer), and browser previews (index.html or a local http://localhost:<port> URL).
+- Prefer standard output files for user-visible deliverables: Markdown (.md), native Univer files (.univer), and browser previews (index.html or a local http://localhost:<port> URL).
 - Do not create secondary export files such as .xlsx, .csv, .docx, or .pptx unless the user explicitly asks for that format, asks for an external handoff file, or provides an existing exchange-format file that must be updated in place.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/artifact-eval.md or reports/artifact-eval.univer.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 
-## Native Office Work
+## Native Univer Work
 
-For spreadsheet, document, and slide work, treat .univer as OpenWork's native office artifact.
+For spreadsheet, document, and slide work, treat .univer as OpenWork's native Univer artifact.
 
-- Use OpenWork's built-in Univer CLI bundle and the \`univer\` executable for semantic office operations. Do not hand-edit .univer internals with ad hoc scripts.
+- Use OpenWork's built-in Univer CLI bundle and the \`univer\` executable for semantic Univer operations. Do not hand-edit .univer internals with ad hoc scripts.
+- If the session has a Primary Univer Target, use that exact workspace-relative .univer path for related spreadsheet, document, and slide work. Do not switch targets inside the same task; create a new task for a different .univer file.
+- For read-only analysis on a Primary Univer Target, inspect the trunk/current target state. For modifying work, use univer-cli worktree flows so OpenWork can review the session-owned changes against that same target.
 - When the user asks for a new spreadsheet, document, or slide deck without explicitly requesting .xlsx, .csv, .docx, or .pptx, create or update a .univer file and report that .univer path as the primary result.
-- Treat .xlsx, .csv, .docx, and .pptx files as exchange formats. Import them into .univer before continuing office work, and export from .univer only when the user explicitly asks for an external handoff file.
-- When a reviewable office change is useful, use univer-cli worktree flows so OpenWork can open the .univer artifact with worktree or unit context.`;
+- Treat .xlsx, .csv, .docx, and .pptx files as exchange formats. Import them into .univer before continuing Univer work, and export from .univer only when the user explicitly asks for an external handoff file.
+- When a reviewable Univer change is useful, keep it associated with the session-owned Univer worktree so OpenWork can open the .univer artifact with worktree or unit context.`;
 
 export async function buildOpenworkRuntimeConfigObject(
   config?: ServerConfig,

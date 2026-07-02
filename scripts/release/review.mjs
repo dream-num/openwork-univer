@@ -48,6 +48,63 @@ const addCheck = (label, pass, details) => {
 
 const addWarning = (message) => warnings.push(message);
 
+const libsqlNativePackageName = () => {
+  if (process.platform === "darwin") {
+    return process.arch === "arm64" ? "@libsql/darwin-arm64" : "@libsql/darwin-x64";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64" ? "@libsql/linux-arm64-gnu" : "@libsql/linux-x64-gnu";
+  }
+  if (process.platform === "win32") {
+    return "@libsql/win32-x64-msvc";
+  }
+  return null;
+};
+
+const uexcliNativePackageName = () => {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "@univerjs-pro/uexcli-darwin-arm64";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64" ? "@univerjs-pro/uexcli-linux-arm64" : "@univerjs-pro/uexcli-linux-x64";
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "@univerjs-pro/uexcli-windows-x64";
+  }
+  return null;
+};
+
+const uexcliNativeBinaryNames = () => {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return ["uexcli-darwin-arm64", "uexcli-rs"];
+  }
+  if (process.platform === "linux") {
+    return ["uexcli-linux", "uexcli-rs"];
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return ["uexcli-windows.exe", "uexcli-rs.exe"];
+  }
+  return [];
+};
+
+const formulaBindingFileName = () => {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "univer-formula.darwin-arm64.node";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64"
+      ? "univer-formula.linux-arm64-gnu.node"
+      : "univer-formula.linux-x64-gnu.node";
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "univer-formula.win32-x64-msvc.node";
+  }
+  return null;
+};
+
+const nodeModulePath = (root, packageName) =>
+  resolve(root, "node_modules", ...packageName.split("/"));
+
 addCheck(
   "App/desktop versions match",
   versions.app && versions.desktop && versions.app === versions.desktop,
@@ -104,6 +161,78 @@ if (!openworkServerRange) {
     "Openwork-server dependency matches server version",
     versions.server && openworkServerRange === versions.server,
     `${openworkServerRange} vs ${versions.server ?? "?"}`,
+  );
+}
+
+const desktopRuntimeDeps = desktopPkg.dependencies ?? {};
+const embeddedServerDeps = serverPkg.dependencies ?? {};
+const stagedEmbeddedServerDeps = new Set([
+  "@univer/cowork",
+]);
+const missingEmbeddedServerDeps = Object.keys(embeddedServerDeps)
+  .filter((name) => !desktopRuntimeDeps[name] && !stagedEmbeddedServerDeps.has(name))
+  .sort();
+addCheck(
+  "Desktop includes or stages embedded server runtime dependencies",
+  missingEmbeddedServerDeps.length === 0,
+  missingEmbeddedServerDeps.length
+    ? missingEmbeddedServerDeps.join(", ")
+    : "all server dependencies declared or staged",
+);
+
+const stagedUniverCliRoot = resolve(
+  root,
+  "apps",
+  "desktop",
+  "server",
+  "vendor",
+  "univer-cowork",
+  "resources",
+  "univer-cli",
+);
+if (existsSync(stagedUniverCliRoot)) {
+  const nativeLibsqlPackage = libsqlNativePackageName();
+  const nativeUexcliPackage = uexcliNativePackageName();
+  const nativeFormulaBindingFile = formulaBindingFileName();
+  const requiredUniverCliRuntimePaths = [
+    resolve(stagedUniverCliRoot, "package.json"),
+    resolve(stagedUniverCliRoot, "dist", "bin", "univer.js"),
+    resolve(stagedUniverCliRoot, "dist", "internal", "daemon.js"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "libsql"), "index.js"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "@neon-rs/load"), "dist", "index.js"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "detect-libc"), "lib", "detect-libc.js"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/uexcli"), "package.json"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/uexcli"), "bin", "cli.js"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), "package.json"),
+    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), "index.js"),
+    ...(nativeLibsqlPackage
+      ? [resolve(nodeModulePath(stagedUniverCliRoot, nativeLibsqlPackage), "index.node")]
+      : []),
+    ...(nativeUexcliPackage
+      ? [
+          resolve(nodeModulePath(stagedUniverCliRoot, nativeUexcliPackage), "package.json"),
+          ...uexcliNativeBinaryNames().map((name) =>
+            resolve(nodeModulePath(stagedUniverCliRoot, nativeUexcliPackage), name),
+          ),
+        ]
+      : []),
+    ...(nativeFormulaBindingFile
+      ? [resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), nativeFormulaBindingFile)]
+      : []),
+  ];
+  const missingUniverCliRuntimePaths = requiredUniverCliRuntimePaths
+    .filter((path) => !existsSync(path))
+    .map((path) => path.replace(`${root}/`, ""));
+  addCheck(
+    "Staged Univer CLI includes daemon, formula, and exchange runtime dependencies",
+    missingUniverCliRuntimePaths.length === 0,
+    missingUniverCliRuntimePaths.length
+      ? missingUniverCliRuntimePaths.join(", ")
+      : "daemon, formula, and exchange runtime dependencies staged",
+  );
+} else {
+  addWarning(
+    "Staged Univer CLI bundle missing (run pnpm --filter @openwork/desktop build:electron).",
   );
 }
 

@@ -109,8 +109,46 @@ export type OpenworkSessionMessage = {
   parts: Part[];
 };
 
+export type OpenworkPrimaryUniverTarget = {
+  path: string;
+  name: string;
+};
+
+export type OpenworkUniverSessionKind = "task" | "overview";
+export type OpenworkSessionUniverWorktreeTerminalState = "merged" | "discarded";
+
+export type OpenworkSessionUniverMetadata = {
+  primaryUniverTarget?: OpenworkPrimaryUniverTarget | null;
+  sessionUniverWorktreeId?: string | null;
+  sessionUniverWorktreeIssue?: {
+    kind: "multiple";
+    worktreeIds: string[];
+  } | null;
+  sessionUniverWorktreeTerminalState?: OpenworkSessionUniverWorktreeTerminalState | null;
+  univerSourceSessionId?: string | null;
+  univerSessionKind?: OpenworkUniverSessionKind | null;
+};
+
+export type OpenworkSession = Session & OpenworkSessionUniverMetadata;
+
+export type OpenworkSessionUniverMetadataState = {
+  sessions: Record<string, OpenworkSessionUniverMetadata>;
+};
+
+export type OpenworkSessionUniverMetadataPatch = OpenworkSessionUniverMetadata & {
+  allowWorktreeReassociation?: boolean;
+};
+
+export type OpenworkUniverTargetSummary = {
+  path: string;
+  name: string;
+  size: number;
+  updatedAt: number;
+  unitCount: number | null;
+};
+
 export type OpenworkSessionSnapshot = {
-  session: Session;
+  session: OpenworkSession;
   messages: OpenworkSessionMessage[];
   todos: Todo[];
   status:
@@ -1161,12 +1199,34 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       if (options?.search?.trim()) query.set("search", options.search.trim());
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ items: Session[] }>(
+      return requestJson<{ items: OpenworkSession[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
+    listUniverTargets: (workspaceId: string) =>
+      requestJson<{ items: OpenworkUniverTargetSummary[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/univer-targets`,
+        { token, hostToken, timeoutMs: timeouts.sessionRead },
+      ),
+    getSessionUniverMetadata: (workspaceId: string) =>
+      requestJson<{ state: OpenworkSessionUniverMetadataState; updatedAt: number | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-univer-metadata`,
+        { token, hostToken, timeoutMs: timeouts.sessionRead },
+      ),
+    updateSessionUniverMetadata: (
+      workspaceId: string,
+      sessionId: string,
+      patch: OpenworkSessionUniverMetadataPatch,
+    ) =>
+      requestJson<{ metadata: OpenworkSessionUniverMetadata | null; state: OpenworkSessionUniverMetadataState; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/univer-metadata`,
+        { token, hostToken, method: "PATCH", body: patch, timeoutMs: timeouts.config },
+      ),
     getSessionGroups: (workspaceId: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,
@@ -1218,7 +1278,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       );
     },
     getSession: (workspaceId: string, sessionId: string) =>
-      requestJson<{ item: Session }>(
+      requestJson<{ item: OpenworkSession }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },

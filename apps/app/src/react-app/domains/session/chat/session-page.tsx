@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { AlertTriangle, Columns2, FileSpreadsheet, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -55,13 +55,16 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
-import { isUniverTarget } from "../artifacts/univer-cowork-session";
+import { isUniverTarget, targetFromPrimaryUniverfile } from "../artifacts/univer-cowork-session";
+import { notifyUniverSessionMetadataUpdated } from "../univer-session-events";
+import { resolveSessionUniverWorktreePersistence } from "../univer-session-worktree-adapter";
+import { normalizeUniverTargetPath } from "../univer-worktree-status-store";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
-import { OfficeWorktreePopover, WorkspaceFilesPopover } from "../panel/workspace-file-tree-popover";
+import { UniverWorktreePopover, WorkspaceFilesPopover } from "../panel/workspace-file-tree-popover";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
@@ -80,6 +83,13 @@ const UNIVER_ARTIFACT_ACTIVE_EVENT = "openwork-univer-artifact-active";
 export type OpenSessionTab = {
   workspaceId: string;
   sessionId: string;
+};
+
+type UnavailableUniverTargetDeleteRequest = {
+  workspaceId: string;
+  name: string;
+  path: string;
+  sessionIds: string[];
 };
 
 type StatusBarOverrides = Pick<
@@ -114,6 +124,9 @@ export type SessionPageSidebarProps = {
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
+  onCreateTaskForUniverTarget?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
+  onCreateTaskFromUniverSession?: (workspaceId: string, sourceSessionId: string) => void;
+  onOpenUniverTargetOverview?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
   onCreateTaskWithPrompt?: (workspaceId: string, prompt: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onShareWorkspace: (workspaceId: string) => void;
@@ -184,6 +197,7 @@ export type SessionPageProps = {
   onOpenProviderAuth?: () => void;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
+  onDeleteSessions?: (workspaceId: string, sessionIds: string[]) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** Settings content rendered inside the right pane when the settings rail icon is active. */
@@ -226,6 +240,41 @@ function sessionExistsInWorkspace(groups: WorkspaceSessionGroup[], workspaceId: 
 
 function isTrackableAccessibleTarget(target: OpenTarget) {
   return isOpenableFileTarget(target) || isLocalhostBrowserTarget(target);
+}
+
+function CurrentUniverfileChip({
+  discovered,
+  target,
+  onOpen,
+}: {
+  discovered: boolean;
+  target: OpenTarget;
+  onOpen: () => void;
+}) {
+  const unavailable = !discovered;
+  const label = unavailable ? `${target.name} unavailable` : target.name;
+
+  return (
+    <div className="ml-auto flex min-w-0 max-w-[45%] items-center px-2">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={cn(
+          "h-6 min-w-0 max-w-full gap-1.5 rounded-md border border-transparent bg-muted/55 px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+          unavailable && "bg-amber-3/55 text-amber-11 hover:bg-amber-3/80 hover:text-amber-12",
+        )}
+        title={`${target.name} - ${target.value}`}
+        aria-label={`Open current Univerfile ${label}`}
+        data-testid="composer-toolbar-univerfile-context"
+        onClick={onOpen}
+      >
+        {unavailable ? <AlertTriangle className="size-3.5 shrink-0" /> : <FileSpreadsheet className="size-3.5 shrink-0" />}
+        <span className="min-w-0 truncate">{target.name}</span>
+        {unavailable ? <span className="shrink-0 text-[10px]">Unavailable</span> : null}
+      </Button>
+    </div>
+  );
 }
 
 function absoluteWorkspacePath(root: string | null | undefined, value: string) {
@@ -297,9 +346,11 @@ export function SessionPage(props: SessionPageProps) {
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const selectTab = usePanelTabStore((state) => state.selectTab);
+  const upsertTranscriptArtifactTarget = usePanelTabStore((state) => state.upsertTranscriptArtifactTarget);
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
+  const pendingUniverWorktreePersistenceRef = useRef(new Set<string>());
   const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
@@ -335,6 +386,48 @@ export function SessionPage(props: SessionPageProps) {
   const activeUniverArtifactTarget = univerArtifactRailActive && activeArtifactTarget && isUniverTarget(activeArtifactTarget)
     ? activeArtifactTarget
     : null;
+  const selectedWorkspaceSessionGroup = useMemo(
+    () => props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId) ?? null,
+    [props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups],
+  );
+  const selectedSidebarSession = useMemo(() => {
+    if (!props.selectedSessionId) return null;
+    return selectedWorkspaceSessionGroup?.sessions.find((session) => session.id === props.selectedSessionId) ?? null;
+  }, [props.selectedSessionId, selectedWorkspaceSessionGroup]);
+  const primaryUniverTarget = selectedSidebarSession?.primaryUniverTarget ?? null;
+  const boundUniverTarget = useMemo(
+    () => targetFromPrimaryUniverfile(primaryUniverTarget, selectedSidebarSession?.sessionUniverWorktreeId),
+    [primaryUniverTarget, selectedSidebarSession?.sessionUniverWorktreeId],
+  );
+  const boundUniverTargetDiscovered = useMemo(() => {
+    if (!boundUniverTarget || !selectedWorkspaceSessionGroup || selectedWorkspaceSessionGroup.status !== "ready") return true;
+    const currentPath = normalizeUniverTargetPath(boundUniverTarget.value);
+    return selectedWorkspaceSessionGroup.univerTargets.some((target) => normalizeUniverTargetPath(target.path) === currentPath);
+  }, [boundUniverTarget, selectedWorkspaceSessionGroup]);
+  const toolbarUniverTarget = boundUniverTarget ?? activeUniverArtifactTarget;
+  useEffect(() => {
+    if (!props.openworkServerClient || !props.runtimeWorkspaceId || !props.selectedSessionId) return;
+    const candidate = resolveSessionUniverWorktreePersistence(selectedSidebarSession, transcriptTargets);
+    if (!candidate) return;
+
+    const issueIds = candidate.sessionUniverWorktreeIssue?.worktreeIds.join(",") ?? "";
+    const worktreeId = "sessionUniverWorktreeId" in candidate ? candidate.sessionUniverWorktreeId : issueIds;
+    const key = `${props.selectedSessionId}:${worktreeId}`;
+    if (pendingUniverWorktreePersistenceRef.current.has(key)) return;
+    pendingUniverWorktreePersistenceRef.current.add(key);
+
+    void props.openworkServerClient.updateSessionUniverMetadata(props.runtimeWorkspaceId, props.selectedSessionId, candidate)
+      .then(() => notifyUniverSessionMetadataUpdated())
+      .finally(() => {
+        pendingUniverWorktreePersistenceRef.current.delete(key);
+      });
+  }, [
+    props.openworkServerClient,
+    props.runtimeWorkspaceId,
+    props.selectedSessionId,
+    selectedSidebarSession,
+    transcriptTargets,
+  ]);
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -356,13 +449,14 @@ export function SessionPage(props: SessionPageProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sessionActionId, setSessionActionId] = useState<string | null>(null);
+  const [unavailableUniverTargetDelete, setUnavailableUniverTargetDelete] = useState<UnavailableUniverTargetDeleteRequest | null>(null);
   const [sessionTabs, setSessionTabs] = useState<OpenSessionTab[]>([]);
   const [splitSessionId, setSplitSessionId] = useState<string | null>(null);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
   const [univerArtifactPaneActive, setUniverArtifactPaneActive] = useState(false);
-  const [composerToolbarPopover, setComposerToolbarPopover] = useState<"files" | "changes" | null>(null);
+  const [composerToolbarPopover, setComposerToolbarPopover] = useState<"files" | "changes" | "tasks" | "units" | null>(null);
   const browserPanelRef = usePanelRef();
   const preserveSidePanelOnPanelOpenRef = useRef(false);
   const autoSizedUniverArtifactTabIdRef = useRef<string | null>(null);
@@ -428,33 +522,51 @@ export function SessionPage(props: SessionPageProps) {
     setComposerToolbarPopover(null);
   }, [props.selectedSessionId]);
   useEffect(() => {
-    if (composerToolbarPopover === "changes" && !activeUniverArtifactTarget) {
+    if ((composerToolbarPopover === "changes" || composerToolbarPopover === "tasks" || composerToolbarPopover === "units") && !toolbarUniverTarget) {
       setComposerToolbarPopover(null);
     }
-  }, [activeUniverArtifactTarget, composerToolbarPopover]);
+  }, [composerToolbarPopover, toolbarUniverTarget]);
   const commitBrowserPanelWidth = useCallback(() => {
-    const size = browserPanelRef.current?.getSize();
+    let size: ReturnType<NonNullable<typeof browserPanelRef.current>["getSize"]> | undefined;
+    try {
+      size = browserPanelRef.current?.getSize();
+    } catch {
+      size = undefined;
+    }
     if (size?.inPixels) setBrowserPanelWidth(Math.round(size.inPixels));
   }, [browserPanelRef, setBrowserPanelWidth]);
   const ensureUniverArtifactPanelWidth = useCallback((preview: OpenTarget["preview"] | undefined) => {
     if (preview !== "univer") return;
-    const currentWidth = browserPanelRef.current?.getSize().inPixels ?? browserPanelWidth;
+    let currentWidth = browserPanelWidth;
+    try {
+      currentWidth = browserPanelRef.current?.getSize().inPixels ?? browserPanelWidth;
+    } catch {
+      currentWidth = browserPanelWidth;
+    }
     const nextWidth = Math.max(Math.round(currentWidth), browserPanelWidth, UNIVER_ARTIFACT_PANEL_WIDTH);
     setBrowserPanelDefaultWidth(nextWidth);
     if (nextWidth !== browserPanelWidth) {
       setBrowserPanelWidth(nextWidth);
     }
-    browserPanelRef.current?.resize(`${nextWidth}px`);
+    try {
+      browserPanelRef.current?.resize(`${nextWidth}px`);
+    } catch {
+      // The right rail can switch between panels while a Univer resize frame is pending.
+    }
   }, [browserPanelRef, browserPanelWidth, setBrowserPanelWidth]);
-  const scheduleUniverArtifactPanelWidth = useCallback(() => {
+  const cancelScheduledUniverArtifactPanelWidth = useCallback(() => {
     if (scheduledUniverResizeFrameRef.current !== null) {
       window.cancelAnimationFrame(scheduledUniverResizeFrameRef.current);
+      scheduledUniverResizeFrameRef.current = null;
     }
+  }, []);
+  const scheduleUniverArtifactPanelWidth = useCallback(() => {
+    cancelScheduledUniverArtifactPanelWidth();
     scheduledUniverResizeFrameRef.current = window.requestAnimationFrame(() => {
       scheduledUniverResizeFrameRef.current = null;
       ensureUniverArtifactPanelWidth("univer");
     });
-  }, [ensureUniverArtifactPanelWidth]);
+  }, [cancelScheduledUniverArtifactPanelWidth, ensureUniverArtifactPanelWidth]);
   useEffect(() => {
     if (!activeUniverArtifactTabId || autoSizedUniverArtifactTabIdRef.current === activeUniverArtifactTabId) return;
     autoSizedUniverArtifactTabIdRef.current = activeUniverArtifactTabId;
@@ -478,19 +590,16 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     if (!univerArtifactLayoutActive) {
       autoSizedUniverLayoutRef.current = false;
+      cancelScheduledUniverArtifactPanelWidth();
       return;
     }
     if (autoSizedUniverLayoutRef.current) return;
     autoSizedUniverLayoutRef.current = true;
     scheduleUniverArtifactPanelWidth();
-  }, [scheduleUniverArtifactPanelWidth, univerArtifactLayoutActive]);
+  }, [cancelScheduledUniverArtifactPanelWidth, scheduleUniverArtifactPanelWidth, univerArtifactLayoutActive]);
   useEffect(() => {
-    return () => {
-      if (scheduledUniverResizeFrameRef.current !== null) {
-        window.cancelAnimationFrame(scheduledUniverResizeFrameRef.current);
-      }
-    };
-  }, []);
+    return cancelScheduledUniverArtifactPanelWidth;
+  }, [cancelScheduledUniverArtifactPanelWidth]);
   const browserUrlForTarget = useCallback((target: OpenTarget) => {
     if (/^wss?:\/\//i.test(target.value)) return target.value.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
     return target.value;
@@ -552,7 +661,10 @@ export function SessionPage(props: SessionPageProps) {
 
     const sessionId = sourceSessionId ?? props.selectedSessionId;
     if (!sessionId) return;
-    if (options?.auto && activePanelTab?.id === target.id) return;
+    if (options?.auto && activePanelTab?.id === target.id && activeSidePanel === "panel") return;
+    if (isCollectibleArtifactTarget(target)) {
+      upsertTranscriptArtifactTarget(sessionId, target);
+    }
     ensureUniverArtifactPanelWidth(target.preview);
     openTab(sessionId, {
       id: target.id,
@@ -562,7 +674,12 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, ensureUniverArtifactPanelWidth, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  }, [activePanelTab?.id, activeSidePanel, browserUrlForTarget, downloadOpenTarget, ensureUniverArtifactPanelWidth, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel, upsertTranscriptArtifactTarget]);
+  useEffect(() => {
+    if (!props.selectedSessionId || !boundUniverTarget) return;
+    if (activePanelTab?.id === boundUniverTarget.id && activeSidePanel === "panel") return;
+    openTarget(boundUniverTarget, { auto: true });
+  }, [activePanelTab?.id, activeSidePanel, boundUniverTarget, openTarget, props.selectedSessionId]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
@@ -576,26 +693,75 @@ export function SessionPage(props: SessionPageProps) {
       className="flex h-8 items-stretch gap-0 px-0 text-muted-foreground"
       data-testid="composer-toolbar"
     >
-      <WorkspaceFilesPopover
-        open={composerToolbarPopover === "files"}
-        onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "files" : null)}
-        sessionId={props.selectedSessionId}
-        client={props.openworkServerClient}
-        workspaceId={props.runtimeWorkspaceId}
-        workspaceRoot={props.selectedWorkspaceRoot}
-        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-        onArtifactOpen={showArtifactPanelFromFileTree}
-      />
-      <OfficeWorktreePopover
-        open={composerToolbarPopover === "changes"}
-        onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "changes" : null)}
-        sessionId={props.selectedSessionId}
-        client={props.openworkServerClient}
-        workspaceId={props.runtimeWorkspaceId}
-        target={activeUniverArtifactTarget}
-        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-        onArtifactOpen={showArtifactPanelFromFileTree}
-      />
+      {boundUniverTarget ? (
+        <>
+          <UniverWorktreePopover
+            open={composerToolbarPopover === "units"}
+            onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "units" : null)}
+            sessionId={props.selectedSessionId}
+            client={props.openworkServerClient}
+            workspaceId={props.runtimeWorkspaceId}
+            target={boundUniverTarget}
+            isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+            onArtifactOpen={showArtifactPanelFromFileTree}
+            label="Units"
+            testId="composer-toolbar-units"
+            panelVariant="units"
+            toolbarKind="units"
+          />
+          <UniverWorktreePopover
+            open={composerToolbarPopover === "tasks"}
+            onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "tasks" : null)}
+            sessionId={props.selectedSessionId}
+            client={props.openworkServerClient}
+            workspaceId={props.runtimeWorkspaceId}
+            target={boundUniverTarget}
+            isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+            onArtifactOpen={showArtifactPanelFromFileTree}
+            onCreateTaskFromHere={() => {
+              if (!props.selectedSessionId) return;
+              props.sidebar.onCreateTaskFromUniverSession?.(props.selectedWorkspaceId, props.selectedSessionId);
+            }}
+            worktreeIssue={selectedSidebarSession?.sessionUniverWorktreeIssue ?? null}
+            terminalState={selectedSidebarSession?.sessionUniverWorktreeTerminalState ?? null}
+            label="Tasks"
+            testId="composer-toolbar-tasks"
+            panelVariant="tasks"
+            toolbarKind="tasks"
+          />
+          <CurrentUniverfileChip
+            discovered={boundUniverTargetDiscovered}
+            target={boundUniverTarget}
+            onOpen={() => {
+              setComposerToolbarPopover(null);
+              openTarget(boundUniverTarget);
+            }}
+          />
+        </>
+      ) : (
+        <WorkspaceFilesPopover
+          open={composerToolbarPopover === "files"}
+          onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "files" : null)}
+          sessionId={props.selectedSessionId}
+          client={props.openworkServerClient}
+          workspaceId={props.runtimeWorkspaceId}
+          workspaceRoot={props.selectedWorkspaceRoot}
+          isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+          onArtifactOpen={showArtifactPanelFromFileTree}
+        />
+      )}
+      {!boundUniverTarget && activeUniverArtifactTarget ? (
+        <UniverWorktreePopover
+          open={composerToolbarPopover === "changes"}
+          onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "changes" : null)}
+          sessionId={props.selectedSessionId}
+          client={props.openworkServerClient}
+          workspaceId={props.runtimeWorkspaceId}
+          target={activeUniverArtifactTarget}
+          isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+          onArtifactOpen={showArtifactPanelFromFileTree}
+        />
+      ) : null}
     </div>
   ) : null;
   const openBrowserRailPane = useCallback(() => {
@@ -919,6 +1085,7 @@ export function SessionPage(props: SessionPageProps) {
     setRenameBusy(false);
     setDeleteBusy(false);
     setSessionActionId(null);
+    setUnavailableUniverTargetDelete(null);
   }, [props.selectedSessionId]);
 
   const openRenameModal = (sessionId: string) => {
@@ -942,6 +1109,19 @@ export function SessionPage(props: SessionPageProps) {
   };
 
   const confirmDelete = async () => {
+    if (unavailableUniverTargetDelete) {
+      if (!props.onDeleteSessions) return;
+      setDeleteBusy(true);
+      try {
+        await props.onDeleteSessions(unavailableUniverTargetDelete.workspaceId, unavailableUniverTargetDelete.sessionIds);
+        setDeleteOpen(false);
+        setUnavailableUniverTargetDelete(null);
+      } finally {
+        setDeleteBusy(false);
+      }
+      return;
+    }
+
     const sessionId = sessionActionId;
     if (!sessionId || !props.onDeleteSession) return;
     setDeleteBusy(true);
@@ -952,6 +1132,23 @@ export function SessionPage(props: SessionPageProps) {
       setDeleteBusy(false);
     }
   };
+  const deleteModalTitle = unavailableUniverTargetDelete
+    ? "Remove unavailable Univerfile?"
+    : t("session.delete_session_title");
+  const deleteModalMessage = unavailableUniverTargetDelete ? (
+    <span>
+      This removes the unavailable sidebar entry for {unavailableUniverTargetDelete.name} and permanently deletes {unavailableUniverTargetDelete.sessionIds.length} bound {unavailableUniverTargetDelete.sessionIds.length === 1 ? "session" : "sessions"}. The .univer file is already unavailable and will not be touched.
+    </span>
+  ) : (
+    sessionActionTitle.trim()
+      ? t("session.delete_named_session_message", { title: sessionActionTitle.trim() })
+      : t("session.delete_session_generic")
+  );
+  const deleteConfirmLabel = deleteBusy
+    ? t("session.deleting")
+    : unavailableUniverTargetDelete
+      ? "Remove"
+      : t("session.delete");
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
@@ -981,8 +1178,16 @@ export function SessionPage(props: SessionPageProps) {
           onOpenSession={openSessionTab}
           onPrefetchSession={props.sidebar.onPrefetchSession}
           onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
+          onCreateTaskForUniverTarget={props.sidebar.onCreateTaskForUniverTarget}
+          onOpenUniverTargetOverview={props.sidebar.onOpenUniverTargetOverview}
+          onOpenDeleteUnavailableUniverTarget={props.onDeleteSessions ? (workspaceId, name, path, sessionIds) => {
+            setSessionActionId(null);
+            setUnavailableUniverTargetDelete({ workspaceId, name, path, sessionIds });
+            setDeleteOpen(true);
+          } : undefined}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
           onOpenDeleteSession={props.onDeleteSession ? (sessionId) => {
+            setUnavailableUniverTargetDelete(null);
             setSessionActionId(sessionId);
             setDeleteOpen(true);
           } : undefined}
@@ -1414,6 +1619,7 @@ export function SessionPage(props: SessionPageProps) {
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
+                      workspaceSessions={selectedWorkspaceSessionGroup?.sessions ?? []}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
                       onClose={closeRightPane}
                     />
@@ -1511,21 +1717,19 @@ export function SessionPage(props: SessionPageProps) {
         />
       ) : null}
 
-      {props.onDeleteSession ? (
+      {props.onDeleteSession || props.onDeleteSessions ? (
         <ConfirmModal
           open={deleteOpen}
-          title={t("session.delete_session_title")}
-          message={
-            sessionActionTitle.trim()
-              ? t("session.delete_named_session_message", { title: sessionActionTitle.trim() })
-              : t("session.delete_session_generic")
-          }
-          confirmLabel={deleteBusy ? t("session.deleting") : t("session.delete")}
+          title={deleteModalTitle}
+          message={deleteModalMessage}
+          confirmLabel={deleteConfirmLabel}
           cancelLabel={t("common.cancel")}
           variant="danger"
           onConfirm={() => void confirmDelete()}
           onCancel={() => {
-            if (!deleteBusy) setDeleteOpen(false);
+            if (deleteBusy) return;
+            setDeleteOpen(false);
+            setUnavailableUniverTargetDelete(null);
           }}
         />
       ) : null}

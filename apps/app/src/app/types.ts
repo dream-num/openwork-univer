@@ -9,6 +9,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
 import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop-types";
+import type { OpenworkUniverTargetSummary } from "./lib/openwork-server";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -18,6 +19,15 @@ export type SidebarSessionItem = {
   id: string;
   title: string;
   slug?: string | null;
+  primaryUniverTarget?: { path: string; name: string } | null;
+  sessionUniverWorktreeId?: string | null;
+  sessionUniverWorktreeIssue?: {
+    kind: "multiple";
+    worktreeIds: string[];
+  } | null;
+  sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
+  univerSourceSessionId?: string | null;
+  univerSessionKind?: "task" | "overview" | null;
   status?: unknown;
   state?: unknown;
   runStatus?: unknown;
@@ -33,6 +43,7 @@ export type SidebarSessionItem = {
 export type WorkspaceSessionGroup = {
   workspace: WorkspaceInfo;
   sessions: SidebarSessionItem[];
+  univerTargets: OpenworkUniverTargetSummary[];
   status: "idle" | "loading" | "ready" | "error";
   error?: string | null;
 };

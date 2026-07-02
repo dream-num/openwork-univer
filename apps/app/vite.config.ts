@@ -116,5 +116,6 @@ export default defineConfig({
     alias: {
       "@": resolve(appRoot, "src"),
     },
+    dedupe: ["react", "react-dom"],
   },
 });

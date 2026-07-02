@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   ChevronRight,
   FolderPlus,
+  FileSpreadsheet,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -36,6 +37,13 @@ import {
   isWindowsPlatform,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import {
+  deriveSessionUniverReviewState,
+  normalizeUniverTargetPath,
+  type UniverSessionReviewState,
+  type UniverTargetWorktreeStatus,
+  useUniverWorktreeStatusStore,
+} from "../univer-worktree-status-store";
 
 import {
   Sidebar,
@@ -570,6 +578,9 @@ export type AppSidebarProps = {
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateTaskInWorkspace: (workspaceId: string) => void;
+  onCreateTaskForUniverTarget?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
+  onOpenUniverTargetOverview?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
+  onOpenDeleteUnavailableUniverTarget?: (workspaceId: string, name: string, path: string, sessionIds: string[]) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
@@ -598,6 +609,150 @@ function useSessionTree(
 
 function isSessionActivityStatus(status: string | undefined): status is SessionActivityStatus {
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
+}
+
+type SidebarUniverTarget = WorkspaceSessionGroup["univerTargets"][number] & {
+  discovered: boolean;
+};
+
+type UniverTargetHub = {
+  target: SidebarUniverTarget;
+  overviewSession: SessionListItem | null;
+  sessions: SessionListItem[];
+  doneSessions: SessionListItem[];
+  reviewStateBySessionId: Record<string, UniverSessionReviewState>;
+  actionableSessionCount: number;
+};
+
+const EMPTY_WORKTREE_STATUSES: Record<string, UniverTargetWorktreeStatus> = {};
+const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-16 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
+const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
+const UNIVER_FILE_COUNT_CLASS = "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm px-1 text-[10px] font-medium leading-none";
+const UNIVER_FILE_ACTIONS_CLASS = "absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5";
+const SESSION_DEPTH_1_CLASS = "ps-10";
+const SESSION_DEPTH_DEEP_CLASS = "ps-13";
+
+function sessionDepthClass(depth: number): string {
+  if (depth <= 0) return "";
+  return depth === 1 ? SESSION_DEPTH_1_CLASS : SESSION_DEPTH_DEEP_CLASS;
+}
+
+function sessionUpdatedAt(session: SessionListItem): number {
+  return session.time?.updated ?? session.time?.created ?? 0;
+}
+
+function isBoundUniverTaskSession(session: SessionListItem): boolean {
+  return Boolean(session.primaryUniverTarget?.path) && session.univerSessionKind !== "overview";
+}
+
+export function buildUniverTargetHubs(
+  sessions: SessionListItem[],
+  targets: WorkspaceSessionGroup["univerTargets"],
+  worktreeStatuses: Record<string, UniverTargetWorktreeStatus> = {},
+): { hubs: UniverTargetHub[]; generalSessions: SessionListItem[]; hasUniverSurface: boolean } {
+  const hubsByPath = new Map<string, UniverTargetHub>();
+
+  for (const target of targets) {
+    const path = normalizeUniverTargetPath(target.path);
+    if (!path || hubsByPath.has(path)) continue;
+    const liveStatus = worktreeStatuses[path];
+    hubsByPath.set(path, {
+      target: {
+        ...target,
+        path,
+        unitCount: liveStatus?.unitCount ?? target.unitCount,
+        discovered: true,
+      },
+      overviewSession: null,
+      sessions: [],
+      doneSessions: [],
+      reviewStateBySessionId: {},
+      actionableSessionCount: 0,
+    });
+  }
+
+  const generalSessions: SessionListItem[] = [];
+  for (const session of sessions) {
+    const path = normalizeUniverTargetPath(session.primaryUniverTarget?.path);
+    if (session.univerSessionKind === "overview" && path) {
+      const existing = hubsByPath.get(path);
+      const liveStatus = worktreeStatuses[path];
+      const hub = existing ?? {
+        target: {
+          path,
+          name: session.primaryUniverTarget?.name ?? path.split("/").at(-1) ?? path,
+          size: 0,
+          updatedAt: 0,
+          unitCount: liveStatus?.unitCount ?? null,
+          discovered: false,
+        },
+        overviewSession: null,
+        sessions: [],
+        doneSessions: [],
+        reviewStateBySessionId: {},
+        actionableSessionCount: 0,
+      };
+      hub.overviewSession = hub.overviewSession ?? session;
+      hubsByPath.set(path, hub);
+      continue;
+    }
+    if (!isBoundUniverTaskSession(session)) {
+      generalSessions.push(session);
+      continue;
+    }
+    if (!path) {
+      generalSessions.push(session);
+      continue;
+    }
+    const existing = hubsByPath.get(path);
+    const liveStatus = worktreeStatuses[path];
+    const hub = existing ?? {
+      target: {
+        path,
+        name: session.primaryUniverTarget?.name ?? path.split("/").at(-1) ?? path,
+        size: 0,
+        updatedAt: 0,
+        unitCount: liveStatus?.unitCount ?? null,
+        discovered: false,
+      },
+      overviewSession: null,
+      sessions: [],
+      doneSessions: [],
+      reviewStateBySessionId: {},
+      actionableSessionCount: 0,
+    };
+    const reviewState = deriveSessionUniverReviewState(session, worktreeStatuses[path]);
+    hub.reviewStateBySessionId[session.id] = reviewState;
+    if (reviewState.kind === "merged" || reviewState.kind === "discarded") {
+      hub.doneSessions.push(session);
+    } else {
+      hub.sessions.push(session);
+      if (reviewState.actionable) hub.actionableSessionCount += 1;
+    }
+    hubsByPath.set(path, hub);
+  }
+
+  const hubs = Array.from(hubsByPath.values())
+    .map((hub) => ({
+      ...hub,
+      sessions: [...hub.sessions].sort((left, right) => {
+        const leftState = hub.reviewStateBySessionId[left.id] ?? deriveSessionUniverReviewState(left, null);
+        const rightState = hub.reviewStateBySessionId[right.id] ?? deriveSessionUniverReviewState(right, null);
+        if (leftState.priority !== rightState.priority) return rightState.priority - leftState.priority;
+        return sessionUpdatedAt(right) - sessionUpdatedAt(left);
+      }),
+      doneSessions: [...hub.doneSessions].sort((left, right) => sessionUpdatedAt(right) - sessionUpdatedAt(left)),
+    }))
+    .sort((left, right) => {
+      if (left.target.discovered !== right.target.discovered) return left.target.discovered ? -1 : 1;
+      return left.target.path.localeCompare(right.target.path);
+    });
+
+  return {
+    hubs,
+    generalSessions,
+    hasUniverSurface: hubs.length > 0,
+  };
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -706,6 +861,9 @@ export function AppSidebar(props: AppSidebarProps) {
     onOpenSession: props.onOpenSession,
     onPrefetchSession: props.onPrefetchSession,
     onCreateTaskInWorkspace: props.onCreateTaskInWorkspace,
+    onCreateTaskForUniverTarget: props.onCreateTaskForUniverTarget,
+    onOpenUniverTargetOverview: props.onOpenUniverTargetOverview,
+    onOpenDeleteUnavailableUniverTarget: props.onOpenDeleteUnavailableUniverTarget,
     onOpenRenameSession: props.onOpenRenameSession,
     onOpenDeleteSession: props.onOpenDeleteSession,
     onArchiveSession: props.onArchiveSession,
@@ -964,10 +1122,25 @@ function WorkspaceSidebarGroup({
   const orderIds = useSessionOrder(workspace.id);
   const { groups: wsGroups, assignments: wsAssignments } = useWorkspaceGroups(workspace.id);
   const store = useSessionManagementStore;
+  const workspaceWorktreeStatuses = useUniverWorktreeStatusStore(
+    (state) => state.byWorkspaceId[workspace.id] ?? EMPTY_WORKTREE_STATUSES,
+  );
 
   const { active: activeSessions, archived: archivedSessions } = React.useMemo(
     () => partitionArchivedSessions(group.sessions),
     [group.sessions],
+  );
+  const univerNavigation = React.useMemo(
+    () => buildUniverTargetHubs(activeSessions, group.univerTargets, workspaceWorktreeStatuses),
+    [activeSessions, group.univerTargets, workspaceWorktreeStatuses],
+  );
+  const availableUniverHubs = React.useMemo(
+    () => univerNavigation.hubs.filter((hub) => hub.target.discovered),
+    [univerNavigation.hubs],
+  );
+  const unavailableUniverHubs = React.useMemo(
+    () => univerNavigation.hubs.filter((hub) => !hub.target.discovered),
+    [univerNavigation.hubs],
   );
   const sessionRows = flattenSessionRows(
     group.sessions,
@@ -1072,9 +1245,31 @@ function WorkspaceSidebarGroup({
                       <span className="truncate">{t("workspace.loading_tasks")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                ) : activeSessions.length > 0 || archivedSessions.length > 0 ? (
+                ) : activeSessions.length > 0 || archivedSessions.length > 0 || univerNavigation.hasUniverSurface ? (
                   <>
-                    {wsGroups.length > 0 ? (
+                    {univerNavigation.hasUniverSurface ? (
+                      <>
+                        <GeneralSessionsSection
+                          sessions={univerNavigation.generalSessions}
+                          workspaceId={workspace.id}
+                          forcedExpandedSessionIds={forcedExpandedSessionIds}
+                        />
+                        <UniverfilesSection
+                          hubs={availableUniverHubs}
+                          label="Univerfiles"
+                          workspaceId={workspace.id}
+                          forcedExpandedSessionIds={forcedExpandedSessionIds}
+                        />
+                        <UniverfilesSection
+                          defaultExpanded={false}
+                          hubDefaultExpanded={false}
+                          hubs={unavailableUniverHubs}
+                          label="Unavailable"
+                          workspaceId={workspace.id}
+                          forcedExpandedSessionIds={forcedExpandedSessionIds}
+                        />
+                      </>
+                    ) : wsGroups.length > 0 ? (
                       <GroupedSessionList
                         sessionRows={sessionRows}
                         groups={wsGroups}
@@ -1112,7 +1307,7 @@ function WorkspaceSidebarGroup({
                         ))}
                       </Reorder.Group>
                     )}
-                    {wsGroups.length === 0 && activeRootCount > previewCount ? (
+                    {!univerNavigation.hasUniverSurface && wsGroups.length === 0 && activeRootCount > previewCount ? (
                       <SidebarMenuSubItem>
                         <SidebarMenuSubButton
                           className="text-muted-foreground text-xs"
@@ -1186,27 +1381,324 @@ function WorkspaceSidebarGroup({
   );
 }
 
+function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionIds, hub, workspaceId }: {
+  defaultExpanded?: boolean;
+  hub: UniverTargetHub;
+  workspaceId: string;
+  forcedExpandedSessionIds: Set<string>;
+}) {
+  const ctx = useSidebarContext();
+  const pinnedIds = usePinnedSessionIds();
+  const tree = useSessionTree(hub.sessions, ctx.sessionStatusById);
+  const doneTree = useSessionTree(hub.doneSessions, ctx.sessionStatusById);
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+  const [doneExpanded, setDoneExpanded] = React.useState(false);
+  const selectedInside = Boolean(
+    ctx.selectedSessionId && (
+      hub.overviewSession?.id === ctx.selectedSessionId ||
+      hub.sessions.some((session) => session.id === ctx.selectedSessionId) ||
+      hub.doneSessions.some((session) => session.id === ctx.selectedSessionId)
+    ),
+  );
+
+  React.useEffect(() => {
+    if (selectedInside) setExpanded(true);
+  }, [selectedInside]);
+
+  const rows = flattenSessionRows(
+    hub.sessions,
+    Number.MAX_SAFE_INTEGER,
+    tree,
+    ctx.expandedSessionIds,
+    forcedExpandedSessionIds,
+    pinnedIds,
+    [],
+  );
+  const doneRows = flattenSessionRows(
+    hub.doneSessions,
+    Number.MAX_SAFE_INTEGER,
+    doneTree,
+    ctx.expandedSessionIds,
+    forcedExpandedSessionIds,
+    pinnedIds,
+    [],
+  );
+  const unitCountLabel = typeof hub.target.unitCount === "number" ? String(hub.target.unitCount) : null;
+  const unitCountTitle = typeof hub.target.unitCount === "number"
+    ? `${hub.target.unitCount} ${hub.target.unitCount === 1 ? "unit" : "units"}`
+    : undefined;
+  const showPersistentCreateAction = hub.target.discovered && rows.length === 0 && doneRows.length === 0;
+  const topSession = rows[0]?.session ?? hub.overviewSession;
+  const hubSessionIds = [
+    ...(hub.overviewSession ? [hub.overviewSession.id] : []),
+    ...hub.sessions.map((session) => session.id),
+    ...hub.doneSessions.map((session) => session.id),
+  ];
+  const canDeleteUnavailableTarget = !hub.target.discovered && hubSessionIds.length > 0 && Boolean(ctx.onOpenDeleteUnavailableUniverTarget);
+
+  return (
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/univer-target">
+      <SidebarMenuSubItem>
+        <div className="group/univer-target-row relative">
+          <button
+            type="button"
+            className={cn(
+              UNIVER_FILE_ROW_CLASS,
+              selectedInside && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+            title={hub.target.path}
+            onClick={() => {
+              if (topSession) {
+                ctx.onOpenSession(workspaceId, topSession.id);
+              } else if (ctx.onOpenUniverTargetOverview) {
+                ctx.onOpenUniverTargetOverview(workspaceId, hub.target);
+              } else {
+                setExpanded((value) => !value);
+              }
+            }}
+          >
+            <FileSpreadsheet className={UNIVER_FILE_ICON_CLASS} />
+            <span className="min-w-0 flex-1 truncate">{hub.target.name}</span>
+            {unitCountLabel ? (
+              <span
+                className={cn(UNIVER_FILE_COUNT_CLASS, "text-muted-foreground")}
+                title={unitCountTitle}
+                aria-label={unitCountTitle}
+              >
+                {unitCountLabel}
+              </span>
+            ) : null}
+            {hub.actionableSessionCount > 0 ? (
+              <span
+                className={cn(UNIVER_FILE_COUNT_CLASS, "bg-amber-3 text-amber-11")}
+                title={`${hub.actionableSessionCount} sessions need review`}
+                aria-label={`${hub.actionableSessionCount} sessions need review`}
+              >
+                {hub.actionableSessionCount}
+              </span>
+            ) : null}
+          </button>
+          <div className={UNIVER_FILE_ACTIONS_CLASS}>
+            {hub.target.discovered ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "size-6 text-muted-foreground",
+                  showPersistentCreateAction
+                    ? "opacity-100"
+                    : "opacity-0 group-hover/univer-target-row:opacity-100 group-focus-within/univer-target-row:opacity-100",
+                )}
+                disabled={ctx.newTaskDisabled || !ctx.onCreateTaskForUniverTarget}
+                aria-label={`New task for ${hub.target.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  ctx.onCreateTaskForUniverTarget?.(workspaceId, hub.target);
+                }}
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 text-muted-foreground opacity-0 hover:text-destructive group-hover/univer-target-row:opacity-100 group-focus-within/univer-target-row:opacity-100"
+                disabled={!canDeleteUnavailableTarget}
+                aria-label={`Remove unavailable Univerfile ${hub.target.name}`}
+                title="Remove unavailable Univerfile"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!canDeleteUnavailableTarget) return;
+                  ctx.onOpenDeleteUnavailableUniverTarget?.(workspaceId, hub.target.name, hub.target.path, hubSessionIds);
+                }}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-muted-foreground"
+              aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")}
+              aria-expanded={expanded}
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpanded((value) => !value);
+              }}
+            >
+              <ChevronRight className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")} />
+            </Button>
+          </div>
+        </div>
+      </SidebarMenuSubItem>
+      <CollapsibleContent>
+        {rows.length > 0 ? (
+          rows.map((row) => (
+            <SessionMenuItem
+              key={row.session.id}
+              session={row.session}
+              univerReviewState={hub.reviewStateBySessionId[row.session.id]}
+              depth={row.depth + 1}
+              tree={tree}
+              workspaceId={workspaceId}
+              forcedExpandedSessionIds={forcedExpandedSessionIds}
+              isPinned={pinnedIds.has(row.session.id)}
+            />
+          ))
+        ) : null}
+        {doneRows.length > 0 ? (
+          <Collapsible open={doneExpanded} onOpenChange={setDoneExpanded} className="group/univer-done">
+            <SessionGroupSeparator
+              label="Done"
+              count={doneRows.length}
+              expanded={doneExpanded}
+              onToggle={() => setDoneExpanded((value) => !value)}
+              variant="nested"
+            />
+            <CollapsibleContent>
+              {doneRows.map((row) => (
+                <SessionMenuItem
+                  key={row.session.id}
+                  session={row.session}
+                  univerReviewState={hub.reviewStateBySessionId[row.session.id]}
+                  depth={row.depth + 1}
+                  tree={doneTree}
+                  workspaceId={workspaceId}
+                  forcedExpandedSessionIds={forcedExpandedSessionIds}
+                  isPinned={pinnedIds.has(row.session.id)}
+                />
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function UniverfilesSection({ defaultExpanded = true, forcedExpandedSessionIds, hubDefaultExpanded = true, hubs, label, workspaceId }: {
+  defaultExpanded?: boolean;
+  hubDefaultExpanded?: boolean;
+  hubs: UniverTargetHub[];
+  label: string;
+  workspaceId: string;
+  forcedExpandedSessionIds: Set<string>;
+}) {
+  const ctx = useSidebarContext();
+  const selectedInside = React.useMemo(() => Boolean(
+    ctx.selectedSessionId && hubs.some((hub) => (
+      hub.overviewSession?.id === ctx.selectedSessionId ||
+      hub.sessions.some((session) => session.id === ctx.selectedSessionId) ||
+      hub.doneSessions.some((session) => session.id === ctx.selectedSessionId)
+    )),
+  ), [ctx.selectedSessionId, hubs]);
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+
+  React.useEffect(() => {
+    if (selectedInside) setExpanded(true);
+  }, [selectedInside]);
+
+  if (hubs.length === 0) return null;
+
+  return (
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/univerfiles-section">
+      <SessionGroupSeparator
+        label={label}
+        count={hubs.length}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
+      />
+      <CollapsibleContent className="pb-1">
+        {hubs.map((hub) => (
+          <UniverTargetHubSection
+            key={hub.target.path}
+            defaultExpanded={hubDefaultExpanded}
+            hub={hub}
+            workspaceId={workspaceId}
+            forcedExpandedSessionIds={forcedExpandedSessionIds}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function GeneralSessionsSection({ sessions, workspaceId, forcedExpandedSessionIds }: {
+  sessions: SessionListItem[];
+  workspaceId: string;
+  forcedExpandedSessionIds: Set<string>;
+}) {
+  const ctx = useSidebarContext();
+  const pinnedIds = usePinnedSessionIds();
+  const orderIds = useSessionOrder(workspaceId);
+  const tree = useSessionTree(sessions, ctx.sessionStatusById);
+  const [expanded, setExpanded] = React.useState(true);
+  const rows = flattenSessionRows(
+    sessions,
+    Number.MAX_SAFE_INTEGER,
+    tree,
+    ctx.expandedSessionIds,
+    forcedExpandedSessionIds,
+    pinnedIds,
+    orderIds,
+  );
+
+  if (sessions.length === 0) return null;
+
+  return (
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/general-sessions">
+      <SessionGroupSeparator
+        label="General Sessions"
+        count={sessions.length}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
+      />
+      <CollapsibleContent>
+        {rows.map((row) => (
+          <SessionMenuItem
+            key={row.session.id}
+            session={row.session}
+            depth={row.depth}
+            tree={tree}
+            workspaceId={workspaceId}
+            forcedExpandedSessionIds={forcedExpandedSessionIds}
+            isPinned={pinnedIds.has(row.session.id)}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 const SESSION_DRAG_TYPE = "application/x-openwork-session-id";
 const UNGROUPED_GROUP_ID = "__openwork_ungrouped";
 
-function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown }: {
+function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown, variant = "section" }: {
   label: string;
   count: number;
   expanded: boolean;
   onToggle: () => void;
   onRemove?: () => void;
   onTitlePointerDown?: React.PointerEventHandler<HTMLSpanElement>;
+  variant?: "section" | "nested";
 }) {
+  const nested = variant === "nested";
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="group/separator flex w-full items-center gap-1.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
+      className={cn(
+        "group/separator flex w-full items-center gap-1.5 rounded text-left transition-colors hover:bg-sidebar-accent/50",
+        nested ? "h-7 px-2 ps-10 text-xs" : "px-2 pb-1 pt-2.5 first:pt-1",
+      )}
       aria-expanded={expanded}
     >
-      <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
+      <ChevronRight className={cn(nested ? "size-3" : "size-3.5", "shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
       <span
-        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground active:cursor-grabbing"
+        className={cn(
+          "min-w-0 flex-1 cursor-grab touch-none truncate font-medium text-muted-foreground active:cursor-grabbing",
+          nested ? "text-xs normal-case tracking-normal" : "text-[11px] uppercase tracking-wide",
+        )}
         onPointerDown={onTitlePointerDown}
       >
         {label}
@@ -1530,12 +2022,35 @@ function PinnedIndicator({ isPinned }: { isPinned: boolean }) {
   );
 }
 
+function SessionUniverReviewChip({ reviewState }: { reviewState?: UniverSessionReviewState }) {
+  if (!reviewState?.label || reviewState.kind === "none") return null;
+  return (
+    <span
+      className={cn(
+        "ml-1 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-3",
+        reviewState.kind === "conflict" && "bg-red-3 text-red-11",
+        reviewState.kind === "missing" && "bg-amber-3 text-amber-11",
+        reviewState.kind === "multiple" && "bg-amber-3 text-amber-11",
+        reviewState.kind === "ready" && "bg-amber-3 text-amber-11",
+        reviewState.kind === "working" && "bg-blue-3 text-blue-11",
+        reviewState.kind === "unknown" && "bg-muted text-muted-foreground",
+        reviewState.kind === "merged" && "bg-green-3 text-green-11",
+        reviewState.kind === "discarded" && "bg-muted text-muted-foreground",
+      )}
+      title={reviewState.title ?? undefined}
+    >
+      {reviewState.label}
+    </span>
+  );
+}
+
 type SessionMenuItemProps = {
   session: SessionListItem;
   depth: number;
   tree: SessionTreeState;
   workspaceId: string;
   forcedExpandedSessionIds: Set<string>;
+  univerReviewState?: UniverSessionReviewState;
   isPinned?: boolean;
   draggable?: boolean;
 };
@@ -1545,6 +2060,7 @@ function SessionMenuItem({
   tree,
   workspaceId,
   forcedExpandedSessionIds,
+  univerReviewState,
   depth,
   isPinned = false,
   draggable = false,
@@ -1558,6 +2074,7 @@ function SessionMenuItem({
   const isSessionActive = tree.activeIds.has(session.id);
   const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
   const isArchived = isSessionArchived(session);
+  const hasReviewChip = Boolean(univerReviewState?.label && univerReviewState.kind !== "none");
 
   const openSession = () => {
     ctx.onOpenSession(workspaceId, session.id);
@@ -1590,7 +2107,7 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative", depth > 0 && "ps-13")}
+                className={cn("relative", sessionDepthClass(depth))}
                 isActive={isSelected}
                 onClick={openSession}
                 onPointerEnter={prefetchSession}
@@ -1603,6 +2120,7 @@ function SessionMenuItem({
                 >
                   {displayTitle}
                 </span>
+                <SessionUniverReviewChip reviewState={univerReviewState} />
                 <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
                   <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                 </span>
@@ -1628,10 +2146,11 @@ function SessionMenuItem({
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}
+          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", sessionDepthClass(depth), isSessionStreaming || isSessionActive && "pe-8", hasReviewChip && "pe-14")}
         >
           <PinnedIndicator isPinned={isPinned} />
-          <span className="truncate" title={displayTitle}>{displayTitle}</span>
+          <span className="min-w-0 flex-1 truncate" title={displayTitle}>{displayTitle}</span>
+          <SessionUniverReviewChip reviewState={univerReviewState} />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       <SessionActions
