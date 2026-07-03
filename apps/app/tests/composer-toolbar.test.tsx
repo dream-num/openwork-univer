@@ -81,8 +81,8 @@ describe("composer toolbar context entrypoints", () => {
     expect(univerHtml).toContain("Changes");
   });
 
-  test("renders split Units and Tasks entry points for bound Univer sessions", async () => {
-    const unitsHtml = renderWithQueryClient(
+  test("renders a single Worktree entry point for bound Univer sessions", async () => {
+    const worktreeHtml = renderWithQueryClient(
       <UniverWorktreePopover
         open={false}
         onOpenChange={noop}
@@ -91,22 +91,7 @@ describe("composer toolbar context entrypoints", () => {
         workspaceId="workspace-1"
         target={univerTarget}
         onArtifactOpen={noop}
-        label="Units"
-        testId="composer-toolbar-units"
-        panelVariant="units"
-        toolbarKind="units"
-      />,
-    );
-    const tasksHtml = renderWithQueryClient(
-      <UniverWorktreePopover
-        open={false}
-        onOpenChange={noop}
-        sessionId="session-1"
-        client={null}
-        workspaceId="workspace-1"
-        target={univerTarget}
-        onArtifactOpen={noop}
-        label="Tasks"
+        label="Worktree"
         testId="composer-toolbar-tasks"
         panelVariant="tasks"
         toolbarKind="tasks"
@@ -114,12 +99,12 @@ describe("composer toolbar context entrypoints", () => {
     );
     const source = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
 
-    expect(unitsHtml).toContain("composer-toolbar-units");
-    expect(unitsHtml).toContain("Units");
-    expect(tasksHtml).toContain("composer-toolbar-tasks");
-    expect(tasksHtml).toContain("Tasks");
-    expect(source).toContain("composer-toolbar-units");
+    expect(worktreeHtml).toContain("composer-toolbar-tasks");
+    expect(worktreeHtml).toContain("Worktree");
+    expect(source).not.toContain("composer-toolbar-units");
+    expect(source).not.toContain('label="Units"');
     expect(source).toContain("composer-toolbar-tasks");
+    expect(source).toContain('label="Worktree"');
     expect(source).toContain("composer-toolbar-univerfile-context");
     expect(source).toContain("Open current Univerfile");
     expect(source).not.toContain("composer-toolbar-current-target");

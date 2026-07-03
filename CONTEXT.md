@@ -21,8 +21,8 @@ A Univerfile that OpenWork auto-discovers in a workspace and considers appropria
 _Avoid_: Target, hidden runtime target, dependency artifact, generated cache.
 
 **Univerfile Row**:
-A workspace sidebar navigation row for one Visible Univerfile and the sessions bound to it as their Primary Univerfile. It presents a compact file-level summary rather than a unit tree.
-_Avoid_: Target hub, folder, session group, file tree node when referring to the task navigation concept.
+A workspace sidebar navigation row for one Visible Univerfile and the sessions bound to it as their Primary Univerfile. It presents a compact file-level task queue summary rather than a unit tree or worktree list. The file-level summary distinguishes reviewable tasks from issue tasks instead of collapsing both into one pending count.
+_Avoid_: Target hub, folder, session group, file tree node, worktree navigator when referring to the task navigation concept.
 
 **General Session**:
 An OpenWork session that is not bound to a Primary Univerfile and remains workspace-scoped for general agent work, including older sessions without durable Univerfile metadata.
@@ -45,11 +45,11 @@ The single empty or planning Univer Task Session that a Univerfile Row may reuse
 _Avoid_: New task, Done session, throwaway empty session.
 
 **Session Univer Worktree**:
-The Univer worktree owned by one Univer Task Session for that session's current modifying task, identified by a persisted session worktree id. It is absent for read-only or planning sessions, and a session should have at most one active Session Univer Worktree at a time.
-_Avoid_: Target worktree, global current worktree, workspace branch.
+The Univer worktree owned by one Univer Task Session for that session's current modifying task, identified by a persisted session worktree id. It is absent for read-only or planning sessions, and a session should have at most one active Session Univer Worktree at a time. It is exposed as detail for the selected task, not as a first-level sidebar navigation object.
+_Avoid_: Target worktree, global current worktree, workspace branch, sidebar worktree row.
 
 **Session Review State**:
-The sidebar-visible review state of a Univer Task Session, derived from that session's Session Univer Worktree when one exists. OpenWork computes it from the persisted session worktree id joined with live cowork or CLI state, not from agent text. A missing persisted worktree resolves to needs attention, with the Tasks Panel showing Worktree missing/stale rather than rebinding automatically. Terminal states such as merged and discarded move the session under Done; the session remains viewable for history and results, but new modifying work should start a new bound Univer Task Session.
+The sidebar-visible review state of a Univer Task Session, derived from that session's Session Univer Worktree when one exists. OpenWork computes it from the persisted session worktree id joined with live cowork or CLI state, not from agent text. Sidebar state labels stay to task status words such as Review, Conflict, Attention, Working, Merged, and Discarded; implementation concepts such as Worktree do not appear as session status labels. A missing persisted worktree or duplicate worktree owner resolves to Attention, with the Worktree Panel explaining the specific recovery path rather than rebinding automatically. Terminal states such as merged and discarded move the session under Done; the session remains viewable for history and results, but new modifying work should start a new bound Univer Task Session.
 _Avoid_: File-level review state, hidden review queue, panel-only review status.
 
 **Split Into New Task**:
@@ -59,6 +59,10 @@ _Avoid_: Reassign worktree as the primary recovery path, merge task sessions.
 **Worktree Missing/Stale**:
 A needs-attention state where a session has a persisted Session Univer Worktree id that cannot be found in live cowork or CLI state. The primary recovery actions are Refresh status and Create new task from here; Manual reassociation is secondary or advanced.
 _Avoid_: Working state, automatic rebinding, default manual reassociation prompt.
+
+**Worktree Ownership Conflict**:
+A needs-attention state where a live Session Univer Worktree is associated with more than one non-terminal Univer Task Session. OpenWork treats the earliest successfully bound non-terminal task as the owning task and lets other tasks view the worktree without owning it. Non-owning tasks show Attention rather than Review in the sidebar; the Worktree Panel explains the owner and uses Open owning task as the primary recovery action, with Create new task from here as a secondary path.
+_Avoid_: Shared worktree ownership, duplicate review task, automatic ownership transfer.
 
 **Refresh Status**:
 A non-mutating recovery action that reloads live cowork or CLI state and recomputes Session Review State without changing session metadata, clearing `sessionUniverWorktreeId`, or invoking an agent.
@@ -77,19 +81,27 @@ The OpenWork-hosted Univer UI for a Univerfile, backed by the current `collab-ga
 _Avoid_: Spreadsheet editor when referring to the unified sheet/doc/slide surface; `univerfile-viewer` when referring to the implementation.
 
 **Univer Surface Route**:
-The current view route inside a Univer Surface: one Primary Univerfile plus the selected unit and selected worktree/content scope. It is view state for the surface, not session metadata and not Session Univer Worktree ownership.
+The current view route inside a Univer Surface: one Primary Univerfile plus the selected unit, selected source worktree, and selected view mode for that source. It is view state for the surface, not session metadata and not Session Univer Worktree ownership.
 _Avoid_: Session binding, target route, current task when referring to what the right-side Univer UI is showing.
 
-**Univer Surface Breadcrumb**:
-The OpenWork-owned header path for a Univer Surface, rendered as `<Univerfile> / <Unit>`. The Univerfile segment identifies the bound file, and the Unit segment selects the rendered sheet/doc/slide without changing session ownership.
-_Avoid_: File icon title, session title, Target label.
+**Univer Surface Selector**:
+The single OpenWork-owned header control for a Univer Surface route, rendered as `<Worktree source> / <Unit>` when route state is available. The Worktree source segment chooses `当前版本` or a concrete Univer Worktree, and the Unit segment chooses a unit within that selected source. Collapsed selector text should not include the `.univer` file name, worktree status, worktree id, or unit change status; those details belong in the expanded selector menu.
+_Avoid_: Separate breadcrumb plus worktree chip, file icon title, session title, Target label.
 
-**Univer Content View Selector**:
-The control that chooses which content mode the Univer Surface renders for the current unit: current version, original worktree changes, or merge preview. It is adjacent to, but not part of, the Univer Surface Breadcrumb because these modes are view scopes rather than path segments.
-_Avoid_: Breadcrumb worktree segment, task selector, file path segment.
+**Univer Worktree Selector**:
+A deprecated narrower name for the worktree-source portion of the Univer Surface Selector. Prefer `Univer Surface Selector` when discussing the header control, because users choose a worktree and a unit together.
+_Avoid_: Content view selector, separate breadcrumb worktree chip, task selector, merge preview selector.
+
+**Selected Worktree View Action**:
+An action that changes how the selected Univer Worktree is inspected, such as `查看修改` or `预览合入后`. It acts on the selected worktree and may change the rendered view mode, but it is not itself a worktree selector row.
+_Avoid_: Worktree choice, breadcrumb segment, review decision.
+
+**Selected Worktree Review Action**:
+A human decision action for the selected reviewable Univer Worktree, such as `合入` or `丢弃`. Agents may create and prepare worktrees for review, but OpenWork must not treat agent completion as an implicit merge or discard.
+_Avoid_: Agent completion state, overflow-only command, background merge.
 
 **Univer Artifact Header**:
-The OpenWork-owned header shown above a Univerfile, combining artifact identity with controls for the currently rendered unit, scope, and worktree. It should present the Univer Surface Breadcrumb as the primary identity rather than a generic file preview title.
+The OpenWork-owned header shown above a Univerfile, combining artifact identity with the Univer Surface Selector, selected-worktree actions, review decisions, status, and file fallback actions. It should present the Univer Surface Selector as the primary identity and source control rather than a generic file preview title.
 _Avoid_: Generic artifact titlebar, collab-client topbar, external-browser toolbar.
 
 **Univer Artifact Header View Model**:
@@ -108,21 +120,21 @@ _Avoid_: Narrow centered chat column, floating prompt card, target-only chat lay
 A stable session-level toolbar shown directly above the Compact Chat Composer for durable workspace and Univer context entry points. It shares the chat pane width rhythm and stays separate from transient composer workflow accessories such as queued messages, permissions, questions, and todos.
 _Avoid_: Header file button, composer accessory, notification rail.
 
-**Units Panel**:
-The Composer Toolbar panel for a session bound to a Primary Univerfile that opens the Univerfile's trunk unit list and routes the right-side Univer Surface to a selected unit.
-_Avoid_: Files popover, target panel, task review queue.
-
-**Tasks Panel**:
-The Composer Toolbar panel for a session bound to a Primary Univerfile that shows the current session's Session Univer Worktree state, including no changes, in progress, ready for review, merge/discard controls, missing/stale recovery, and terminal merged/discarded summaries.
-_Avoid_: Unit navigator, Files popover, current target panel.
+**Worktree Panel**:
+The single Composer Toolbar panel for a session bound to a Primary Univerfile, labeled `Worktree`, that shows the selected task's worktree state, ownership, source identity, primary action, secondary recovery actions, and any unit/change details needed to review that work.
+_Avoid_: Separate Units/Tasks toolbar entries, Files popover, current target panel.
 
 **Univer Content Scope**:
-The content mode rendered inside the Univer Surface for a unit: current version, original worktree changes, or merge preview.
-_Avoid_: Separate review surface, separate progress surface.
+The rendering mode inside the Univer Surface for the selected source, such as current trunk, selected worktree changes, or selected worktree merge preview. It is view state surfaced through selected-worktree view actions, not the primary header selector.
+_Avoid_: Primary worktree selector, separate review surface, separate progress surface.
 
 **Univer Edit Gate**:
-The state that tells whether the current Univer Content Scope can be edited directly by the user, such as editable, read-only, locked by pending changes, or direct trunk editing in progress. It is a status indicator, not a menu section; only related commands such as leaving edit mode are actions.
+The state that tells whether the current Univer source and view mode can be edited directly by the user, such as editable, read-only, locked by pending changes, or direct trunk editing in progress. It is a status indicator, not a menu section; only related commands such as leaving edit mode are actions.
 _Avoid_: Workflow menu category, task status, route segment.
+
+**Univer Unit Change Status**:
+Plain-language status for how the current unit differs in the selected Univer Worktree, such as `已修改`, `新增`, `删除`, or `冲突`. It may appear in the header or worktree detail when useful, but a standalone one-character badge such as `改` is not enough.
+_Avoid_: Cryptic unit badge, task status, edit gate.
 
 **Workspace Files**:
 The current workspace's ordinary filesystem tree as exposed inside OpenWork for browsing, searching, selecting, and opening workspace files.

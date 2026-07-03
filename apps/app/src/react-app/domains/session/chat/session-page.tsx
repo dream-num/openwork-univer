@@ -6,7 +6,7 @@ import { AlertTriangle, Columns2, FileSpreadsheet, FileText, Globe, Mic2, Settin
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
-import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
+import { type OpenworkServerClient, type OpenworkServerStatus, type OpenworkSessionUniverMetadataPatch } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
 import { openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -238,6 +238,32 @@ function sessionExistsInWorkspace(groups: WorkspaceSessionGroup[], workspaceId: 
   ));
 }
 
+function sessionCreatedAt(session: WorkspaceSessionGroup["sessions"][number]): number {
+  return session.time?.created ?? session.time?.updated ?? 0;
+}
+
+function existingWorktreeOwnerForCandidate(
+  sessions: WorkspaceSessionGroup["sessions"],
+  currentSessionId: string,
+  targetPath: string,
+  worktreeId: string,
+) {
+  const normalizedPath = normalizeUniverTargetPath(targetPath);
+  const normalizedWorktreeId = worktreeId.trim();
+  if (!normalizedPath || !normalizedWorktreeId) return null;
+  const owners = sessions.filter((session) => (
+    session.id !== currentSessionId &&
+    !session.sessionUniverWorktreeTerminalState &&
+    normalizeUniverTargetPath(session.primaryUniverTarget?.path) === normalizedPath &&
+    session.sessionUniverWorktreeId?.trim() === normalizedWorktreeId
+  ));
+  return owners.sort((left, right) => {
+    const createdDelta = sessionCreatedAt(left) - sessionCreatedAt(right);
+    if (createdDelta !== 0) return createdDelta;
+    return left.id.localeCompare(right.id);
+  })[0] ?? null;
+}
+
 function isTrackableAccessibleTarget(target: OpenTarget) {
   return isOpenableFileTarget(target) || isLocalhostBrowserTarget(target);
 }
@@ -410,14 +436,43 @@ export function SessionPage(props: SessionPageProps) {
     const candidate = resolveSessionUniverWorktreePersistence(selectedSidebarSession, transcriptTargets);
     if (!candidate) return;
 
-    const issueIds = candidate.sessionUniverWorktreeIssue?.worktreeIds.join(",") ?? "";
-    const worktreeId = "sessionUniverWorktreeId" in candidate ? candidate.sessionUniverWorktreeId : issueIds;
+    let nextPatch: OpenworkSessionUniverMetadataPatch = candidate;
+    if ("sessionUniverWorktreeId" in candidate) {
+      const existingOwner = existingWorktreeOwnerForCandidate(
+        selectedWorkspaceSessionGroup?.sessions ?? [],
+        props.selectedSessionId,
+        candidate.primaryUniverTarget.path,
+        candidate.sessionUniverWorktreeId,
+      );
+      if (existingOwner) {
+        nextPatch = {
+          primaryUniverTarget: candidate.primaryUniverTarget,
+          sessionUniverWorktreeId: null,
+          sessionUniverWorktreeIssue: {
+            kind: "ownershipConflict",
+            worktreeId: candidate.sessionUniverWorktreeId,
+            ownerSessionId: existingOwner.id,
+          },
+          univerSessionKind: "task",
+        };
+      }
+    }
+
+    const issueKey = nextPatch.sessionUniverWorktreeIssue?.kind === "multiple"
+      ? nextPatch.sessionUniverWorktreeIssue.worktreeIds.join(",")
+      : nextPatch.sessionUniverWorktreeIssue?.kind === "ownershipConflict"
+        ? `${nextPatch.sessionUniverWorktreeIssue.worktreeId}:${nextPatch.sessionUniverWorktreeIssue.ownerSessionId}`
+        : "";
+    const worktreeId = nextPatch.sessionUniverWorktreeId ?? issueKey;
     const key = `${props.selectedSessionId}:${worktreeId}`;
     if (pendingUniverWorktreePersistenceRef.current.has(key)) return;
     pendingUniverWorktreePersistenceRef.current.add(key);
 
-    void props.openworkServerClient.updateSessionUniverMetadata(props.runtimeWorkspaceId, props.selectedSessionId, candidate)
+    void props.openworkServerClient.updateSessionUniverMetadata(props.runtimeWorkspaceId, props.selectedSessionId, nextPatch)
       .then(() => notifyUniverSessionMetadataUpdated())
+      .catch((error: unknown) => {
+        console.warn("Failed to persist Univer worktree ownership", error);
+      })
       .finally(() => {
         pendingUniverWorktreePersistenceRef.current.delete(key);
       });
@@ -426,6 +481,7 @@ export function SessionPage(props: SessionPageProps) {
     props.runtimeWorkspaceId,
     props.selectedSessionId,
     selectedSidebarSession,
+    selectedWorkspaceSessionGroup?.sessions,
     transcriptTargets,
   ]);
   const voiceExtension = useMemo(
@@ -456,7 +512,7 @@ export function SessionPage(props: SessionPageProps) {
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
   const [univerArtifactPaneActive, setUniverArtifactPaneActive] = useState(false);
-  const [composerToolbarPopover, setComposerToolbarPopover] = useState<"files" | "changes" | "tasks" | "units" | null>(null);
+  const [composerToolbarPopover, setComposerToolbarPopover] = useState<"files" | "changes" | "tasks" | null>(null);
   const browserPanelRef = usePanelRef();
   const preserveSidePanelOnPanelOpenRef = useRef(false);
   const autoSizedUniverArtifactTabIdRef = useRef<string | null>(null);
@@ -522,7 +578,7 @@ export function SessionPage(props: SessionPageProps) {
     setComposerToolbarPopover(null);
   }, [props.selectedSessionId]);
   useEffect(() => {
-    if ((composerToolbarPopover === "changes" || composerToolbarPopover === "tasks" || composerToolbarPopover === "units") && !toolbarUniverTarget) {
+    if ((composerToolbarPopover === "changes" || composerToolbarPopover === "tasks") && !toolbarUniverTarget) {
       setComposerToolbarPopover(null);
     }
   }, [composerToolbarPopover, toolbarUniverTarget]);
@@ -696,20 +752,6 @@ export function SessionPage(props: SessionPageProps) {
       {boundUniverTarget ? (
         <>
           <UniverWorktreePopover
-            open={composerToolbarPopover === "units"}
-            onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "units" : null)}
-            sessionId={props.selectedSessionId}
-            client={props.openworkServerClient}
-            workspaceId={props.runtimeWorkspaceId}
-            target={boundUniverTarget}
-            isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-            onArtifactOpen={showArtifactPanelFromFileTree}
-            label="Units"
-            testId="composer-toolbar-units"
-            panelVariant="units"
-            toolbarKind="units"
-          />
-          <UniverWorktreePopover
             open={composerToolbarPopover === "tasks"}
             onOpenChange={(nextOpen) => setComposerToolbarPopover(nextOpen ? "tasks" : null)}
             sessionId={props.selectedSessionId}
@@ -722,9 +764,10 @@ export function SessionPage(props: SessionPageProps) {
               if (!props.selectedSessionId) return;
               props.sidebar.onCreateTaskFromUniverSession?.(props.selectedWorkspaceId, props.selectedSessionId);
             }}
+            onOpenOwningTask={(sessionId) => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)}
             worktreeIssue={selectedSidebarSession?.sessionUniverWorktreeIssue ?? null}
             terminalState={selectedSidebarSession?.sessionUniverWorktreeTerminalState ?? null}
-            label="Tasks"
+            label="Worktree"
             testId="composer-toolbar-tasks"
             panelVariant="tasks"
             toolbarKind="tasks"

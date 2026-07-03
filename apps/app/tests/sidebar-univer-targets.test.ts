@@ -177,6 +177,63 @@ describe("sidebar Univer target grouping", () => {
     expect(result.hubs[0].reviewStateBySessionId.ses_multiple?.label).toBe("Split");
   });
 
+  test("keeps one owner for duplicate live worktree bindings", () => {
+    const sessions: SidebarSessionItem[] = [
+      {
+        id: "ses_owner",
+        title: "Quarterly summary",
+        primaryUniverTarget: { path: "reports/budget.univer", name: "budget.univer" },
+        sessionUniverWorktreeId: "wt_ready",
+        time: { created: 100 },
+      },
+      {
+        id: "ses_duplicate",
+        title: "May payroll",
+        primaryUniverTarget: { path: "reports/budget.univer", name: "budget.univer" },
+        sessionUniverWorktreeId: "wt_ready",
+        time: { created: 200 },
+      },
+    ];
+    const targets: OpenworkUniverTargetSummary[] = [
+      {
+        path: "reports/budget.univer",
+        name: "budget.univer",
+        size: 128,
+        updatedAt: 42,
+        unitCount: null,
+      },
+    ];
+
+    const result = buildUniverTargetHubs(sessions, targets, {
+      "reports/budget.univer": statusFromCoworkSnapshot("reports/budget.univer", {
+        units: [{ unitId: "sheet-1", kind: "sheet", displayName: "Budget" }],
+        activeWorktrees: [],
+        reviewableWorktrees: [
+          {
+            worktreeId: "wt_ready",
+            status: "ready",
+            displayName: "Quarterly summary",
+            headCommit: 4,
+          },
+        ],
+      }),
+    });
+
+    expect(result.hubs[0].reviewStateBySessionId.ses_owner).toMatchObject({
+      kind: "ready",
+      label: "Review",
+    });
+    expect(result.hubs[0].reviewStateBySessionId.ses_duplicate).toMatchObject({
+      kind: "ownershipConflict",
+      label: "Attention",
+      ownerSessionId: "ses_owner",
+      ownerSessionTitle: "Quarterly summary",
+    });
+    expect(result.hubs[0].actionableSessionCount).toBe(2);
+    expect(result.hubs[0].reviewSessionCount).toBe(1);
+    expect(result.hubs[0].issueSessionCount).toBe(1);
+  });
+
   test("keeps terminal worktree sessions collapsed under Done", () => {
     const sessions: SidebarSessionItem[] = [
       {
@@ -314,6 +371,27 @@ describe("sidebar Univer target grouping", () => {
     expect(source).toContain('const SESSION_DEPTH_1_CLASS = "ps-8"');
     expect(source).toContain('const SESSION_DEPTH_DEEP_CLASS = "ps-11"');
     expect(source).toContain('nested ? "h-7 px-2 ps-8 text-xs"');
+  });
+
+  test("keeps Univerfile row aggregate status explicit", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+
+    expect(source).not.toContain("unitCountLabel");
+    expect(source).not.toContain("unitCountTitle");
+    expect(source).toContain('const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none"');
+    expect(source).toContain('countPhrase(hub.reviewSessionCount, "review", "reviews")');
+    expect(source).toContain('countPhrase(hub.issueSessionCount, "issue", "issues")');
+    expect(source).toContain("buildUniverFileTaskSummary(hub)");
+  });
+
+  test("keeps Univer review chips in the right-side session row slot", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+
+    expect(source).toContain('data-sidebar="session-univer-review-chip"');
+    expect(source).toContain('"shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-3"');
+    expect(source).toContain('"pe-20 group-hover/menu-sub-item:pe-28 group-has-data-popup-open/menu-sub-item:pe-28"');
+    expect(source).toContain('"pointer-events-none absolute top-1/2 -translate-y-1/2 transition-transform duration-75 group-hover/menu-sub-item:-translate-x-8 group-has-data-popup-open/menu-sub-item:-translate-x-8"');
+    expect(source).toContain('hasActivityIndicator ? "right-8" : "right-3"');
   });
 
   test("offers file-level cleanup for unavailable Univerfiles only", async () => {

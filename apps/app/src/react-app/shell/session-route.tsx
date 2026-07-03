@@ -85,6 +85,7 @@ import {
   isActiveSessionStatus,
   isTransientStartupError,
   mapDesktopWorkspace,
+  mergeUniverTargetsRefresh,
   mergeRouteWorkspaces,
   orderRouteWorkspaces,
   toSessionGroups,
@@ -224,6 +225,7 @@ function focusPromptSoon() {
 // All workspace-scoped server URLs/clients/tokens come from
 // `resolveWorkspaceEndpoint` in apps/app/src/app/lib/workspace-endpoint.ts.
 // Don't compose `<baseUrl>/workspace/<id>` here.
+const UNIVER_TARGET_REFRESH_INTERVAL_MS = 3000;
 
 async function fileToDataUrl(file: File, mimeType: string) {
   return await new Promise<string>((resolve, reject) => {
@@ -531,35 +533,45 @@ export function SessionRoute() {
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, univerTargetsByWorkspaceId, workspaces],
   );
 
+  const loadUniverTargets = useCallback(async (workspaceList: RouteWorkspace[]) => (
+    await Promise.all(workspaceList.map(async (workspace) => {
+      const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+      if (!endpoint) return { workspaceId: workspace.id, items: [] };
+      try {
+        const result = await endpoint.client.listUniverTargets(endpoint.workspaceId);
+        return { workspaceId: workspace.id, items: result.items };
+      } catch {
+        return { workspaceId: workspace.id, items: null };
+      }
+    }))
+  ), [baseUrl, token]);
+
   useEffect(() => {
     let cancelled = false;
 
-    const loadUniverTargets = async () => {
-      const entries = await Promise.all(workspaces.map(async (workspace) => {
-        const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
-        if (!endpoint) return { workspaceId: workspace.id, items: [] };
-        try {
-          const result = await endpoint.client.listUniverTargets(endpoint.workspaceId);
-          return { workspaceId: workspace.id, items: result.items };
-        } catch {
-          return { workspaceId: workspace.id, items: [] };
-        }
-      }));
-
+    const refreshUniverTargets = async () => {
+      const entries = await loadUniverTargets(workspaces);
       if (cancelled) return;
-      const next: Record<string, OpenworkUniverTargetSummary[]> = {};
-      for (const entry of entries) {
-        next[entry.workspaceId] = entry.items;
-      }
-      setUniverTargetsByWorkspaceId(next);
+      setUniverTargetsByWorkspaceId((previous) => mergeUniverTargetsRefresh(previous, entries));
     };
 
-    void loadUniverTargets();
+    const refreshVisibleUniverTargets = () => {
+      if (document.visibilityState === "hidden") return;
+      void refreshUniverTargets();
+    };
+
+    void refreshUniverTargets();
+    window.addEventListener("focus", refreshVisibleUniverTargets);
+    document.addEventListener("visibilitychange", refreshVisibleUniverTargets);
+    const interval = window.setInterval(refreshVisibleUniverTargets, UNIVER_TARGET_REFRESH_INTERVAL_MS);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refreshVisibleUniverTargets);
+      document.removeEventListener("visibilitychange", refreshVisibleUniverTargets);
+      window.clearInterval(interval);
     };
-  }, [baseUrl, token, workspaces]);
+  }, [loadUniverTargets, workspaces]);
 
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const selectedWorkspaceGroupState = sessionManagementStore((state) => (

@@ -49,6 +49,7 @@ import "@univer/cowork/viewer/styles.css";
 
 import type { SidebarSessionItem } from "@/app/types";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
+import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import {
   getDesktopFileIcon,
   openDesktopPath,
@@ -109,6 +110,7 @@ import {
   type UniverArtifactHeaderFileActionId,
   type UniverArtifactHeaderUnitOption,
   type UniverArtifactHeaderViewModel,
+  type UniverArtifactHeaderWorktreeOwnership,
   type UniverArtifactHeaderWorktreeOption,
 } from "./univer-artifact-header-view-model";
 import type { UniverOpenSurface } from "./univer-surface";
@@ -181,6 +183,62 @@ function resolveSessionUniverWorktreeId(
   if (!worktreeId) return null;
   const sessionTargetKey = normalizeUniverTargetPath(session.primaryUniverTarget?.path);
   return sessionTargetKey === targetKey ? worktreeId : null;
+}
+
+function sessionCreatedAt(session: SidebarSessionItem): number {
+  return session.time?.created ?? session.time?.updated ?? 0;
+}
+
+function deriveUniverHeaderWorktreeOwnership(
+  workspaceSessions: SidebarSessionItem[],
+  currentSessionId: string,
+  targetPath: string,
+): Record<string, UniverArtifactHeaderWorktreeOwnership> {
+  const targetKey = normalizeUniverTargetPath(targetPath);
+  if (!targetKey) return {};
+
+  const sessionsByWorktreeId = new Map<string, SidebarSessionItem[]>();
+  for (const session of workspaceSessions) {
+    if (session.univerSessionKind === "overview") continue;
+    if (session.sessionUniverWorktreeTerminalState) continue;
+    if (normalizeUniverTargetPath(session.primaryUniverTarget?.path) !== targetKey) {
+      continue;
+    }
+    const worktreeId = session.sessionUniverWorktreeId?.trim();
+    if (!worktreeId) continue;
+    sessionsByWorktreeId.set(
+      worktreeId,
+      [...(sessionsByWorktreeId.get(worktreeId) ?? []), session],
+    );
+  }
+
+  const ownershipById: Record<string, UniverArtifactHeaderWorktreeOwnership> = {};
+  for (const [worktreeId, sessions] of sessionsByWorktreeId) {
+    const owner = [...sessions].sort((left, right) => {
+      const createdDelta = sessionCreatedAt(left) - sessionCreatedAt(right);
+      if (createdDelta !== 0) return createdDelta;
+      return left.id.localeCompare(right.id);
+    })[0];
+    if (!owner) continue;
+    ownershipById[worktreeId] = {
+      relation: owner.id === currentSessionId ? "currentTask" : "otherTask",
+      ownerSessionId: owner.id,
+      ownerSessionTitle: getDisplaySessionTitle(owner.title),
+    };
+  }
+
+  const currentSession = workspaceSessions.find((session) => session.id === currentSessionId);
+  const currentIssue = currentSession?.sessionUniverWorktreeIssue;
+  if (currentIssue?.kind === "ownershipConflict" && !ownershipById[currentIssue.worktreeId]) {
+    const owner = workspaceSessions.find((session) => session.id === currentIssue.ownerSessionId);
+    ownershipById[currentIssue.worktreeId] = {
+      relation: "otherTask",
+      ownerSessionId: currentIssue.ownerSessionId,
+      ...(owner ? { ownerSessionTitle: getDisplaySessionTitle(owner.title) } : {}),
+    };
+  }
+
+  return ownershipById;
 }
 
 export function ArtifactPanel({
@@ -491,6 +549,7 @@ function ArtifactPanelView({
           client={client}
           workspaceId={workspaceId}
           target={target}
+          workspaceSessions={workspaceSessions}
           sessionWorktreeId={sessionWorktreeId}
           fileIcon={fileIcon}
           isRemoteWorkspace={isRemoteWorkspace}
@@ -766,6 +825,7 @@ interface UniverArtifactWorkspaceProps {
   client: OpenworkServerClient;
   workspaceId: string;
   target: UniverTarget;
+  workspaceSessions: SidebarSessionItem[];
   sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
@@ -779,6 +839,7 @@ function UniverArtifactWorkspace({
   client,
   workspaceId,
   target,
+  workspaceSessions,
   sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
@@ -793,6 +854,10 @@ function UniverArtifactWorkspace({
       target,
       isRemoteWorkspace,
     });
+  const worktreeOwnershipById = useMemo(
+    () => deriveUniverHeaderWorktreeOwnership(workspaceSessions, sessionId, target.value),
+    [sessionId, target.value, workspaceSessions],
+  );
 
   if (controller && surface) {
     return (
@@ -805,6 +870,7 @@ function UniverArtifactWorkspace({
         viewerDataSource={viewerDataSource}
         target={target}
         sessionWorktreeId={sessionWorktreeId}
+        worktreeOwnershipById={worktreeOwnershipById}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -819,6 +885,7 @@ function UniverArtifactWorkspace({
       <UniverArtifactHeader
         target={target}
         sessionWorktreeId={sessionWorktreeId}
+        worktreeOwnershipById={worktreeOwnershipById}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         onDownload={onDownload}
@@ -845,6 +912,7 @@ interface UniverArtifactWorkspaceContentProps {
   viewerDataSource: CoworkContentViewerDataSource | null;
   target: UniverTarget;
   sessionWorktreeId: string | null;
+  worktreeOwnershipById: Record<string, UniverArtifactHeaderWorktreeOwnership>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   onDownload: () => void | Promise<void>;
@@ -861,6 +929,7 @@ function UniverArtifactWorkspaceContent({
   viewerDataSource,
   target,
   sessionWorktreeId,
+  worktreeOwnershipById,
   fileIcon,
   isRemoteWorkspace,
   onDownload,
@@ -1009,6 +1078,7 @@ function UniverArtifactWorkspaceContent({
       <UniverArtifactHeader
         target={target}
         sessionWorktreeId={sessionWorktreeId}
+        worktreeOwnershipById={worktreeOwnershipById}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
         currentView={contentView}
@@ -1050,6 +1120,7 @@ function UniverArtifactWorkspaceContent({
 interface UniverArtifactHeaderProps {
   target: OpenTarget;
   sessionWorktreeId?: string | null;
+  worktreeOwnershipById?: Record<string, UniverArtifactHeaderWorktreeOwnership>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
   contentSurface?: CoworkContentSurface | null;
@@ -1079,6 +1150,7 @@ function isReviewDecisionAction(
 export function UniverArtifactHeader({
   target,
   sessionWorktreeId,
+  worktreeOwnershipById,
   isRemoteWorkspace,
   contentSurface,
   currentView,
@@ -1102,6 +1174,7 @@ export function UniverArtifactHeader({
     ...(currentView ? { currentView } : {}),
     ...(snapshot ? { snapshot } : {}),
     ...(ownerWorktreeId ? { sessionWorktreeId: ownerWorktreeId } : {}),
+    ...(worktreeOwnershipById ? { worktreeOwnershipById } : {}),
     ...(contentSurface?.status === "ready"
       ? {
           contentState: {
@@ -1294,7 +1367,15 @@ function UniverSurfaceSelector({
       <DropdownMenuContent align="start" className="w-96">
         {viewModel.worktreeOptions.map((worktree, index) => (
           <Fragment key={worktree.id}>
-            {index > 0 ? <DropdownMenuSeparator /> : null}
+            {index > 0 && viewModel.worktreeOptions[index - 1]?.groupLabel !== worktree.groupLabel ? <DropdownMenuSeparator /> : null}
+            {index === 0 || viewModel.worktreeOptions[index - 1]?.groupLabel !== worktree.groupLabel ? (
+              <div
+                className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-normal text-muted-foreground"
+                data-testid="univer-surface-selector-group-label"
+              >
+                {worktree.groupLabel}
+              </div>
+            ) : null}
             <DropdownMenuGroup>
               <DropdownMenuLabel>
                 <span className="flex min-w-0 flex-col">
@@ -1445,6 +1526,19 @@ interface UniverArtifactHeaderPrimaryStatus {
 function primaryStatusFor(
   viewModel: UniverArtifactHeaderViewModel,
 ): UniverArtifactHeaderPrimaryStatus | null {
+  const selectedWorktree = viewModel.worktreeOptions.find((option) => option.selected);
+  if (selectedWorktree?.relation === "otherTask") {
+    return {
+      id: "readonly-other-task",
+      label: "只读",
+      tooltip: selectedWorktree.ownerSessionTitle
+        ? `这个来源属于任务「${selectedWorktree.ownerSessionTitle}」，请打开该任务合入或丢弃。`
+        : "这个来源属于另一个任务，只能在当前任务中查看。",
+      tone: "muted",
+      icon: "view",
+    };
+  }
+
   const conflict = viewModel.badges.find((badge) => badge.type === "conflict");
   if (conflict) {
     const copy = badgeCopy(conflict);
@@ -1518,9 +1612,9 @@ function UniverArtifactHeaderPrimaryStatus({
     <Tooltip>
       <TooltipTrigger
         render={
-          <span
-            className={cn(
-              "inline-flex max-w-[5.5rem] shrink-0 items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+              <span
+                className={cn(
+                  "inline-flex max-w-[5.5rem] shrink-0 items-center gap-1.5 truncate rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
               status.tone === "danger"
                 ? "bg-destructive/10 text-destructive"
                 : status.tone === "warning"
@@ -1528,9 +1622,10 @@ function UniverArtifactHeaderPrimaryStatus({
                   : status.tone === "positive"
                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                     : "bg-muted text-muted-foreground",
-            )}
-            data-testid="univer-artifact-header-primary-status"
-          >
+                )}
+                data-testid="univer-artifact-header-primary-status"
+                title={status.tooltip}
+              >
             <UniverArtifactHeaderPrimaryStatusIcon icon={status.icon} />
             <span className="min-w-0 truncate">{status.label}</span>
           </span>

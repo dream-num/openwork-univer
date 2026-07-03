@@ -114,6 +114,21 @@ OpenWork SHALL render each bound task session row with a task title and one prim
 - **WHEN** a session has a persisted `sessionUniverWorktreeId`
 - **THEN** OpenWork SHALL derive the row status chip by joining that id with live cowork or CLI state
 - **AND** OpenWork SHALL NOT treat agent text as authoritative for working, ready, conflict, merged, discarded, or needs-attention state
+- **AND** OpenWork SHALL use task status labels such as `Review`, `Conflict`, `Attention`, `Working`, `Merged`, and `Discarded`
+- **AND** OpenWork SHALL NOT use implementation concepts such as `Worktree` as session row status labels
+
+#### Scenario: Univerfile row summarizes task states by category
+
+- **WHEN** a Univerfile Row has reviewable task sessions
+- **THEN** OpenWork SHALL show a file-level review count such as `2 reviews`
+- **AND** the count SHALL represent task sessions rather than raw worktrees
+
+- **WHEN** a Univerfile Row has recovery issue task sessions
+- **THEN** OpenWork SHALL show a file-level issue count such as `2 issues`
+
+- **WHEN** a Univerfile Row has both reviewable and issue task sessions
+- **THEN** OpenWork SHALL show a mixed summary such as `1 review · 1 issue`
+- **AND** OpenWork SHALL NOT collapse review and issue states into a generic pending count
 
 #### Scenario: Sessions sort by actionability
 
@@ -128,15 +143,15 @@ OpenWork SHALL render each bound task session row with a task title and one prim
 - **THEN** OpenWork SHALL collapse them into a nested Done group inside the owning Univerfile Row by default
 - **AND** they SHALL remain openable for history and result inspection
 
-### Requirement: Units and Tasks replace Files for bound Univer sessions
+### Requirement: Worktree replaces Files for bound Univer sessions
 
-OpenWork SHALL use separate Units and Tasks toolbar entries as the primary composer-adjacent context entry points for sessions bound to a Primary Univerfile.
+OpenWork SHALL use a single Worktree toolbar entry as the primary composer-adjacent context entry point for sessions bound to a Primary Univerfile.
 
-#### Scenario: Bound session shows Units and Tasks
+#### Scenario: Bound session shows Worktree
 
 - **WHEN** the current session is bound to a Primary Univerfile
-- **THEN** OpenWork SHALL show a `Units` toolbar entry for unit navigation
-- **AND** OpenWork SHALL show a `Tasks` toolbar entry for the current session's task/worktree state
+- **THEN** OpenWork SHALL show a `Worktree` toolbar entry for the current session's task/worktree state
+- **AND** OpenWork SHALL NOT show a separate `Units` toolbar entry
 - **AND** the generic Workspace Files popover SHALL NOT be the primary bound-session context panel
 
 #### Scenario: Bound session shows current Univerfile context
@@ -151,21 +166,15 @@ OpenWork SHALL use separate Units and Tasks toolbar entries as the primary compo
 - **WHEN** the current session is a General Session
 - **THEN** OpenWork SHALL keep Workspace Files available as the ordinary filesystem browser
 
-#### Scenario: Units shows unit navigation
+#### Scenario: Worktree shows current session task state
 
-- **WHEN** the user opens `Units`
-- **THEN** OpenWork SHALL show Univerfile trunk unit status
-- **AND** selecting a unit SHALL route the right-side Univer Surface to that unit
-
-#### Scenario: Tasks shows current session task state
-
-- **WHEN** the user opens `Tasks`
+- **WHEN** the user opens `Worktree`
 - **THEN** OpenWork SHALL show the current session's Session Univer Worktree state
 
 #### Scenario: No worktree shows no changes
 
 - **WHEN** the current bound session has no Session Univer Worktree
-- **THEN** `Tasks` SHALL show an explicit no-changes-in-this-session state
+- **THEN** `Worktree` SHALL show an explicit no-changes-in-this-session state
 - **AND** it SHALL NOT show ready/review controls
 
 ### Requirement: Worktree ownership is session-scoped
@@ -189,6 +198,21 @@ OpenWork SHALL associate modifying task worktrees with the owning Univer Task Se
 - **WHEN** the user opens an existing worktree, views another session's review, or selects a worktree in the Univer Surface
 - **THEN** OpenWork SHALL NOT overwrite the current session's `sessionUniverWorktreeId`
 
+#### Scenario: One live worktree has one owning task
+
+- **WHEN** more than one non-terminal task session points at the same live `sessionUniverWorktreeId` under the same Primary Univerfile
+- **THEN** OpenWork SHALL treat the earliest successfully bound task as the owning task
+- **AND** OpenWork SHALL keep the owning task's live review state such as `Review` when the worktree is ready
+- **AND** OpenWork SHALL mark later duplicate-owner sessions as `Attention`
+- **AND** those later sessions SHALL NOT expose merge or discard decisions for that worktree
+
+#### Scenario: Duplicate worktree owner recovery opens the owner
+
+- **WHEN** a session is in Worktree Ownership Conflict
+- **THEN** the Worktree Panel SHALL explain which task owns the worktree
+- **AND** Open owning task SHALL be the primary recovery action
+- **AND** Create new task from here MAY remain available as a secondary recovery action
+
 #### Scenario: Session has at most one active worktree
 
 - **WHEN** a bound session already owns an active Session Univer Worktree
@@ -203,7 +227,7 @@ OpenWork SHALL expose exceptional session-worktree states explicitly and SHALL a
 
 - **WHEN** the persisted `sessionUniverWorktreeId` cannot be found in live cowork or CLI state
 - **THEN** the session row SHALL show needs attention
-- **AND** Tasks SHALL show Worktree missing/stale
+- **AND** Worktree SHALL show Worktree missing/stale
 - **AND** OpenWork SHALL NOT fall back to working
 - **AND** OpenWork SHALL NOT automatically bind the session to another worktree for the same Univerfile
 

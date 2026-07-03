@@ -198,6 +198,87 @@ describe("session Univer metadata API", () => {
         },
       },
     });
+
+    const liveOwner = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_3/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        primaryUniverTarget: { path: "reports/budget.univer" },
+        sessionUniverWorktreeId: "wt_live",
+        univerSessionKind: "task",
+      }),
+    }));
+    expect(liveOwner).toMatchObject({
+      metadata: {
+        sessionUniverWorktreeId: "wt_live",
+      },
+    });
+
+    const duplicateOwner = await fetch(`${base}/workspace/ws_1/sessions/ses_4/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        primaryUniverTarget: { path: "reports/budget.univer" },
+        sessionUniverWorktreeId: "wt_live",
+        univerSessionKind: "task",
+      }),
+    });
+    expect(duplicateOwner.status).toBe(409);
+
+    const historicalSameWorktree = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_5/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        primaryUniverTarget: { path: "reports/budget.univer" },
+        sessionUniverWorktreeId: "wt_live",
+        sessionUniverWorktreeTerminalState: "discarded",
+        univerSessionKind: "task",
+      }),
+    }));
+    expect(historicalSameWorktree).toMatchObject({
+      metadata: {
+        sessionUniverWorktreeId: "wt_live",
+        sessionUniverWorktreeTerminalState: "discarded",
+      },
+    });
+
+    const conflictWithExistingWorktree = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_6/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        primaryUniverTarget: { path: "reports/next.univer" },
+        sessionUniverWorktreeId: "wt_conflicted",
+        univerSessionKind: "task",
+      }),
+    }));
+    expect(conflictWithExistingWorktree).toMatchObject({
+      metadata: {
+        sessionUniverWorktreeId: "wt_conflicted",
+      },
+    });
+
+    const conflictIssue = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_6/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        sessionUniverWorktreeId: null,
+        sessionUniverWorktreeIssue: {
+          kind: "ownershipConflict",
+          worktreeId: "wt_conflicted",
+          ownerSessionId: "ses_owner",
+        },
+      }),
+    }));
+    expect(conflictIssue.state.sessions.ses_6).toMatchObject({
+      primaryUniverTarget: { path: "reports/next.univer", name: "next.univer" },
+      sessionUniverWorktreeIssue: {
+        kind: "ownershipConflict",
+        worktreeId: "wt_conflicted",
+        ownerSessionId: "ses_owner",
+      },
+      univerSessionKind: "task",
+    });
+    expect(conflictIssue.state.sessions.ses_6).not.toHaveProperty("sessionUniverWorktreeId");
   });
 
   test("keeps one Target Overview Session per Primary Univer Target", async () => {

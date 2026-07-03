@@ -5,7 +5,6 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
-  checkUniverCoworkBundleHealth,
   resolveUniverCoworkBundle,
   type UniverCoworkBundle,
   type UniverCoworkBundleHealth,
@@ -28,6 +27,8 @@ const INSTALL_METADATA_FILE = ".openwork-univer-cli.json";
 const COMMAND_TIMEOUT_MS = 20_000;
 const OPEN_SURFACE_TIMEOUT_MS = 60_000;
 const NPM_INSTALL_TIMEOUT_MS = 120_000;
+const OPENWORK_UNIVER_NODE_RUNTIME_ENV = "OPENWORK_UNIVER_NODE_RUNTIME";
+const OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON_ENV = "OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON";
 
 export const UNIVER_CLI_EXTENSION_ACTIONS = [
   {
@@ -428,10 +429,29 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function bundledNodeRuntimeExecutable(): string {
+  const override = process.env[OPENWORK_UNIVER_NODE_RUNTIME_ENV]?.trim();
+  if (override) return override;
+  return typeof process.versions.electron === "string" && process.versions.electron.length > 0
+    ? process.execPath
+    : "";
+}
+
+function bundledNodeRuntimeUsesElectron(): boolean {
+  return process.env[OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON_ENV] === "1"
+    || (typeof process.versions.electron === "string" && process.versions.electron.length > 0);
+}
+
 function shimContent(targetBinPath: string): string {
+  const runtimeExecutable = bundledNodeRuntimeExecutable();
+  if (!runtimeExecutable) {
+    return process.platform === "win32"
+      ? `@echo off\r\n"${targetBinPath}" %*\r\n`
+      : `#!/bin/sh\nexec ${shellQuote(targetBinPath)} "$@"\n`;
+  }
   return process.platform === "win32"
-    ? `@echo off\r\n"${targetBinPath}" %*\r\n`
-    : `#!/bin/sh\nexec ${shellQuote(targetBinPath)} "$@"\n`;
+    ? `@echo off\r\n${bundledNodeRuntimeUsesElectron() ? "set ELECTRON_RUN_AS_NODE=1\r\n" : ""}"${runtimeExecutable}" "${targetBinPath}" %*\r\n`
+    : `#!/bin/sh\n${bundledNodeRuntimeUsesElectron() ? "export ELECTRON_RUN_AS_NODE=1\n" : ""}exec ${shellQuote(runtimeExecutable)} ${shellQuote(targetBinPath)} "$@"\n`;
 }
 
 function ensureBundledExecutableShimSync(config: ServerConfig, bundle: UniverCoworkBundle): string | null {
@@ -535,6 +555,94 @@ async function inspectBundledSkillPackage(bundle: UniverCoworkBundle | null): Pr
       inspectTools,
     },
   };
+}
+
+async function executableAccessIssue(path: string): Promise<string | undefined> {
+  try {
+    await access(path, constants.X_OK);
+    return undefined;
+  } catch {
+    return `Univer executable is missing or not executable at ${path}.`;
+  }
+}
+
+async function bundledSkillRootIssue(path: string): Promise<string | undefined> {
+  const required = [
+    join(path, "SKILL.md"),
+    join(path, "references", "evidence-tools.md"),
+    join(path, "inspect-tools", "tools.manifest.json"),
+  ];
+  for (const file of required) {
+    try {
+      await access(file, constants.R_OK);
+    } catch {
+      return `Bundled univer-cli skill is incomplete; missing ${file}.`;
+    }
+  }
+  return undefined;
+}
+
+async function readBundledSkillMetadataRevision(path: string): Promise<string | null> {
+  const raw = await readFile(path, "utf8").catch(() => "");
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+    const revision = parsed.skillsRevision;
+    return typeof revision === "string" && revision.trim() ? revision.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readUniverCommandVersion(command: string, cwd: string): Promise<string | null> {
+  const result = await runCommand(command, ["--version"], cwd);
+  if (!result.ok) return null;
+  return parseVersionText(result.stdout);
+}
+
+async function bundledPackageIntegrityIssue(bundle: UniverCoworkBundle): Promise<string | undefined> {
+  const executableIssue = await executableAccessIssue(bundle.univerExecutablePath);
+  if (executableIssue !== undefined) return executableIssue;
+
+  const skillIssue = await bundledSkillRootIssue(bundle.skillsRoot);
+  if (skillIssue !== undefined) return skillIssue;
+
+  const skillMetadataRevision = await readBundledSkillMetadataRevision(bundle.skillMetadataPath);
+  if (skillMetadataRevision !== bundle.manifest.skillsRevision) {
+    return `Packaged skill revision ${skillMetadataRevision ?? "<unknown>"} does not match manifest revision ${bundle.manifest.skillsRevision}.`;
+  }
+
+  return undefined;
+}
+
+async function checkOpenWorkUniverCoworkBundleHealth(
+  config: ServerConfig,
+  bundle: UniverCoworkBundle
+): Promise<UniverCoworkBundleHealth> {
+  const packageIssue = await bundledPackageIntegrityIssue(bundle);
+  if (packageIssue !== undefined) {
+    return { status: "fatal", reason: packageIssue, bundle };
+  }
+
+  const runtimeExecutablePath = config.readOnly
+    ? bundle.univerExecutablePath
+    : ensureBundledExecutableShimSync(config, bundle) ?? bundledExecutableShimPath(config);
+  const runtimeIssue = await executableAccessIssue(runtimeExecutablePath);
+  if (runtimeIssue !== undefined) {
+    return { status: "repairable", bundle, reason: runtimeIssue };
+  }
+
+  const commandVersion = await readUniverCommandVersion(runtimeExecutablePath, bundle.packageRoot);
+  if (commandVersion !== bundle.manifest.univerCliVersion) {
+    return {
+      status: "fatal",
+      reason: `Packaged univer version ${commandVersion ?? "<unknown>"} does not match manifest version ${bundle.manifest.univerCliVersion}.`,
+      bundle,
+    };
+  }
+
+  return { status: "healthy", bundle };
 }
 
 async function writeSkillInstallMetadata(path: string): Promise<void> {
@@ -907,12 +1015,8 @@ function bundleStatusFromHealth(health: UniverCoworkBundleHealth | null): Bundle
 async function readBundleHealth(config: ServerConfig): Promise<UniverCoworkBundleHealth | null> {
   try {
     const bundle = tryResolveBundledCoworkBundle();
-    if (bundle && !config.readOnly) {
-      ensureBundledExecutableShimSync(config, bundle);
-    }
-    return await checkUniverCoworkBundleHealth(
-      config.readOnly ? {} : { runtimeExecutablePath: univerCliManagedExecutablePath(config) }
-    );
+    if (!bundle) return null;
+    return await checkOpenWorkUniverCoworkBundleHealth(config, bundle);
   } catch {
     return null;
   }

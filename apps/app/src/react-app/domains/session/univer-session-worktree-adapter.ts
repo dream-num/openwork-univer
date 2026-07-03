@@ -11,6 +11,10 @@ export type SessionUniverWorktreeOwner = {
   sessionUniverWorktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
   univerSessionKind?: "task" | "overview" | null;

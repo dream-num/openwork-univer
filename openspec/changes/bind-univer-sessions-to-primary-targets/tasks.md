@@ -1,6 +1,6 @@
 ## 1. Domain and Spec
 
-- [x] 1.1 Define Primary Univerfile, Univerfile Row, General Session, Univer Task Session, Univerfile Overview Session, Session Univer Worktree, Session Review State, Units Panel, Tasks Panel, Worktree Missing/Stale, and Create New Task From Here in `CONTEXT.md`.
+- [x] 1.1 Define Primary Univerfile, Univerfile Row, General Session, Univer Task Session, Univerfile Overview Session, Session Univer Worktree, Session Review State, Worktree Panel, Worktree Missing/Stale, and Create New Task From Here in `CONTEXT.md`.
 - [x] 1.2 Record ADR `0014-one-primary-univer-target-per-session`.
 - [x] 1.3 Record ADR `0015-sidebar-groups-univer-targets-and-general-sessions`.
 - [x] 1.4 Record ADR `0016-current-target-panel-for-bound-univer-sessions`.
@@ -38,11 +38,11 @@
 - [x] 4.4 Convert submitted Overview tasks into new bound task sessions.
 - [x] 4.5 Seed task row titles from the first user task prompt or agent-generated short title.
 
-## 5. Units and Tasks Toolbar Entries
+## 5. Worktree Toolbar Entry
 
-- [x] 5.1 Replace the bound-session Files popover with split Units and Tasks entries.
+- [x] 5.1 Replace the bound-session Files popover with a single Worktree entry.
 - [x] 5.2 Keep Workspace Files available for General Sessions.
-- [x] 5.3 Show `Units` trunk state in Units and active session task state in Tasks.
+- [x] 5.3 Show the active session task state and needed unit/change details in Worktree.
 - [x] 5.4 Show no-changes-in-this-session when no Session Univer Worktree exists.
 - [x] 5.5 Show active worktree status, changed units, review details, and merge/discard actions when applicable.
 - [x] 5.6 Show merged and discarded read-only completion summaries.
@@ -60,6 +60,9 @@
 - [x] 6.6 Treat missing persisted worktree id as needs attention with no automatic fallback.
 - [x] 6.7 Treat multiple active worktrees in one session as needs attention and make Split Into New Task primary.
 - [x] 6.8 Treat merged and discarded worktrees as terminal.
+- [x] 6.9 Detect duplicate live worktree owners and keep only the earliest bound non-terminal task as owner.
+- [x] 6.10 Show duplicate non-owner sessions as Attention with Open owning task as the primary recovery path.
+- [x] 6.11 Summarize Univerfile Row state as review and issue counts instead of one generic pending count.
 
 ## 7. Agent Context and Behavior
 
@@ -73,7 +76,7 @@
 
 - [x] 8.1 Add focused tests for session metadata and binding behavior.
 - [x] 8.2 Add focused tests for sidebar grouping, sorting, Done collapse, and Univerfile Overview behavior.
-- [x] 8.3 Add focused tests for Units and Tasks states and actions.
+- [x] 8.3 Add focused tests for Worktree states and actions.
 - [x] 8.4 Add focused tests for worktree state derivation from live snapshots.
 - [x] 8.5 Add focused tests for Refresh status read-only recomputation.
 - [x] 8.6 Add focused tests for Create new task from here metadata semantics.
@@ -84,6 +87,7 @@
 - [x] 8.11 Add focused tests for Univerfile Overview staying on the univerfile row instead of General Sessions.
 - [x] 8.12 Add focused server test for one Univerfile Overview Session per Primary Univerfile.
 - [x] 8.13 Add focused tests for minimal Univer Session Context.
+- [x] 8.14 Add focused tests for duplicate worktree owner detection and review/issues sidebar summaries.
 
 ## 9. Univer Surface Breadcrumb Route
 

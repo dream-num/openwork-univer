@@ -42,13 +42,25 @@ export interface UniverArtifactHeaderUnitOption {
   view: CoworkContentViewState;
 }
 
+export type UniverArtifactHeaderWorktreeRelation = "currentVersion" | "currentTask" | "otherTask";
+
+export type UniverArtifactHeaderWorktreeOwnership = {
+  relation: Exclude<UniverArtifactHeaderWorktreeRelation, "currentVersion">;
+  ownerSessionId?: string;
+  ownerSessionTitle?: string;
+};
+
 export interface UniverArtifactHeaderWorktreeOption {
   id: string;
   label: string;
+  groupLabel: string;
+  relation: UniverArtifactHeaderWorktreeRelation;
   description?: string;
   tooltip: string;
   selected: boolean;
   disabledReason?: string;
+  ownerSessionId?: string;
+  ownerSessionTitle?: string;
   view: CoworkContentViewState;
   unitOptions: UniverArtifactHeaderUnitOption[];
 }
@@ -80,6 +92,7 @@ export interface DeriveUniverArtifactHeaderViewModelInput {
   currentView?: CoworkContentViewState | null;
   snapshot?: CoworkSnapshot | null;
   sessionWorktreeId?: string | null;
+  worktreeOwnershipById?: Record<string, UniverArtifactHeaderWorktreeOwnership>;
 }
 
 export function deriveUniverArtifactHeaderViewModel(
@@ -175,7 +188,7 @@ function buildWorktreeOptions(
       }));
     }
 
-    return options;
+    return sortWorktreeOptions(options);
   }
 
   const fallbackWorktreeId = pendingWorktreeIdForInput(input);
@@ -187,7 +200,7 @@ function buildWorktreeOptions(
     }));
   }
 
-  return options;
+  return sortWorktreeOptions(options);
 }
 
 function buildContentActions(input: DeriveUniverArtifactHeaderViewModelInput): CoworkContentAction[] {
@@ -195,7 +208,16 @@ function buildContentActions(input: DeriveUniverArtifactHeaderViewModelInput): C
   const isPendingChangeView = scope === "worktree" || scope === "mergePreview";
   if (!isPendingChangeView) return [];
 
-  return input.contentState?.actions ?? [];
+  return (input.contentState?.actions ?? []).filter((action) => {
+    if (action.type !== "mergeWorktree" && action.type !== "discardWorktree") {
+      return true;
+    }
+    if (input.currentView?.scope === "trunk") return false;
+    if (input.currentView && input.currentView.worktreeId !== action.worktreeId) {
+      return false;
+    }
+    return worktreeRelationForId(input, action.worktreeId) !== "otherTask";
+  });
 }
 
 function currentUnitIdForInput(
@@ -246,6 +268,21 @@ function addWorktreeOption(
   options.push(option);
 }
 
+function sortWorktreeOptions(
+  options: UniverArtifactHeaderWorktreeOption[],
+): UniverArtifactHeaderWorktreeOption[] {
+  const relationOrder: Record<UniverArtifactHeaderWorktreeRelation, number> = {
+    currentVersion: 0,
+    currentTask: 1,
+    otherTask: 2,
+  };
+  return [...options].sort((left, right) => {
+    const relationDelta = relationOrder[left.relation] - relationOrder[right.relation];
+    if (relationDelta !== 0) return relationDelta;
+    return 0;
+  });
+}
+
 function worktreeOptionFor(
   input: DeriveUniverArtifactHeaderViewModelInput,
   view: CoworkContentViewState,
@@ -253,19 +290,57 @@ function worktreeOptionFor(
   disabledReason?: string,
 ): UniverArtifactHeaderWorktreeOption {
   const copy = worktreeOptionCopy(input, view);
+  const ownership = worktreeOwnershipForView(input, view);
+  const relation = ownership?.relation ?? "currentVersion";
   const tooltip = disabledReason
     ? `${copy.tooltip} ${disabledReason}`
     : copy.tooltip;
   return {
     id: worktreeOptionId(view),
     label: copy.label,
+    groupLabel: worktreeGroupLabel(relation),
+    relation,
     ...(copy.description ? { description: copy.description } : {}),
     tooltip,
     selected: worktreeOptionSelected(input, view, actionSelected),
     ...(disabledReason ? { disabledReason } : {}),
+    ...(ownership?.ownerSessionId ? { ownerSessionId: ownership.ownerSessionId } : {}),
+    ...(ownership?.ownerSessionTitle ? { ownerSessionTitle: ownership.ownerSessionTitle } : {}),
     view,
     unitOptions: buildUnitOptionsForSource(input, view),
   };
+}
+
+function worktreeGroupLabel(relation: UniverArtifactHeaderWorktreeRelation): string {
+  if (relation === "currentVersion") return "当前版本";
+  if (relation === "currentTask") return "当前任务";
+  return "其他任务";
+}
+
+function worktreeOwnershipForView(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  view: CoworkContentViewState,
+): {
+  relation: UniverArtifactHeaderWorktreeRelation;
+  ownerSessionId?: string;
+  ownerSessionTitle?: string;
+} | null {
+  if (view.scope === "trunk") return { relation: "currentVersion" };
+  const ownership = input.worktreeOwnershipById?.[view.worktreeId];
+  if (ownership) return ownership;
+  if (input.sessionWorktreeId?.trim() === view.worktreeId) {
+    return { relation: "currentTask" };
+  }
+  return { relation: "otherTask" };
+}
+
+function worktreeRelationForId(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  worktreeId: string,
+): Exclude<UniverArtifactHeaderWorktreeRelation, "currentVersion"> {
+  const ownership = input.worktreeOwnershipById?.[worktreeId];
+  if (ownership) return ownership.relation;
+  return input.sessionWorktreeId?.trim() === worktreeId ? "currentTask" : "otherTask";
 }
 
 function buildUnitOptionsForSource(

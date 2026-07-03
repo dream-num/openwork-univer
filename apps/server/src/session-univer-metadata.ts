@@ -16,6 +16,10 @@ export type SessionUniverWorktreeTerminalState = "merged" | "discarded";
 export type SessionUniverWorktreeIssue = {
   kind: "multiple";
   worktreeIds: string[];
+} | {
+  kind: "ownershipConflict";
+  worktreeId: string;
+  ownerSessionId: string;
 };
 
 export type SessionUniverMetadata = {
@@ -139,8 +143,16 @@ function normalizeWorktreeIssue(value: unknown): SessionUniverWorktreeIssue | nu
   if (!isRecord(value)) {
     throw new ApiError(400, "invalid_payload", "sessionUniverWorktreeIssue must be an object or null");
   }
+  if (value.kind === "ownershipConflict") {
+    const worktreeId = normalizeOptionalString(value.worktreeId, "sessionUniverWorktreeIssue.worktreeId", 256);
+    const ownerSessionId = normalizeOptionalString(value.ownerSessionId, "sessionUniverWorktreeIssue.ownerSessionId", 128);
+    if (!worktreeId || !ownerSessionId) {
+      throw new ApiError(400, "invalid_payload", "sessionUniverWorktreeIssue ownership conflict requires worktreeId and ownerSessionId");
+    }
+    return { kind: "ownershipConflict", worktreeId, ownerSessionId };
+  }
   if (value.kind !== "multiple") {
-    throw new ApiError(400, "invalid_payload", "sessionUniverWorktreeIssue.kind must be multiple");
+    throw new ApiError(400, "invalid_payload", "sessionUniverWorktreeIssue.kind must be multiple or ownershipConflict");
   }
   if (!Array.isArray(value.worktreeIds)) {
     throw new ApiError(400, "invalid_payload", "sessionUniverWorktreeIssue.worktreeIds must be an array");
@@ -239,7 +251,9 @@ function mergeMetadataPatch(
     const changesWorktree =
       currentWorktreeId &&
       (patchWorktreeId === null || (patchWorktreeId !== null && patchWorktreeId !== currentWorktreeId));
-    if (changesWorktree && patch.allowWorktreeReassociation !== true) {
+    const clearsForOwnershipConflict =
+      patchWorktreeId === null && patch.sessionUniverWorktreeIssue?.kind === "ownershipConflict";
+    if (changesWorktree && !clearsForOwnershipConflict && patch.allowWorktreeReassociation !== true) {
       throw new ApiError(
         409,
         "session_univer_worktree_locked",
@@ -251,6 +265,9 @@ function mergeMetadataPatch(
 
   if (patch.sessionUniverWorktreeIssue !== undefined) {
     next.sessionUniverWorktreeIssue = patch.sessionUniverWorktreeIssue;
+    if (patch.sessionUniverWorktreeIssue?.kind === "ownershipConflict") {
+      next.sessionUniverWorktreeId = null;
+    }
   }
   if (patch.univerSourceSessionId !== undefined) {
     next.univerSourceSessionId = patch.univerSourceSessionId;
@@ -290,6 +307,28 @@ function assertSingleTargetOverviewSession(
         "A Target Overview Session already exists for this Primary Univer Target",
       );
     }
+  }
+}
+
+function assertSingleLiveWorktreeOwner(
+  sessions: Record<string, SessionUniverMetadata>,
+  sessionId: string,
+  metadata: SessionUniverMetadata | null,
+) {
+  const targetPath = metadata?.primaryUniverTarget?.path;
+  const worktreeId = metadata?.sessionUniverWorktreeId?.trim();
+  if (!targetPath || !worktreeId || metadata?.sessionUniverWorktreeTerminalState) return;
+
+  for (const [otherSessionId, other] of Object.entries(sessions)) {
+    if (otherSessionId === sessionId) continue;
+    if (other.sessionUniverWorktreeTerminalState) continue;
+    if (other.primaryUniverTarget?.path !== targetPath) continue;
+    if (other.sessionUniverWorktreeId?.trim() !== worktreeId) continue;
+    throw new ApiError(
+      409,
+      "session_univer_worktree_already_owned",
+      "A live Univer worktree is already owned by another task session",
+    );
   }
 }
 
@@ -416,6 +455,7 @@ export async function updateSessionUniverMetadata(
     const sessions = { ...current.sessions };
     const metadata = mergeMetadataPatch(sessions[normalizedSessionId], patch);
     assertSingleTargetOverviewSession(sessions, normalizedSessionId, metadata);
+    assertSingleLiveWorktreeOwner(sessions, normalizedSessionId, metadata);
     if (metadata) sessions[normalizedSessionId] = metadata;
     else delete sessions[normalizedSessionId];
     return { sessions };

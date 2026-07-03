@@ -55,6 +55,8 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
   { key: "diff", labelKey: "session.permission_detail_diff", multiline: true },
 ];
 
+const PERMISSION_ACTION_BUTTON_TEXT_CLASS = "h-auto justify-center whitespace-normal py-1.5 text-center leading-tight";
+
 function readablePermissionLabel(permission: string): string {
   if (permission === "bash") return "Bash";
   if (permission === "edit") return t("session.permission_kind_edit");
@@ -333,14 +335,14 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
           ) : null}
         </div>
 
-        <AlertDialogFooter className="flex-col gap-4">
+        <AlertDialogFooter className="flex-col gap-4 sm:flex-col sm:items-stretch sm:justify-start">
           <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
             {t("session.permission_decision_hint")}
           </p>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_auto_auto]">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             <AlertDialogAction
               variant="destructive"
-              className="justify-center sm:justify-self-start"
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-9 w-full`}
               onClick={() => props.respondPermission?.(props.permission.id, "reject")}
               disabled={props.busy || !props.respondPermission}
             >
@@ -348,6 +350,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {t("session.deny")}
             </AlertDialogAction>
             <AlertDialogAction
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-9 w-full`}
               onClick={() => props.respondPermission?.(props.permission.id, "once")}
               disabled={props.busy || !props.respondPermission}
             >
@@ -356,6 +359,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </AlertDialogAction>
             <AlertDialogAction
               variant="outline"
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-9 w-full`}
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
               disabled={props.busy || !props.respondPermission}
             >
@@ -380,7 +384,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
-        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid gap-3 px-4 py-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover text-dls-secondary">
               <Icon size={16} strokeWidth={1.9} />
@@ -394,12 +398,12 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-3">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="border-red-7/25 text-red-11 hover:bg-red-1/40"
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-8 w-full border-red-7/25 text-red-11 hover:bg-red-1/40`}
               onClick={() => props.respondPermission?.(props.permission.id, "reject")}
               disabled={props.busy || !props.respondPermission}
             >
@@ -409,6 +413,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             <Button
               type="button"
               size="sm"
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-8 w-full`}
               onClick={() => props.respondPermission?.(props.permission.id, "once")}
               disabled={props.busy || !props.respondPermission}
             >
@@ -419,6 +424,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               type="button"
               variant="outline"
               size="sm"
+              className={`${PERMISSION_ACTION_BUTTON_TEXT_CLASS} min-h-8 w-full`}
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
               disabled={props.busy || !props.respondPermission}
             >

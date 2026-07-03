@@ -2,7 +2,7 @@
  * Primary Univerfile workflow.
  *
  * Proves that a bound session is grouped under its `.univer` file in the
- * sidebar and that the composer toolbar exposes Units and Tasks instead of
+ * sidebar and that the composer toolbar exposes Worktree instead of
  * Workspace Files for that session.
  */
 import { execFile } from "node:child_process";
@@ -14,9 +14,15 @@ const execFileAsync = promisify(execFile);
 const RUN_SUFFIX = Date.now().toString(36);
 const UNIVER_BASENAME = `primary-target-eval-${RUN_SUFFIX}.univer`;
 const CSV_BASENAME = `primary-target-eval-${RUN_SUFFIX}.csv`;
+const LIVE_UNIVER_BASENAME = `sidebar-live-target-${RUN_SUFFIX}.univer`;
+const LIVE_CSV_BASENAME = `sidebar-live-target-${RUN_SUFFIX}.csv`;
+const READY_WORKTREE_DISPLAY_NAME = `Review ${RUN_SUFFIX}`;
 const UNIT_DISPLAY_NAME = UNIVER_BASENAME.replace(/\.univer$/, "");
 const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
 const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
+const RELATIVE_LIVE_UNIVER_PATH = `artifacts/${LIVE_UNIVER_BASENAME}`;
+const RELATIVE_LIVE_CSV_PATH = `artifacts/${LIVE_CSV_BASENAME}`;
+const UNIT_STATUS_LABELS = ["已修改", "未改动", "新增", "删除", "冲突"];
 const UNIVER_EXECUTABLE = process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "univer";
 let evalWorkspaceRoot = null;
 let readyWorktreeId = null;
@@ -94,20 +100,29 @@ async function univerEnv(workspaceRoot) {
   };
 }
 
-async function createUniverfile(workspaceRoot) {
-  const absolutePath = join(workspaceRoot, RELATIVE_UNIVER_PATH);
-  const csvPath = join(workspaceRoot, RELATIVE_CSV_PATH);
+async function createUniverfileAt(workspaceRoot, relativeUniverPath, relativeCsvPath, csvContent) {
+  const absolutePath = join(workspaceRoot, relativeUniverPath);
+  const csvPath = join(workspaceRoot, relativeCsvPath);
   await rm(absolutePath, { recursive: true, force: true });
   await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(csvPath, "Metric,Value\nRevenue,42000\nCost,17000\nMargin,25000\n", "utf8");
+  await writeFile(csvPath, csvContent, "utf8");
   await runUniver(["import", "--file", csvPath, absolutePath, "--json"], workspaceRoot, await univerEnv(workspaceRoot));
+}
+
+async function createUniverfile(workspaceRoot) {
+  await createUniverfileAt(
+    workspaceRoot,
+    RELATIVE_UNIVER_PATH,
+    RELATIVE_CSV_PATH,
+    "Metric,Value\nRevenue,42000\nCost,17000\nMargin,25000\n",
+  );
 }
 
 async function createReadyWorktree(workspaceRoot) {
   const absolutePath = join(workspaceRoot, RELATIVE_UNIVER_PATH);
   const env = await univerEnv(workspaceRoot);
   const added = await runUniver(
-    ["worktree", "add", absolutePath, "--name", `Review ${RUN_SUFFIX}`, "--json"],
+    ["worktree", "add", absolutePath, "--name", READY_WORKTREE_DISPLAY_NAME, "--json"],
     workspaceRoot,
     env,
   );
@@ -168,11 +183,31 @@ async function ensureSession(ctx) {
   }
 
   const beforeSessionId = await selectedSessionId(ctx);
+  const beforeSessions = await ctx.control("session.list_sessions");
+  const beforeSessionIds = new Set(
+    Array.isArray(beforeSessions)
+      ? beforeSessions
+        .map((session) => typeof session?.sessionId === "string" ? session.sessionId : "")
+        .filter(Boolean)
+      : [],
+  );
   await ctx.control("session.create_task");
-  await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
-    timeoutMs: 60_000,
-    label: "fresh session route",
-  });
+  try {
+    await ctx.waitFor(newSessionRouteExpression(beforeSessionId), {
+      timeoutMs: 15_000,
+      label: "fresh session route",
+    });
+  } catch {
+    const createdSessionId = await waitForCreatedSession(ctx, beforeSessionIds);
+    await ctx.control("session.open", { sessionId: createdSessionId });
+    await ctx.waitFor(
+      `(() => {
+        const route = window.__openworkControl.snapshot().route || "";
+        return route.includes(${JSON.stringify(createdSessionId)});
+      })()`,
+      { timeoutMs: 30_000, label: "opened created session route" },
+    );
+  }
   await closeBlockingDialogs(ctx);
 }
 
@@ -190,17 +225,13 @@ async function openToolbarPopover(ctx, testId, label) {
   ctx.assert(opened === true, `Could not open ${label}.`);
 }
 
-async function openUnits(ctx) {
-  await openToolbarPopover(ctx, "composer-toolbar-units", "Units");
-}
-
-async function openTasks(ctx) {
-  await openToolbarPopover(ctx, "composer-toolbar-tasks", "Tasks");
+async function openWorktree(ctx) {
+  await openToolbarPopover(ctx, "composer-toolbar-tasks", "Worktree");
 }
 
 async function closeBoundUniverPopovers(ctx) {
   await ctx.eval(`(() => {
-    for (const testId of ["composer-toolbar-units", "composer-toolbar-tasks"]) {
+    for (const testId of ["composer-toolbar-tasks"]) {
       const button = document.querySelector('button[data-testid="' + testId + '"]');
       if (button?.getAttribute("aria-expanded") === "true") button.click();
     }
@@ -227,6 +258,21 @@ function newSessionRouteExpression(beforeSessionId) {
   })()`;
 }
 
+async function waitForCreatedSession(ctx, beforeSessionIds) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 60_000) {
+    const sessions = await ctx.control("session.list_sessions");
+    if (Array.isArray(sessions)) {
+      const created = sessions.find((session) => (
+        typeof session?.sessionId === "string" && !beforeSessionIds.has(session.sessionId)
+      ));
+      if (created?.sessionId) return created.sessionId;
+    }
+    await sleep(500);
+  }
+  throw new Error("Timed out waiting for a created session in session.list_sessions.");
+}
+
 async function clickTargetNewTask(ctx) {
   const clicked = await ctx.waitFor(`(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -241,6 +287,119 @@ async function clickTargetNewTask(ctx) {
     label: "univerfile row new task button",
   });
   ctx.assert(clicked === true, "Could not click univerfile row new task.");
+}
+
+const sidebarReviewChipMeasurementExpression = `(() => {
+  const targetName = ${JSON.stringify(UNIVER_BASENAME)};
+  function closestUniverHub(element) {
+    let current = element;
+    while (current) {
+      if (String(current.className).includes("group/univer-target")) return current;
+      current = current.parentElement;
+    }
+    return null;
+  }
+  const chips = Array.from(document.querySelectorAll('[data-sidebar="session-univer-review-chip"]'));
+  const visibleChip = chips.find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+  });
+  const targetChip = chips.find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    const hub = closestUniverHub(candidate);
+    return rect.width > 0 && rect.height > 0 && Boolean(hub?.innerText?.includes(targetName));
+  });
+  const chip = targetChip ?? visibleChip;
+  const item = chip?.closest('[data-sidebar="menu-sub-item"]');
+  const row = item?.querySelector('[data-sidebar="menu-sub-button"]');
+  if (!chip || !item || !row) return null;
+  item.scrollIntoView({ block: "center", inline: "nearest" });
+  const action = Array.from(item.querySelectorAll("button")).find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  });
+  const chipRect = chip.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const actionRect = action?.getBoundingClientRect() ?? null;
+  const actionStyle = action ? getComputedStyle(action) : null;
+  return {
+    label: (chip.textContent || "").trim(),
+    rowCenterX: rowRect.left + rowRect.width / 2,
+    rowCenterY: rowRect.top + rowRect.height / 2,
+    rowRight: rowRect.right,
+    chipLeft: chipRect.left,
+    chipRight: chipRect.right,
+    chipRightGap: rowRect.right - chipRect.right,
+    actionLeft: actionRect?.left ?? null,
+    actionOpacity: actionStyle?.opacity ?? null,
+  };
+})()`;
+
+async function assertSidebarReviewChipHoverSlot(ctx) {
+  await ctx.client.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: 1,
+    y: 1,
+  });
+  await sleep(150);
+
+  const before = await ctx.waitFor(sidebarReviewChipMeasurementExpression, {
+    timeoutMs: 30_000,
+    label: "sidebar review chip layout",
+  });
+  ctx.assert(
+    before.chipRightGap >= 6 && before.chipRightGap <= 40,
+    `Review chip is not in the right-side resting slot: ${JSON.stringify(before)}`,
+  );
+
+  await ctx.client.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: before.rowCenterX,
+    y: before.rowCenterY,
+  });
+  await sleep(150);
+  const hoverTarget = await ctx.waitFor(sidebarReviewChipMeasurementExpression, {
+    timeoutMs: 5_000,
+    label: "stable sidebar review chip hover target",
+  });
+  await ctx.client.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: hoverTarget.rowCenterX,
+    y: hoverTarget.rowCenterY,
+  });
+  await sleep(300);
+
+  const after = await ctx.waitFor(`(() => {
+    const measurement = ${sidebarReviewChipMeasurementExpression};
+    if (!measurement) return null;
+    return measurement.chipRightGap >= ${JSON.stringify(before.chipRightGap + 24)}
+      ? measurement
+      : null;
+  })()`, {
+    timeoutMs: 10_000,
+    label: "sidebar review chip hover slot",
+  });
+  ctx.assert(
+    Number.parseFloat(after.actionOpacity ?? "0") >= 0.9,
+    `Session action button did not appear on hover: ${JSON.stringify(after)}`,
+  );
+  if (typeof after.actionLeft === "number") {
+    ctx.assert(
+      after.chipRight <= after.actionLeft - 4,
+      `Review chip overlaps the hover action button: ${JSON.stringify(after)}`,
+    );
+  }
+  ctx.recordEvidence({
+    type: "assertion",
+    status: "passed",
+    assertion: "Sidebar review chip rests at the row edge and shifts left of the hover action.",
+    actual: { before, after },
+  });
+  await ctx.screenshot("sidebar-review-chip-hover-slot", {
+    claim: "The sidebar session review chip rests at the row edge and shifts left when hover reveals the action button.",
+    requireText: [UNIVER_BASENAME, after.label],
+    rejectText: ["Something went wrong", "Application error"],
+  });
 }
 
 async function clickMergeChanges(ctx) {
@@ -320,38 +479,37 @@ async function waitForSelectedUniverMetadata(ctx, predicate, label) {
   throw new Error(`Timed out waiting for ${label}. Last metadata: ${lastState}${lastError ? ` (${lastError.message})` : ""}`);
 }
 
-async function waitForUniverBreadcrumb(ctx) {
+async function waitForUniverSurfaceSelector(ctx) {
   const visible = await ctx.waitFor(`(() => {
-    const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
-    if (!breadcrumb) return false;
-    const text = breadcrumb.textContent || "";
-    const rect = breadcrumb.getBoundingClientRect();
+    const selector = document.querySelector('[data-testid="univer-surface-selector"]');
+    if (!selector) return false;
+    const text = selector.textContent || "";
+    const rect = selector.getBoundingClientRect();
     return rect.width > 0
       && rect.height > 0
-      && text.includes(${JSON.stringify(UNIVER_BASENAME)})
       && text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)});
   })()`, {
     timeoutMs: 60_000,
-    label: "Univer surface breadcrumb",
+    label: "Univer surface selector",
   });
-  ctx.assert(visible === true, "Could not find the Univer surface breadcrumb.");
+  ctx.assert(visible === true, "Could not find the Univer surface selector.");
 }
 
-async function openContentViewSelector(ctx) {
+async function openWorktreeSelector(ctx) {
   const opened = await ctx.waitFor(`(() => {
-    const trigger = document.querySelector('[data-testid="univer-content-view-selector"]');
+    const trigger = document.querySelector('[data-testid="univer-surface-selector"]');
     if (!trigger || trigger.disabled) return false;
     if (trigger.getAttribute("aria-expanded") === "true") return true;
     trigger.click();
     return false;
   })()`, {
     timeoutMs: 30_000,
-    label: "content view selector",
+    label: "surface selector",
   });
-  ctx.assert(opened === true, "Could not open the content view selector.");
+  ctx.assert(opened === true, "Could not open the surface selector.");
 }
 
-async function clickContentViewMenuItem(ctx, selectorExpression, label) {
+async function clickWorktreeMenuItem(ctx, selectorExpression, label) {
   const clicked = await ctx.waitFor(`(() => {
     const item = ${selectorExpression};
     if (!item) return false;
@@ -399,53 +557,71 @@ export default {
           },
           assert: async () => {
             await ctx.waitForText(UNIVER_BASENAME, { timeoutMs: 30_000 });
-            await ctx.waitForText("Units", { timeoutMs: 30_000 });
-            await ctx.waitForText("Tasks", { timeoutMs: 30_000 });
+            await ctx.waitForText("Worktree", { timeoutMs: 30_000 });
             const filesVisible = await ctx.eval(`Boolean(document.querySelector('button[data-testid="composer-toolbar-files"]'))`);
             const unitsVisible = await ctx.eval(`Boolean(document.querySelector('button[data-testid="composer-toolbar-units"]'))`);
             const tasksVisible = await ctx.eval(`Boolean(document.querySelector('button[data-testid="composer-toolbar-tasks"]'))`);
             ctx.assert(!filesVisible, "Bound session still shows the Files toolbar button.");
-            ctx.assert(unitsVisible, "Bound session does not show Units.");
-            ctx.assert(tasksVisible, "Bound session does not show Tasks.");
+            ctx.assert(!unitsVisible, "Bound session still shows the Units toolbar button.");
+            ctx.assert(tasksVisible, "Bound session does not show Worktree.");
           },
           screenshot: {
-            name: "target-hub-units-tasks",
-            requireText: [UNIVER_BASENAME, "Units", "Tasks"],
+            name: "target-hub-worktree",
+            requireText: [UNIVER_BASENAME, "Worktree"],
             rejectText: ["Target", "Something went wrong"],
           },
         });
       },
     },
     {
-      name: "Open Units and Tasks panels",
+      name: "Open Worktree panel",
       run: async (ctx) => {
-        await ctx.prove("Units opens the Univerfile unit list", {
+        await ctx.prove("The sidebar refreshes when a new workspace .univer file appears", {
           action: async () => {
-            await openUnits(ctx);
+            ctx.assert(typeof evalWorkspaceRoot === "string", "Workspace root was not captured.");
+            await closeBoundUniverPopovers(ctx);
+            await createUniverfileAt(
+              evalWorkspaceRoot,
+              RELATIVE_LIVE_UNIVER_PATH,
+              RELATIVE_LIVE_CSV_PATH,
+              "Metric,Value\nLiveRefresh,1\n",
+            );
+            await ctx.waitFor(
+              `document.body.innerText.includes(${JSON.stringify(LIVE_UNIVER_BASENAME)})`,
+              { timeoutMs: 20_000, label: "live Univerfile sidebar target" },
+            );
           },
           assert: async () => {
-            await ctx.waitForText(UNIT_DISPLAY_NAME, { timeoutMs: 30_000 });
-            const redundantHeaderVisible = await ctx.hasText("UNITS");
-            ctx.assert(!redundantHeaderVisible, "Units panel still shows a redundant section header.");
+            const result = await ctx.eval(`(() => {
+              const bodyText = document.body.innerText || "";
+              return {
+                hasOriginal: bodyText.includes(${JSON.stringify(UNIVER_BASENAME)}),
+                hasLive: bodyText.includes(${JSON.stringify(LIVE_UNIVER_BASENAME)}),
+                hasUniverfiles: bodyText.toLowerCase().includes("univerfiles"),
+              };
+            })()`);
+            ctx.assert(result.hasOriginal, "Sidebar lost the bound Univerfile row.");
+            ctx.assert(result.hasLive, "Sidebar did not discover the newly created Univerfile.");
+            ctx.assert(result.hasUniverfiles, "Sidebar did not show the Univerfiles section.");
           },
           screenshot: {
-            name: "units-panel",
-            requireText: [UNIT_DISPLAY_NAME],
-            rejectText: ["UNITS", "Failed to open Univer surface.", "Something went wrong"],
+            name: "sidebar-live-univerfile-refresh",
+            requireText: [UNIVER_BASENAME, LIVE_UNIVER_BASENAME, "UNIVERFILES"],
+            rejectText: ["Something went wrong", "Application error"],
           },
         });
-        await ctx.prove("Tasks opens this session's active task state", {
+        await ctx.prove("Worktree opens this session's active task state", {
           action: async () => {
             await closeBoundUniverPopovers(ctx);
-            await openTasks(ctx);
+            await openWorktree(ctx);
           },
           assert: async () => {
             await ctx.waitForText("No changes in this session", { timeoutMs: 30_000 });
             const redundantHeaderVisible = await ctx.hasText("ACTIVE TASK");
-            ctx.assert(!redundantHeaderVisible, "Tasks panel still shows a redundant section header.");
+            ctx.assert(!redundantHeaderVisible, "Worktree panel still shows a redundant section header.");
           },
           screenshot: {
-            name: "tasks-panel",
+            name: "worktree-panel",
             requireText: ["No changes in this session"],
             rejectText: ["ACTIVE TASK", "Failed to open Univer surface.", "Something went wrong"],
           },
@@ -467,14 +643,15 @@ export default {
           },
           assert: async () => {
             await ctx.waitForText(UNIVER_BASENAME, { timeoutMs: 30_000 });
-            await ctx.waitForText("Units", { timeoutMs: 30_000 });
-            await ctx.waitForText("Tasks", { timeoutMs: 30_000 });
+            await ctx.waitForText("Worktree", { timeoutMs: 30_000 });
             const filesVisible = await ctx.eval(`Boolean(document.querySelector('button[data-testid="composer-toolbar-files"]'))`);
-            ctx.assert(!filesVisible, "New univerfile task still shows Files instead of Units/Tasks.");
+            const unitsVisible = await ctx.eval(`Boolean(document.querySelector('button[data-testid="composer-toolbar-units"]'))`);
+            ctx.assert(!filesVisible, "New univerfile task still shows Files instead of Worktree.");
+            ctx.assert(!unitsVisible, "New univerfile task still shows Units.");
           },
           screenshot: {
             name: "target-hub-new-task",
-            requireText: [UNIVER_BASENAME, "Units", "Tasks", "Describe your task"],
+            requireText: [UNIVER_BASENAME, "Worktree", "Describe your task"],
             rejectText: ["Target", "Something went wrong"],
           },
         });
@@ -483,7 +660,7 @@ export default {
     {
       name: "Auto-bind ready-for-review worktree state from transcript",
       run: async (ctx) => {
-        await ctx.prove("A session-owned ready worktree from ordinary tool output appears as reviewable state in Tasks", {
+        await ctx.prove("A session-owned ready worktree from ordinary tool output appears as reviewable state in Worktree", {
           action: async () => {
             ctx.assert(typeof evalWorkspaceRoot === "string", "Workspace root was not captured.");
             readyWorktreeId = await createReadyWorktree(evalWorkspaceRoot);
@@ -497,13 +674,14 @@ export default {
               "transcript-derived session worktree metadata",
             );
             await closeBoundUniverPopovers(ctx);
-            await openTasks(ctx);
+            await assertSidebarReviewChipHoverSlot(ctx);
+            await openWorktree(ctx);
           },
           assert: async () => {
             await ctx.waitForText("Review", { timeoutMs: 30_000 });
             await ctx.waitForText(`#`, { timeoutMs: 30_000 });
             const noChangesVisible = await ctx.hasText("No changes in this session");
-            ctx.assert(!noChangesVisible, "Tasks still shows no changes after transcript-derived worktree binding.");
+            ctx.assert(!noChangesVisible, "Worktree still shows no changes after transcript-derived worktree binding.");
           },
           screenshot: {
             name: "ready-review-state",
@@ -514,7 +692,7 @@ export default {
       },
     },
     {
-      name: "Switch the Univer content view selector route",
+      name: "Switch the Univer surface selector route",
       run: async (ctx) => {
         await ctx.prove("Content view switching does not change the session-owned Univer worktree", {
           action: async () => {
@@ -531,75 +709,87 @@ export default {
             ctx.assert(before.primaryUniverTarget?.path === RELATIVE_UNIVER_PATH, "Selected session is not bound to the expected Primary Univerfile.");
             ctx.assert(before.sessionUniverWorktreeId === readyWorktreeId, "Selected session is not bound to the ready worktree before route switching.");
 
-            await waitForUniverBreadcrumb(ctx);
-            await openContentViewSelector(ctx);
-            await clickContentViewMenuItem(
+            await waitForUniverSurfaceSelector(ctx);
+            await openWorktreeSelector(ctx);
+            await clickWorktreeMenuItem(
               ctx,
               `Array.from(document.querySelectorAll('[role="menuitem"]'))
-                .find((candidate) => (candidate.textContent || "").trim().startsWith("当前版本"))`,
-              "当前版本 content view option",
+                .find((candidate) => {
+                  const groupText = candidate.closest('[role="group"]')?.textContent || "";
+                  const itemText = candidate.textContent || "";
+                  return groupText.includes("当前版本")
+                    && itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)});
+                })`,
+              "当前版本 unit option",
             );
             await ctx.waitFor(`(() => {
-              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
-              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
-              const breadcrumbText = breadcrumb?.textContent || "";
+              const selector = document.querySelector('[data-testid="univer-surface-selector"]');
+              const selectorText = selector?.textContent || "";
               return Boolean(selector && (selector.textContent || "").includes("当前版本"))
-                && breadcrumbText.includes(${JSON.stringify(UNIVER_BASENAME)})
-                && breadcrumbText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
-                && !breadcrumbText.includes("当前版本")
-                && !breadcrumbText.includes("原始修改");
+                && selectorText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                && !selectorText.includes(${JSON.stringify(UNIVER_BASENAME)})
+                && !selectorText.includes(${JSON.stringify(READY_WORKTREE_DISPLAY_NAME)});
             })()`, {
               timeoutMs: 30_000,
-              label: "content selector switched to 当前版本",
+              label: "surface selector switched to 当前版本",
             });
 
-            await openContentViewSelector(ctx);
-            await clickContentViewMenuItem(
+            await openWorktreeSelector(ctx);
+            await clickWorktreeMenuItem(
               ctx,
               `Array.from(document.querySelectorAll('[role="menuitem"]'))
-                .find((candidate) => (candidate.textContent || "").trim().startsWith("原始修改"))`,
-              "原始修改 content view option",
+                .find((candidate) => {
+                  const groupText = candidate.closest('[role="group"]')?.textContent || "";
+                  const itemText = candidate.textContent || "";
+                  return groupText.includes(${JSON.stringify(READY_WORKTREE_DISPLAY_NAME)})
+                    && groupText.includes(${JSON.stringify(readyWorktreeId)})
+                    && itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                    && !groupText.includes("预览合入后")
+                    && !groupText.includes("合并预览");
+                })`,
+              "worktree unit option",
             );
             await ctx.waitFor(`(() => {
-              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
-              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
-              const text = breadcrumb?.textContent || "";
-              return text.includes(${JSON.stringify(UNIVER_BASENAME)})
-                && text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+              const selector = document.querySelector('[data-testid="univer-surface-selector"]');
+              const text = selector?.textContent || "";
+              return text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                && text.includes(${JSON.stringify(READY_WORKTREE_DISPLAY_NAME)})
+                && !text.includes(${JSON.stringify(UNIVER_BASENAME)})
                 && !text.includes(${JSON.stringify(readyWorktreeId)})
-                && !text.includes("原始修改")
-                && Boolean(selector && (selector.textContent || "").includes("原始修改"));
+                && !text.includes("可合入")
+                && ${JSON.stringify(UNIT_STATUS_LABELS)}.every((label) => !text.includes(label));
             })()`, {
               timeoutMs: 30_000,
-              label: "content selector switched back to 原始修改",
+              label: "surface selector switched back to worktree display name",
             });
 
             const after = await selectedUniverMetadata(ctx);
-            ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Content view switching changed the Primary Univerfile.");
-            ctx.assert(after.sessionUniverWorktreeId === before.sessionUniverWorktreeId, "Content view switching changed the session-owned worktree.");
-            await openContentViewSelector(ctx);
+            ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Worktree selector switching changed the Primary Univerfile.");
+            ctx.assert(after.sessionUniverWorktreeId === before.sessionUniverWorktreeId, "Worktree selector switching changed the session-owned worktree.");
+            await openWorktreeSelector(ctx);
           },
           assert: async () => {
             const result = await ctx.eval(`(() => {
-              const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
-              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
+              const selector = document.querySelector('[data-testid="univer-surface-selector"]');
               return {
-                breadcrumbText: breadcrumb?.textContent || "",
                 selectorText: selector?.textContent || "",
                 bodyText: document.body.innerText || "",
               };
             })()`);
-            ctx.assert(result.breadcrumbText.includes(UNIVER_BASENAME), `Breadcrumb missing Univerfile: ${result.breadcrumbText}`);
-            ctx.assert(result.breadcrumbText.includes(UNIT_DISPLAY_NAME), `Breadcrumb missing unit: ${result.breadcrumbText}`);
-            ctx.assert(!result.breadcrumbText.includes(readyWorktreeId), "Breadcrumb shows the raw worktree id.");
-            ctx.assert(!result.breadcrumbText.includes("当前版本"), "Breadcrumb includes the content view label.");
-            ctx.assert(!result.breadcrumbText.includes("原始修改"), "Breadcrumb includes the worktree content view label.");
-            ctx.assert(result.selectorText.includes("原始修改"), `Content view selector missing active view: ${result.selectorText}`);
+            ctx.assert(result.selectorText.includes(UNIT_DISPLAY_NAME), `Surface selector missing unit: ${result.selectorText}`);
+            ctx.assert(result.selectorText.includes(READY_WORKTREE_DISPLAY_NAME), `Surface selector missing active worktree display name: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes(UNIVER_BASENAME), `Surface selector should not include the Univerfile: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes(readyWorktreeId), `Surface selector should keep the worktree id in the expanded menu: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes("可合入"), `Surface selector should not include worktree status: ${result.selectorText}`);
+            ctx.assert(UNIT_STATUS_LABELS.every((label) => !result.selectorText.includes(label)), `Surface selector should not include unit status: ${result.selectorText}`);
             ctx.assert(result.bodyText.includes("当前版本"), "Content view menu does not show 当前版本.");
+            ctx.assert(result.bodyText.includes(readyWorktreeId), "Content view menu does not show the worktree id.");
+            ctx.assert(result.bodyText.includes("可合入"), "Content view menu does not show the worktree status.");
+            ctx.assert(UNIT_STATUS_LABELS.some((label) => result.bodyText.includes(label)), "Content view menu does not show the unit status.");
           },
           screenshot: {
             name: "content-view-route-switching",
-            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "当前版本", "原始修改"],
+            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "当前版本", READY_WORKTREE_DISPLAY_NAME, readyWorktreeId],
             rejectText: ["Something went wrong", "Application error"],
           },
         });
@@ -619,7 +809,7 @@ export default {
               (metadata) => metadata.sessionUniverWorktreeTerminalState === "merged",
               "merged session worktree metadata",
             );
-            await openTasks(ctx);
+            await openWorktree(ctx);
             await scrollTargetDoneGroupIntoView(ctx);
           },
           assert: async () => {
@@ -656,7 +846,7 @@ export default {
               (metadata) => metadata.sessionUniverWorktreeId === `missing-${RUN_SUFFIX}`,
               "missing session worktree metadata",
             );
-            await openTasks(ctx);
+            await openWorktree(ctx);
           },
           assert: async () => {
             await ctx.waitForText("Worktree missing or stale", { timeoutMs: 30_000 });
@@ -683,18 +873,18 @@ export default {
               (metadata) => metadata.primaryUniverTarget?.path === RELATIVE_UNIVER_PATH && !metadata.sessionUniverWorktreeId,
               "clean recovery task metadata",
             );
-            await openTasks(ctx);
+            await openWorktree(ctx);
             await ctx.waitForText("No changes in this session", { timeoutMs: 30_000 });
           },
           assert: async () => {
-            await ctx.waitForText("Tasks", { timeoutMs: 30_000 });
+            await ctx.waitForText("Worktree", { timeoutMs: 30_000 });
             await ctx.waitForText("No changes in this session", { timeoutMs: 30_000 });
             const staleVisible = await ctx.hasText("Worktree missing or stale");
             ctx.assert(!staleVisible, "Recovery task inherited the stale worktree state.");
           },
           screenshot: {
             name: "missing-worktree-clean-task",
-            requireText: ["Tasks", "No changes in this session"],
+            requireText: ["Worktree", "No changes in this session"],
             rejectText: ["Worktree missing or stale", "Something went wrong"],
           },
         });

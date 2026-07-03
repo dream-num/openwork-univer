@@ -622,12 +622,14 @@ type UniverTargetHub = {
   doneSessions: SessionListItem[];
   reviewStateBySessionId: Record<string, UniverSessionReviewState>;
   actionableSessionCount: number;
+  reviewSessionCount: number;
+  issueSessionCount: number;
 };
 
 const EMPTY_WORKTREE_STATUSES: Record<string, UniverTargetWorktreeStatus> = {};
 const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-16 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
 const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
-const UNIVER_FILE_COUNT_CLASS = "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm px-1 text-[10px] font-medium leading-none";
+const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none";
 const UNIVER_FILE_ACTIONS_CLASS = "absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5";
 const SESSION_DEPTH_1_CLASS = "ps-8";
 const SESSION_DEPTH_DEEP_CLASS = "ps-11";
@@ -641,8 +643,73 @@ function sessionUpdatedAt(session: SessionListItem): number {
   return session.time?.updated ?? session.time?.created ?? 0;
 }
 
+function sessionCreatedAt(session: SessionListItem): number {
+  return session.time?.created ?? session.time?.updated ?? 0;
+}
+
 function isBoundUniverTaskSession(session: SessionListItem): boolean {
   return Boolean(session.primaryUniverTarget?.path) && session.univerSessionKind !== "overview";
+}
+
+function isReviewActionState(state: UniverSessionReviewState): boolean {
+  return state.kind === "ready" || state.kind === "conflict";
+}
+
+function isIssueActionState(state: UniverSessionReviewState): boolean {
+  return state.kind === "missing" || state.kind === "multiple" || state.kind === "ownershipConflict";
+}
+
+function countPhrase(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function buildUniverFileTaskSummary(hub: UniverTargetHub): string | null {
+  const parts: string[] = [];
+  if (hub.reviewSessionCount > 0) parts.push(countPhrase(hub.reviewSessionCount, "review", "reviews"));
+  if (hub.issueSessionCount > 0) parts.push(countPhrase(hub.issueSessionCount, "issue", "issues"));
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+type WorktreeOwnershipConflict = {
+  ownerSessionId: string;
+  ownerSessionTitle: string;
+};
+
+function buildOwnershipConflicts(
+  sessions: SessionListItem[],
+  worktreeStatuses: Record<string, UniverTargetWorktreeStatus>,
+): Record<string, WorktreeOwnershipConflict> {
+  const sessionsByWorktreeKey = new Map<string, SessionListItem[]>();
+
+  for (const session of sessions) {
+    if (!isBoundUniverTaskSession(session)) continue;
+    if (session.sessionUniverWorktreeTerminalState) continue;
+    const path = normalizeUniverTargetPath(session.primaryUniverTarget?.path);
+    const worktreeId = session.sessionUniverWorktreeId?.trim();
+    if (!path || !worktreeId) continue;
+    if (!worktreeStatuses[path]?.worktrees[worktreeId]) continue;
+    const key = `${path}\u0000${worktreeId}`;
+    sessionsByWorktreeKey.set(key, [...(sessionsByWorktreeKey.get(key) ?? []), session]);
+  }
+
+  const conflicts: Record<string, WorktreeOwnershipConflict> = {};
+  for (const duplicates of sessionsByWorktreeKey.values()) {
+    if (duplicates.length < 2) continue;
+    const [owner, ...nonOwners] = [...duplicates].sort((left, right) => {
+      const createdDelta = sessionCreatedAt(left) - sessionCreatedAt(right);
+      if (createdDelta !== 0) return createdDelta;
+      return left.id.localeCompare(right.id);
+    });
+    if (!owner) continue;
+    const ownerTitle = getDisplaySessionTitle(owner.title);
+    for (const session of nonOwners) {
+      conflicts[session.id] = {
+        ownerSessionId: owner.id,
+        ownerSessionTitle: ownerTitle,
+      };
+    }
+  }
+  return conflicts;
 }
 
 export function buildUniverTargetHubs(
@@ -651,6 +718,7 @@ export function buildUniverTargetHubs(
   worktreeStatuses: Record<string, UniverTargetWorktreeStatus> = {},
 ): { hubs: UniverTargetHub[]; generalSessions: SessionListItem[]; hasUniverSurface: boolean } {
   const hubsByPath = new Map<string, UniverTargetHub>();
+  const ownershipConflictsBySessionId = buildOwnershipConflicts(sessions, worktreeStatuses);
 
   for (const target of targets) {
     const path = normalizeUniverTargetPath(target.path);
@@ -668,6 +736,8 @@ export function buildUniverTargetHubs(
       doneSessions: [],
       reviewStateBySessionId: {},
       actionableSessionCount: 0,
+      reviewSessionCount: 0,
+      issueSessionCount: 0,
     });
   }
 
@@ -691,6 +761,8 @@ export function buildUniverTargetHubs(
         doneSessions: [],
         reviewStateBySessionId: {},
         actionableSessionCount: 0,
+        reviewSessionCount: 0,
+        issueSessionCount: 0,
       };
       hub.overviewSession = hub.overviewSession ?? session;
       hubsByPath.set(path, hub);
@@ -720,14 +792,31 @@ export function buildUniverTargetHubs(
       doneSessions: [],
       reviewStateBySessionId: {},
       actionableSessionCount: 0,
+      reviewSessionCount: 0,
+      issueSessionCount: 0,
     };
-    const reviewState = deriveSessionUniverReviewState(session, worktreeStatuses[path]);
+    const ownershipConflict = ownershipConflictsBySessionId[session.id];
+    const reviewState = ownershipConflict
+      ? {
+          kind: "ownershipConflict" as const,
+          label: "Attention",
+          title: `Worktree belongs to ${ownershipConflict.ownerSessionTitle}`,
+          actionable: true,
+          priority: 57,
+          ownerSessionId: ownershipConflict.ownerSessionId,
+          ownerSessionTitle: ownershipConflict.ownerSessionTitle,
+        }
+      : deriveSessionUniverReviewState(session, worktreeStatuses[path]);
     hub.reviewStateBySessionId[session.id] = reviewState;
     if (reviewState.kind === "merged" || reviewState.kind === "discarded") {
       hub.doneSessions.push(session);
     } else {
       hub.sessions.push(session);
-      if (reviewState.actionable) hub.actionableSessionCount += 1;
+      if (reviewState.actionable) {
+        hub.actionableSessionCount += 1;
+        if (isReviewActionState(reviewState)) hub.reviewSessionCount += 1;
+        if (isIssueActionState(reviewState)) hub.issueSessionCount += 1;
+      }
     }
     hubsByPath.set(path, hub);
   }
@@ -1423,10 +1512,8 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
     pinnedIds,
     [],
   );
-  const unitCountLabel = typeof hub.target.unitCount === "number" ? String(hub.target.unitCount) : null;
-  const unitCountTitle = typeof hub.target.unitCount === "number"
-    ? `${hub.target.unitCount} ${hub.target.unitCount === 1 ? "unit" : "units"}`
-    : undefined;
+  const taskSummaryLabel = buildUniverFileTaskSummary(hub);
+  const taskSummaryTitle = taskSummaryLabel ? `${taskSummaryLabel} for ${hub.target.name}` : null;
   const showPersistentCreateAction = hub.target.discovered && rows.length === 0 && doneRows.length === 0;
   const topSession = rows[0]?.session ?? hub.overviewSession;
   const hubSessionIds = [
@@ -1459,22 +1546,14 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
           >
             <FileSpreadsheet className={UNIVER_FILE_ICON_CLASS} />
             <span className="min-w-0 flex-1 truncate">{hub.target.name}</span>
-            {unitCountLabel ? (
+            {taskSummaryLabel ? (
               <span
-                className={cn(UNIVER_FILE_COUNT_CLASS, "text-muted-foreground")}
-                title={unitCountTitle}
-                aria-label={unitCountTitle}
+                className={cn(UNIVER_FILE_PENDING_CLASS, "bg-amber-3 text-amber-11")}
+                title={taskSummaryTitle ?? undefined}
+                aria-label={taskSummaryTitle ?? undefined}
               >
-                {unitCountLabel}
-              </span>
-            ) : null}
-            {hub.actionableSessionCount > 0 ? (
-              <span
-                className={cn(UNIVER_FILE_COUNT_CLASS, "bg-amber-3 text-amber-11")}
-                title={`${hub.actionableSessionCount} sessions need review`}
-                aria-label={`${hub.actionableSessionCount} sessions need review`}
-              >
-                {hub.actionableSessionCount}
+                <AlertCircle className="size-3" aria-hidden="true" />
+                <span>{taskSummaryLabel}</span>
               </span>
             ) : null}
           </button>
@@ -2022,20 +2101,29 @@ function PinnedIndicator({ isPinned }: { isPinned: boolean }) {
   );
 }
 
-function SessionUniverReviewChip({ reviewState }: { reviewState?: UniverSessionReviewState }) {
+function SessionUniverReviewChip({
+  reviewState,
+  className,
+}: {
+  reviewState?: UniverSessionReviewState;
+  className?: string;
+}) {
   if (!reviewState?.label || reviewState.kind === "none") return null;
   return (
     <span
+      data-sidebar="session-univer-review-chip"
       className={cn(
-        "ml-1 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-3",
+        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-3",
         reviewState.kind === "conflict" && "bg-red-3 text-red-11",
         reviewState.kind === "missing" && "bg-amber-3 text-amber-11",
         reviewState.kind === "multiple" && "bg-amber-3 text-amber-11",
+        reviewState.kind === "ownershipConflict" && "bg-amber-3 text-amber-11",
         reviewState.kind === "ready" && "bg-amber-3 text-amber-11",
         reviewState.kind === "working" && "bg-blue-3 text-blue-11",
         reviewState.kind === "unknown" && "bg-muted text-muted-foreground",
         reviewState.kind === "merged" && "bg-green-3 text-green-11",
         reviewState.kind === "discarded" && "bg-muted text-muted-foreground",
+        className,
       )}
       title={reviewState.title ?? undefined}
     >
@@ -2073,6 +2161,7 @@ function SessionMenuItem({
   const sessionActivityStatus = ctx.sessionStatusById?.[session.id];
   const isSessionActive = tree.activeIds.has(session.id);
   const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
+  const hasActivityIndicator = isSessionStreaming || isSessionActive;
   const isArchived = isSessionArchived(session);
   const hasReviewChip = Boolean(univerReviewState?.label && univerReviewState.kind !== "none");
 
@@ -2115,12 +2204,21 @@ function SessionMenuItem({
               >
                 <PinnedIndicator isPinned={isPinned} />
                 <span
-                  className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", isSessionStreaming || isSessionActive && "pe-12")}
+                  className={cn(
+                    "min-w-0 flex-1 truncate transition-[padding] duration-75",
+                    hasReviewChip
+                      ? "pe-24 group-hover/menu-sub-item:pe-36 group-has-data-popup-open/menu-sub-item:pe-36"
+                      : "pe-4 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12",
+                    hasActivityIndicator && (hasReviewChip ? "pe-36" : "pe-12"),
+                  )}
                   title={displayTitle}
                 >
                   {displayTitle}
                 </span>
-                <SessionUniverReviewChip reviewState={univerReviewState} />
+                <SessionUniverReviewChip
+                  reviewState={univerReviewState}
+                  className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 transition-transform duration-75 group-hover/menu-sub-item:-translate-x-10 group-has-data-popup-open/menu-sub-item:-translate-x-10"
+                />
                 <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
                   <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                 </span>
@@ -2146,11 +2244,24 @@ function SessionMenuItem({
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", sessionDepthClass(depth), isSessionStreaming || isSessionActive && "pe-8", hasReviewChip && "pe-14")}
+          className={cn(
+            "transition-[padding] duration-75",
+            sessionDepthClass(depth),
+            hasReviewChip
+              ? "pe-20 group-hover/menu-sub-item:pe-28 group-has-data-popup-open/menu-sub-item:pe-28"
+              : "group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8",
+            hasActivityIndicator && (hasReviewChip ? "pe-28" : "pe-8"),
+          )}
         >
           <PinnedIndicator isPinned={isPinned} />
           <span className="min-w-0 flex-1 truncate" title={displayTitle}>{displayTitle}</span>
-          <SessionUniverReviewChip reviewState={univerReviewState} />
+          <SessionUniverReviewChip
+            reviewState={univerReviewState}
+            className={cn(
+              "pointer-events-none absolute top-1/2 -translate-y-1/2 transition-transform duration-75 group-hover/menu-sub-item:-translate-x-8 group-has-data-popup-open/menu-sub-item:-translate-x-8",
+              hasActivityIndicator ? "right-8" : "right-3",
+            )}
+          />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       <SessionActions

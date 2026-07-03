@@ -24,6 +24,10 @@ export type SidebarSessionItem = {
   sessionUniverWorktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
   univerSourceSessionId?: string | null;

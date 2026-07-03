@@ -19,6 +19,7 @@ describe("Univer session context", () => {
     expect(context).toContain("Univerfile name: budget.univer");
     expect(context).toContain("Session Univer Worktree: wt_123");
     expect(context).toContain("Do not switch or infer another Primary Univerfile");
+    expect(context).toContain("Do not merge or discard a Session Univer Worktree unless the user explicitly asks");
     expect(context).not.toContain("unit inventory");
     expect(context).not.toContain("workspace file");
     expect(context).not.toContain("snapshot");

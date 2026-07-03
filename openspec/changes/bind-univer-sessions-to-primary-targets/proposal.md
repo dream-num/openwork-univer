@@ -2,7 +2,7 @@
 
 OpenWork still presents most work as a directory-scoped workspace with flat sessions, Files, and the active right-side artifact driving context. That model is weak for Univer work. A `.univer` file is itself a multi-unit workspace for related spreadsheet, document, and slide work, and `univer-cli` supports multiple worktrees so several agent tasks can collaborate against the same Univerfile.
 
-Users need OpenWork to make the active Univerfile explicit, stable, and visible in the daily workflow. A session should either be general workspace work or be centered on one Primary Univerfile. The sidebar, composer context, review state, Units/Tasks panels, agent prompt context, and Univer Surface should all follow that binding instead of whichever file or artifact was clicked most recently.
+Users need OpenWork to make the active Univerfile explicit, stable, and visible in the daily workflow. A session should either be general workspace work or be centered on one Primary Univerfile. The sidebar, composer context, review state, Worktree panel, agent prompt context, and Univer Surface should all follow that binding instead of whichever file or artifact was clicked most recently.
 
 ## What Changes
 
@@ -12,7 +12,7 @@ Users need OpenWork to make the active Univerfile explicit, stable, and visible 
 - Show sessions under their bound Univerfile Row, with actionability-first sorting and Done grouping.
 - Add a single Univerfile Overview Session per Univerfile for neutral target entry, not as an ordinary task row.
 - Make the univerfile row `+` action create an empty bound task session and focus the composer without prefilled prompt text.
-- Replace the bound-session Files popover with separate Units and Tasks toolbar entries.
+- Replace the bound-session Files popover with a single Worktree toolbar entry.
 - Render the right-side Univer Surface header as a breadcrumb `<Univerfile> / <Unit> / <Worktree>` so the surface is visually file-bound, not session-title-bound.
 - Keep deleted or moved Univerfiles with bound sessions under a collapsed Unavailable Univerfiles sidebar section.
 - Make Session Univer Worktree ownership session-scoped through persisted `sessionUniverWorktreeId`.
@@ -29,7 +29,7 @@ Users need OpenWork to make the active Univerfile explicit, stable, and visible 
 
 ### Modified Capabilities
 
-- `composer-toolbar-context-entrypoints`: Bound Univer sessions use Units and Tasks instead of the generic Files popover as the primary composer-adjacent context entry points.
+- `composer-toolbar-context-entrypoints`: Bound Univer sessions use Worktree instead of the generic Files popover as the primary composer-adjacent context entry point.
 - `native-univer-surface`: The Univer Surface follows the session's Primary Univerfile and selected Session Univer Worktree/content scope.
 - `univer-artifact-header`: Header/content scope defaults align with session review state and terminal Done states.
 
@@ -39,7 +39,7 @@ Users need OpenWork to make the active Univerfile explicit, stable, and visible 
   - Workspace sidebar session navigation and grouping.
   - Session metadata and session creation flows.
   - Composer placeholder, task creation, and Univerfile Overview behavior.
-  - Units/Tasks panels and existing Workspace Files behavior.
+  - Worktree panel and existing Workspace Files behavior.
   - Univer Surface breadcrumb routing, worktree scope, and review-state defaults.
   - Agent prompt context for bound Univer sessions.
 - Affected code areas likely include:

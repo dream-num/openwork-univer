@@ -123,6 +123,10 @@ export type OpenworkSessionUniverMetadata = {
   sessionUniverWorktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   sessionUniverWorktreeTerminalState?: OpenworkSessionUniverWorktreeTerminalState | null;
   univerSourceSessionId?: string | null;

@@ -40,6 +40,17 @@ describe("workspace cowork panel", () => {
     expect(source).toContain("Split into new task");
   });
 
+  test("makes duplicate worktree ownership recovery task-centered", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
+
+    expect(source).toContain("ownershipConflictIssue");
+    expect(source).toContain("This worktree belongs to another task");
+    expect(source).toContain("Open owning task");
+    expect(source).toContain("onOpenOwningTask(ownershipConflictIssue.ownerSessionId)");
+    expect(source).toContain("ownershipConflictIssue");
+    expect(source).toContain("? 1");
+  });
+
   test("refreshes cowork status when a session route gains a worktree", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
 
@@ -48,7 +59,7 @@ describe("workspace cowork panel", () => {
     expect(source).toContain("[controller, target.value, target.worktreeId]");
   });
 
-  test("keeps split Units and Tasks panels compact", async () => {
+  test("keeps compact worktree and unit-detail panel variants compact", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-cowork-panel.tsx", import.meta.url)).text();
 
     expect(source).toContain("variant !== \"tasks\"");

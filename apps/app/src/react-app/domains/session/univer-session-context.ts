@@ -17,6 +17,7 @@ export function buildUniverSessionSystemContext(
     "- Do not switch or infer another Primary Univerfile in this session.",
     "- For read-only or analysis work, inspect the Primary Univerfile trunk/current state.",
     "- For modifying work, create or reuse only the session-owned Session Univer Worktree for this Primary Univerfile.",
+    "- Do not merge or discard a Session Univer Worktree unless the user explicitly asks for that action; finish modifying work by marking the worktree ready for user review.",
     "- When reporting a modified .univer artifact, include the Session Univer Worktree id in artifact route metadata when the tool surface supports it.",
   ];
 

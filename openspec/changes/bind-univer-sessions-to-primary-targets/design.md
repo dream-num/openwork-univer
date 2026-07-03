@@ -12,7 +12,7 @@ The current composer toolbar split also still reflects a directory/active-artifa
 - Let users see which sessions under each Univerfile are working, ready, conflicted, needs attention, merged, or discarded.
 - Keep session titles task-oriented while status chips carry review state.
 - Keep worktree ownership session-scoped so multiple agents can work against the same Univerfile without stealing each other's review context.
-- Replace bound-session Files with separate Units and Tasks toolbar entries.
+- Replace bound-session Files with a single Worktree toolbar entry.
 - Make the right-side Univer Surface file-bound through a breadcrumb route rather than visually owned by the chat session.
 - Ensure agent context is minimal and Univerfile-scoped.
 - Make exceptional states explicit rather than silently rebinding or inferring state.
@@ -61,18 +61,18 @@ The Univerfile Overview Session is not an ordinary row, does not count as a new 
 
 The univerfile row `+` action creates an empty bound task session, selects it, and focuses the composer with a Univerfile-aware placeholder rather than prefilled prompt text.
 
-## Decision 5: Units and Tasks replace Files for bound sessions
+## Decision 5: Worktree replaces Files for bound sessions
 
-For sessions bound to a Primary Univerfile, the composer toolbar should show separate `Units` and `Tasks` entries instead of generic Files. General Sessions keep Workspace Files.
+For sessions bound to a Primary Univerfile, the composer toolbar should show a single `Worktree` entry instead of generic Files. General Sessions keep Workspace Files.
 
 The same toolbar shows the current Univerfile as a compact file-name chip so the user can see which `.univer` file the session is bound to while composing. The chip uses existing Univerfile language, not `Target`, and opens the current Univer Surface rather than switching binding.
 
-The two entries have separate responsibilities:
+The Worktree entry owns the session-scoped review workflow:
 
-- `Units`, showing Univerfile trunk unit status.
-- `Tasks`, showing the current session's Session Univer Worktree state when one exists.
+- It shows the current session's Session Univer Worktree state when one exists.
+- It includes the unit/change details needed to review that work without adding a separate toolbar entry.
 
-Before a modifying task creates a Session Univer Worktree, `Tasks` shows an explicit no-changes-in-this-session state and no ready/review controls.
+Before a modifying task creates a Session Univer Worktree, `Worktree` shows an explicit no-changes-in-this-session state and no ready/review controls.
 
 ## Decision 6: Session Univer Worktree ownership is explicit
 
@@ -86,7 +86,7 @@ A session should have at most one active Session Univer Worktree. If a second ac
 
 Sidebar state chips are derived by joining persisted `sessionUniverWorktreeId` to live cowork or CLI state. Agent messages may explain progress, but they are not authoritative for working, ready, conflict, merged, discarded, or needs-attention state.
 
-If the persisted worktree id is missing from live state, the row shows needs attention and the Tasks panel shows Worktree missing/stale. OpenWork must not silently choose another worktree for the same Univerfile or fall back to working.
+If the persisted worktree id is missing from live state, the row shows needs attention and the Worktree panel shows Worktree missing/stale. OpenWork must not silently choose another worktree for the same Univerfile or fall back to working.
 
 ## Decision 8: Refresh status is read-only recomputation
 
@@ -143,14 +143,14 @@ Worktree choices should be labeled for task comprehension, not implementation id
 - If a missing worktree auto-rebinds, task history and review ownership can be mis-associated.
 - If Overview stores long-running task chat, important work can become invisible under the univerfile row.
 - If Done sessions accept continued modification, terminal worktree history becomes ambiguous.
-- If Units and Tasks are merged back into one broad panel, content navigation and task review can become difficult to scan.
+- If Worktree becomes a broad file browser, content navigation and task review can become difficult to scan.
 - If the right-side header looks like a session title, users can mistake surface navigation for session/worktree ownership changes.
 
 ## Validation Plan
 
 - Focused tests should cover Primary Univerfile metadata, binding immutability, General Sessions fallback, univerfile row grouping, and univerfile row `+` task creation.
 - Focused tests should cover session row review state derivation from live cowork/CLI snapshots, including missing/stale, multiple-worktree, merged, and discarded states.
-- Focused tests should cover Units and Tasks toolbar entries, task empty state, terminal summaries, and recovery actions.
+- Focused tests should cover the Worktree toolbar entry, task empty state, terminal summaries, and recovery actions.
 - Focused tests should cover Univer Surface Breadcrumb rendering, unit/worktree dropdown route changes, and non-mutation of session metadata.
 - Fraimz should prove a workspace with multiple `.univer` files shows univerfile rows and General Sessions.
 - Fraimz should prove a user can create a new task under a Univerfile, run or simulate a modifying task, see ready-for-review state in the sidebar row, merge/discard in the selected session, and see the session move under Done.

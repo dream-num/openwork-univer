@@ -214,6 +214,92 @@ export function toSessionGroups(
   }));
 }
 
+export type UniverTargetsRefreshEntry = {
+  workspaceId: string;
+  items: OpenworkUniverTargetSummary[] | null;
+};
+
+function normalizeUniverTargetPath(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function normalizeUniverTarget(item: OpenworkUniverTargetSummary): OpenworkUniverTargetSummary | null {
+  const path = normalizeUniverTargetPath(item.path);
+  if (!path) return null;
+  return {
+    ...item,
+    path,
+    name: item.name.trim() || folderNameFromPath(path),
+  };
+}
+
+export function normalizeUniverTargets(
+  items: OpenworkUniverTargetSummary[],
+): OpenworkUniverTargetSummary[] {
+  const byPath = new Map<string, OpenworkUniverTargetSummary>();
+  for (const item of items) {
+    const normalized = normalizeUniverTarget(item);
+    if (!normalized || byPath.has(normalized.path)) continue;
+    byPath.set(normalized.path, normalized);
+  }
+  return Array.from(byPath.values()).sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function sameUniverTarget(
+  left: OpenworkUniverTargetSummary,
+  right: OpenworkUniverTargetSummary,
+): boolean {
+  return (
+    left.path === right.path &&
+    left.name === right.name &&
+    left.size === right.size &&
+    left.updatedAt === right.updatedAt &&
+    left.unitCount === right.unitCount
+  );
+}
+
+function sameUniverTargets(
+  left: OpenworkUniverTargetSummary[] | undefined,
+  right: OpenworkUniverTargetSummary[],
+): boolean {
+  if (!left || left.length !== right.length) return false;
+  return left.every((item, index) => sameUniverTarget(item, right[index]));
+}
+
+export function mergeUniverTargetsRefresh(
+  previous: Record<string, OpenworkUniverTargetSummary[]>,
+  entries: UniverTargetsRefreshEntry[],
+): Record<string, OpenworkUniverTargetSummary[]> {
+  const next: Record<string, OpenworkUniverTargetSummary[]> = {};
+  let changed = false;
+
+  for (const entry of entries) {
+    const workspaceId = entry.workspaceId.trim();
+    if (!workspaceId) continue;
+
+    if (entry.items === null) {
+      const previousItems = previous[workspaceId];
+      if (previousItems) next[workspaceId] = previousItems;
+      continue;
+    }
+
+    const normalizedItems = normalizeUniverTargets(entry.items);
+    next[workspaceId] = normalizedItems;
+    if (!sameUniverTargets(previous[workspaceId], normalizedItems)) {
+      changed = true;
+    }
+  }
+
+  for (const key of Object.keys(previous)) {
+    if (!(key in next)) {
+      changed = true;
+      break;
+    }
+  }
+
+  return changed ? next : previous;
+}
+
 export function isActiveSessionStatus(status: unknown) {
   return status === "running" || status === "retry" || status === "busy" || status === "streaming";
 }

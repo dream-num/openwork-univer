@@ -2,7 +2,17 @@ import type { ActiveWorktree, CoworkSnapshot, ReviewableWorktree } from "@univer
 import { create } from "zustand";
 
 export type UniverLiveWorktreeState = "working" | "ready" | "conflict";
-export type UniverSessionReviewKind = "none" | "unknown" | "working" | "ready" | "conflict" | "missing" | "multiple" | "merged" | "discarded";
+export type UniverSessionReviewKind =
+  | "none"
+  | "unknown"
+  | "working"
+  | "ready"
+  | "conflict"
+  | "missing"
+  | "multiple"
+  | "ownershipConflict"
+  | "merged"
+  | "discarded";
 
 export type UniverLiveWorktreeStatus = {
   worktreeId: string;
@@ -24,6 +34,8 @@ export type UniverSessionReviewState = {
   title: string | null;
   actionable: boolean;
   priority: number;
+  ownerSessionId?: string;
+  ownerSessionTitle?: string;
 };
 
 type UniverWorktreeStatusStore = {
@@ -36,6 +48,10 @@ type SessionWorktreeOwner = {
   sessionUniverWorktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
 };
@@ -146,6 +162,16 @@ export function deriveSessionUniverReviewState(
       priority: 58,
     };
   }
+  if (session.sessionUniverWorktreeIssue?.kind === "ownershipConflict") {
+    return {
+      kind: "ownershipConflict",
+      label: "Attention",
+      title: "Worktree is owned by another task",
+      actionable: true,
+      priority: 57,
+      ownerSessionId: session.sessionUniverWorktreeIssue.ownerSessionId,
+    };
+  }
 
   const worktreeId = session.sessionUniverWorktreeId?.trim();
   if (!worktreeId) {
@@ -161,7 +187,7 @@ export function deriveSessionUniverReviewState(
   if (!targetStatus) {
     return {
       kind: "unknown",
-      label: "Worktree",
+      label: null,
       title: worktreeId,
       actionable: false,
       priority: 30,

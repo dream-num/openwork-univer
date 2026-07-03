@@ -119,6 +119,34 @@ exit 2
   return bin;
 }
 
+async function writeFakeNodeRuntime(root: string): Promise<string> {
+  const bin = join(root, "fake-node-runtime");
+  await writeFile(bin, `#!/bin/sh
+target="$1"
+shift
+if [ ! -f "$target" ]; then
+  echo "missing target $target" >&2
+  exit 2
+fi
+if [ "$1" = "--version" ]; then
+  echo "univer 0.0.0"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "tools" ] && [ "$3" = "list" ] && [ "$4" = "--json" ]; then
+  echo '{"tools":[]}'
+  exit 0
+fi
+if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4" = "--json" ]; then
+  echo '{"templates":[]}'
+  exit 0
+fi
+echo "unsupported $*" >&2
+exit 2
+`, "utf8");
+  await chmod(bin, 0o755);
+  return bin;
+}
+
 async function writeFakeOpencode(root: string): Promise<string> {
   const bin = join(root, "fake-opencode");
   await writeFile(bin, `#!/bin/sh
@@ -332,6 +360,41 @@ describe("Univer CLI extension", () => {
     expect(result.result.health.executable.status).toBe("ok");
     expect(result.result.health.inspectTools.status).toBe("ok");
     expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
+  });
+
+  test("runs the bundled executable through the OpenWork runtime shim without node on PATH", async () => {
+    const root = await tempRoot();
+    const config = serverConfig(root);
+    const fakeRuntime = await writeFakeNodeRuntime(root);
+    const originalPath = process.env.PATH;
+    const originalRuntime = process.env.OPENWORK_UNIVER_NODE_RUNTIME;
+    const originalRuntimeMode = process.env.OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON;
+    process.env.PATH = "/usr/bin:/bin";
+    process.env.OPENWORK_UNIVER_NODE_RUNTIME = fakeRuntime;
+    process.env.OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON = "1";
+
+    try {
+      const result = await callUniverCliExtensionAction(config, "setup_install", {}, { directory: root });
+      if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
+
+      expect(result.result.ready).toBe(true);
+      expect(result.result.executable.source).toBe("bundled");
+      expect(result.result.executable.path).toBe(univerCliManagedExecutablePath(config));
+      expect(result.result.health.executable.status).toBe("ok");
+      expect(result.result.health.inspectTools.status).toBe("ok");
+      expect(result.result.health.sacMigrationTemplates.status).toBe("ok");
+
+      const shim = await readFile(univerCliManagedExecutablePath(config), "utf8");
+      expect(shim).toContain(fakeRuntime);
+      expect(shim).toContain("ELECTRON_RUN_AS_NODE=1");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      if (originalRuntime === undefined) delete process.env.OPENWORK_UNIVER_NODE_RUNTIME;
+      else process.env.OPENWORK_UNIVER_NODE_RUNTIME = originalRuntime;
+      if (originalRuntimeMode === undefined) delete process.env.OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON;
+      else process.env.OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON = originalRuntimeMode;
+    }
   });
 
   test("skips npm registry checks for the bundled executable", async () => {

@@ -46,8 +46,13 @@ type WorkspaceCoworkPanelProps = {
   worktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   terminalState?: "merged" | "discarded" | null;
+  onOpenOwningTask?: (sessionId: string) => void;
 };
 
 type CoworkSectionKey = "mainWorktree" | "readyForReview" | "activeChanges";
@@ -155,12 +160,17 @@ type CoworkRowsProps = {
   worktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   terminalState?: "merged" | "discarded" | null;
   variant?: CoworkPanelVariant;
+  onOpenOwningTask?: (sessionId: string) => void;
 };
 
-function CoworkRows({ controller, client, target, sessionId, workspaceId, onArtifactOpen, onCreateTaskFromHere, worktreeIssue = null, terminalState = null, variant = "changes" }: CoworkRowsProps) {
+function CoworkRows({ controller, client, target, sessionId, workspaceId, onArtifactOpen, onCreateTaskFromHere, worktreeIssue = null, terminalState = null, variant = "changes", onOpenOwningTask }: CoworkRowsProps) {
   const snapshot = useCoworkSnapshot(controller);
   const panelStore = usePanelTabStore;
   const updateTargetSnapshot = useUniverWorktreeStatusStore((state) => state.updateTargetSnapshot);
@@ -306,6 +316,7 @@ function CoworkRows({ controller, client, target, sessionId, workspaceId, onArti
     const terminalWorktree = Boolean(sessionWorktreeId && terminalState);
     const missingWorktree = Boolean(sessionWorktreeId && !terminalState && !reviewableWorktree && !activeWorktree);
     const multipleWorktreeIssue = worktreeIssue?.kind === "multiple" ? worktreeIssue : null;
+    const ownershipConflictIssue = worktreeIssue?.kind === "ownershipConflict" ? worktreeIssue : null;
     const manualReassociationCandidates = [
       ...snapshot.reviewableWorktrees.map((worktree) => ({
         worktreeId: worktree.worktreeId,
@@ -327,6 +338,8 @@ function CoworkRows({ controller, client, target, sessionId, workspaceId, onArti
       ? "Needs review"
       : activeWorktree
         ? "In progress"
+        : ownershipConflictIssue
+          ? "Attention"
         : multipleWorktreeIssue
           ? "Needs split"
         : terminalState === "merged"
@@ -338,6 +351,8 @@ function CoworkRows({ controller, client, target, sessionId, workspaceId, onArti
           : "No changes";
     const activeTaskCount = multipleWorktreeIssue
       ? multipleWorktreeIssue.worktreeIds.length
+      : ownershipConflictIssue
+        ? 1
       : reviewableWorktree || activeWorktree || terminalWorktree ? 1 : 0;
 
     return (
@@ -394,7 +409,36 @@ function CoworkRows({ controller, client, target, sessionId, workspaceId, onArti
             quantity={countLabel(activeTaskCount, "worktree", "worktrees")}
             status={activeTaskStatus}
           >
-          {multipleWorktreeIssue ? (
+          {ownershipConflictIssue ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-11" />
+                <span className="min-w-0 flex-1">This worktree belongs to another task</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5 pl-5">
+                {onOpenOwningTask ? (
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1.5 rounded-lg px-2 text-[11px]"
+                    onClick={() => onOpenOwningTask(ownershipConflictIssue.ownerSessionId)}
+                  >
+                    <GitBranch className="size-3" />
+                    Open owning task
+                  </Button>
+                ) : null}
+                {onCreateTaskFromHere ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 rounded-lg px-2 text-[11px]"
+                    onClick={onCreateTaskFromHere}
+                  >
+                    Create new task
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : multipleWorktreeIssue ? (
             <div>
               <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                 <AlertTriangle className="size-3.5 shrink-0 text-amber-11" />
@@ -827,9 +871,14 @@ type WorkspaceCoworkPanelContentProps = {
   worktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   terminalState?: "merged" | "discarded" | null;
   variant?: CoworkPanelVariant;
+  onOpenOwningTask?: (sessionId: string) => void;
 };
 
 export function WorkspaceCoworkPanelContent({
@@ -843,6 +892,7 @@ export function WorkspaceCoworkPanelContent({
   isLoading,
   onArtifactOpen,
   onCreateTaskFromHere,
+  onOpenOwningTask,
   worktreeIssue = null,
   terminalState = null,
   variant = "changes",
@@ -882,6 +932,7 @@ export function WorkspaceCoworkPanelContent({
         workspaceId={workspaceId}
         onArtifactOpen={onArtifactOpen}
         onCreateTaskFromHere={onCreateTaskFromHere}
+        onOpenOwningTask={onOpenOwningTask}
         worktreeIssue={worktreeIssue}
         terminalState={terminalState}
         variant={variant}

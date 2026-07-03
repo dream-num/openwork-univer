@@ -269,6 +269,10 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
       snapshot,
       currentView: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
       sessionWorktreeId: "wt_current",
+      worktreeOwnershipById: {
+        wt_current: { relation: "currentTask", ownerSessionId: "ses_current", ownerSessionTitle: "Current task" },
+        wt_other: { relation: "otherTask", ownerSessionId: "ses_other", ownerSessionTitle: "Other task" },
+      },
     });
 
     if (!model) throw new Error("expected Univer header model");
@@ -299,6 +303,8 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
     expect(model.worktreeOptions.map((option) => ({
       id: option.id,
       label: option.label,
+      groupLabel: option.groupLabel,
+      relation: option.relation,
       description: option.description,
       selected: option.selected,
       unitOptions: option.unitOptions.map((unit) => ({
@@ -311,6 +317,8 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
       {
         id: "trunk:unit_1",
         label: "当前版本",
+        groupLabel: "当前版本",
+        relation: "currentVersion",
         description: "主线文件",
         selected: false,
         unitOptions: [
@@ -328,27 +336,10 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
         view: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
       },
       {
-        id: "worktree:wt_other:unit_1",
-        label: "raw-other-worktree",
-        description: "可合入 · wt_other",
-        selected: false,
-        unitOptions: [
-          {
-            label: "中国大陆工资表",
-            status: "modified",
-            selected: true,
-          },
-          {
-            label: "2026年第二季度员工工资汇总报告",
-            status: undefined,
-            selected: false,
-          },
-        ],
-        view: { scope: "worktree", worktreeId: "wt_other", unitId: "unit_1" },
-      },
-      {
         id: "worktree:wt_current:unit_1",
         label: "raw-current-worktree",
+        groupLabel: "当前任务",
+        relation: "currentTask",
         description: "修改中 · wt_current",
         selected: true,
         unitOptions: [
@@ -364,6 +355,27 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
           },
         ],
         view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+      },
+      {
+        id: "worktree:wt_other:unit_1",
+        label: "raw-other-worktree",
+        groupLabel: "其他任务",
+        relation: "otherTask",
+        description: "可合入 · wt_other",
+        selected: false,
+        unitOptions: [
+          {
+            label: "中国大陆工资表",
+            status: "modified",
+            selected: true,
+          },
+          {
+            label: "2026年第二季度员工工资汇总报告",
+            status: undefined,
+            selected: false,
+          },
+        ],
+        view: { scope: "worktree", worktreeId: "wt_other", unitId: "unit_1" },
       },
     ]);
   });
@@ -617,6 +629,8 @@ describe("artifact headers", () => {
         isRemoteWorkspace={false}
         snapshot={readySnapshot}
         contentSurface={contentSurface}
+        currentView={{ scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" }}
+        sessionWorktreeId="wt_1"
         onDownload={noop}
         onReveal={noop}
         onClose={noop}
@@ -644,6 +658,70 @@ describe("artifact headers", () => {
     expect(html).not.toContain("状态");
     expect(html).not.toContain("artifacts/工资表.univer");
     expect(html).not.toContain("Open externally");
+  });
+
+  test("Univer header treats other task worktrees as view-only", () => {
+    const contentSurface: CoworkContentSurface = {
+      status: "ready",
+      container: readySnapshot.container,
+      unit: readySnapshot.units[0],
+      scope: "worktree",
+      title: "中国大陆工资表",
+      scopeLabel: "原始修改",
+      badges: [],
+      editGate: {
+        status: "viewOnly",
+        editable: false,
+        label: "仅查看",
+        pendingWorktreeCount: 1,
+        reason: "nonTrunkScope",
+      },
+      actions: [
+        {
+          type: "mergeWorktree",
+          worktreeId: "wt_1",
+          label: "合入到当前版本",
+          status: "idle",
+        },
+        {
+          type: "discardWorktree",
+          worktreeId: "wt_1",
+          label: "丢弃",
+          status: "idle",
+        },
+      ],
+      viewerRequest: {
+        container: readyContainer,
+        unitId: "unit_1",
+        unitKind: "sheet",
+        scope: "worktree",
+        worktreeId: "wt_1",
+        editable: false,
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <UniverArtifactHeader
+        target={fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" })}
+        fileIcon={null}
+        isRemoteWorkspace={false}
+        snapshot={readySnapshot}
+        contentSurface={contentSurface}
+        currentView={{ scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" }}
+        worktreeOwnershipById={{
+          wt_1: { relation: "otherTask", ownerSessionId: "ses_other", ownerSessionTitle: "Other task" },
+        }}
+        onDownload={noop}
+        onReveal={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(html).toContain("只读");
+    expect(html).toContain("任务「Other task」");
+    expect(html).not.toContain("aria-label=\"合入当前版本\"");
+    expect(html).not.toContain("aria-label=\"丢弃修改\"");
+    expect(html).not.toContain("data-testid=\"univer-artifact-header-review-actions\"");
   });
 
   test("Univer header does not show workflow overflow for static editable status", () => {

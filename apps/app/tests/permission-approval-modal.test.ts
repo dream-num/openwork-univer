@@ -83,6 +83,15 @@ describe("permission approval modal helpers", () => {
     expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for session"]);
   });
 
+  test("keeps inline permission actions below the prompt instead of squeezing copy", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/chat/permission-approval-modal.tsx", import.meta.url)).text();
+
+    expect(source).not.toContain("sm:flex-row sm:items-center sm:justify-between");
+    expect(source).toContain('className="grid gap-3 px-4 py-3"');
+    expect(source).toContain('className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-3"');
+    expect(source).toContain('const PERMISSION_ACTION_BUTTON_TEXT_CLASS = "h-auto justify-center whitespace-normal py-1.5 text-center leading-tight"');
+  });
+
   test("uses readable labels for generic permission titles", () => {
     const html = renderToStaticMarkup(
       React.createElement(PermissionApprovalPanel, {

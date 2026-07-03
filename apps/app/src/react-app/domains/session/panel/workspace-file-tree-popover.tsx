@@ -39,8 +39,13 @@ type UniverWorktreePopoverProps = {
   worktreeIssue?: {
     kind: "multiple";
     worktreeIds: string[];
+  } | {
+    kind: "ownershipConflict";
+    worktreeId: string;
+    ownerSessionId: string;
   } | null;
   terminalState?: "merged" | "discarded" | null;
+  onOpenOwningTask?: (sessionId: string) => void;
   label?: string;
   testId?: string;
   panelVariant?: "changes" | "currentTarget" | "tasks" | "units";
@@ -176,6 +181,7 @@ export function UniverWorktreePopover({
   isRemoteWorkspace = false,
   onArtifactOpen,
   onCreateTaskFromHere,
+  onOpenOwningTask,
   worktreeIssue = null,
   terminalState = null,
   label = "Changes",
@@ -231,6 +237,7 @@ export function UniverWorktreePopover({
             isLoading={isLoading}
             onArtifactOpen={onArtifactOpen}
             onCreateTaskFromHere={onCreateTaskFromHere}
+            onOpenOwningTask={onOpenOwningTask}
             worktreeIssue={worktreeIssue}
             terminalState={terminalState}
             variant={panelVariant}
