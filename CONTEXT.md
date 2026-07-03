@@ -81,8 +81,12 @@ The current view route inside a Univer Surface: one Primary Univerfile plus the 
 _Avoid_: Session binding, target route, current task when referring to what the right-side Univer UI is showing.
 
 **Univer Surface Breadcrumb**:
-The OpenWork-owned header path for a Univer Surface, rendered as `<Univerfile> / <Unit> / <Worktree>`. The Univerfile segment identifies the bound file; the Unit and Worktree segments are route selectors for viewing content and do not change session ownership. The Unit segment uses the unit name as text and iconography for unit type. The Worktree selector may show Current version, this session's worktree, and other sessions' worktrees for the same Univerfile as route choices; worktree choices are labeled by human task/session title and state rather than raw worktree id.
+The OpenWork-owned header path for a Univer Surface, rendered as `<Univerfile> / <Unit>`. The Univerfile segment identifies the bound file, and the Unit segment selects the rendered sheet/doc/slide without changing session ownership.
 _Avoid_: File icon title, session title, Target label.
+
+**Univer Content View Selector**:
+The control that chooses which content mode the Univer Surface renders for the current unit: current version, original worktree changes, or merge preview. It is adjacent to, but not part of, the Univer Surface Breadcrumb because these modes are view scopes rather than path segments.
+_Avoid_: Breadcrumb worktree segment, task selector, file path segment.
 
 **Univer Artifact Header**:
 The OpenWork-owned header shown above a Univerfile, combining artifact identity with controls for the currently rendered unit, scope, and worktree. It should present the Univer Surface Breadcrumb as the primary identity rather than a generic file preview title.
@@ -115,6 +119,10 @@ _Avoid_: Unit navigator, Files popover, current target panel.
 **Univer Content Scope**:
 The content mode rendered inside the Univer Surface for a unit: current version, original worktree changes, or merge preview.
 _Avoid_: Separate review surface, separate progress surface.
+
+**Univer Edit Gate**:
+The state that tells whether the current Univer Content Scope can be edited directly by the user, such as editable, read-only, locked by pending changes, or direct trunk editing in progress. It is a status indicator, not a menu section; only related commands such as leaving edit mode are actions.
+_Avoid_: Workflow menu category, task status, route segment.
 
 **Workspace Files**:
 The current workspace's ordinary filesystem tree as exposed inside OpenWork for browsing, searching, selecting, and opening workspace files.

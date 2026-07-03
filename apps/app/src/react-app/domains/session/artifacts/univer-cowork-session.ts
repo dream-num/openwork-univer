@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { createCoworkController, type CoworkContentViewState, type CoworkController, type CoworkSelection, type CoworkSnapshot } from "@univer/cowork";
+import { createCoworkController, type CoworkContentViewState, type CoworkController, type CoworkReviewUnit, type CoworkSelection, type CoworkSnapshot, type ReviewableWorktree } from "@univer/cowork";
 import { createGatewayCoworkDataSource } from "@univer/cowork/gateway";
 import type { CoworkContentViewerDataSource } from "@univer/cowork/viewer";
 
@@ -156,7 +156,7 @@ export function contentViewFromTarget(
     const active = snapshot.activeWorktrees.find((worktree) => worktree.worktreeId === target.worktreeId);
     const worktree = reviewable ?? active;
     if (worktree) {
-      const reviewUnit = reviewable?.reviewSummary?.units[0];
+      const reviewUnit = reviewable ? firstOpenableReviewUnit(reviewable, target.unitId) : undefined;
       const unitId = target.unitId ?? reviewUnit?.unitId ?? snapshot.units[0]?.unitId;
       if (unitId) {
         return { scope: "worktree", worktreeId: worktree.worktreeId, unitId };
@@ -165,10 +165,39 @@ export function contentViewFromTarget(
   }
 
   const unitId = target.unitId ?? snapshot.units[0]?.unitId;
-  if (!unitId || !snapshot.units.some((unit) => unit.unitId === unitId)) {
-    return null;
+  if (unitId && snapshot.units.some((unit) => unit.unitId === unitId)) {
+    return { scope: "trunk", unitId, trunkEditIntent: "auto" };
   }
-  return { scope: "trunk", unitId, trunkEditIntent: "auto" };
+
+  return firstReviewableWorktreeView(snapshot, target.unitId);
+}
+
+function firstReviewableWorktreeView(
+  snapshot: CoworkSnapshot,
+  unitId: string | undefined,
+): CoworkContentViewState | null {
+  for (const worktree of snapshot.reviewableWorktrees) {
+    const reviewUnit = firstOpenableReviewUnit(worktree, unitId);
+    if (reviewUnit) {
+      return {
+        scope: "worktree",
+        worktreeId: worktree.worktreeId,
+        unitId: reviewUnit.unitId,
+      };
+    }
+  }
+  return null;
+}
+
+function firstOpenableReviewUnit(
+  worktree: ReviewableWorktree,
+  unitId: string | undefined,
+): CoworkReviewUnit | undefined {
+  const units = worktree.reviewSummary?.units ?? [];
+  if (unitId) {
+    return units.find((unit) => unit.unitId === unitId && unit.status !== "deleted");
+  }
+  return units.find((unit) => unit.status !== "deleted");
 }
 
 export function useUniverCoworkSession({

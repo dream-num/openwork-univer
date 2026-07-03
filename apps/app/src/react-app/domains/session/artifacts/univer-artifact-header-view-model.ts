@@ -2,6 +2,7 @@ import type {
   CoworkContentAction,
   CoworkContentBadge,
   CoworkContentEditGate,
+  CoworkContentScope,
   CoworkContentViewState,
   CoworkSnapshot,
 } from "@univer/cowork";
@@ -12,6 +13,8 @@ export type UniverArtifactHeaderFileActionId = "download" | "reveal" | "close";
 
 export interface UniverArtifactHeaderContentState {
   unitTitle: string;
+  unitId?: string;
+  scope?: CoworkContentScope;
   scopeLabel?: string;
   badges?: CoworkContentBadge[];
   editGate?: CoworkContentEditGate;
@@ -37,24 +40,18 @@ export interface UniverArtifactHeaderUnitOption {
   view: CoworkContentViewState;
 }
 
-export interface UniverArtifactHeaderWorktreeOption {
+export interface UniverArtifactHeaderContentViewOption {
   id: string;
   label: string;
-  stateLabel?: string;
+  tooltip: string;
   selected: boolean;
-  tooltip?: string;
+  disabledReason?: string;
   view: CoworkContentViewState;
-}
-
-export interface UniverArtifactHeaderWorktreeGroup {
-  label: "Current version" | "This session" | "Other sessions";
-  options: UniverArtifactHeaderWorktreeOption[];
 }
 
 export interface UniverArtifactHeaderBreadcrumb {
   univerfile: UniverArtifactHeaderBreadcrumbSegment;
   unit?: UniverArtifactHeaderBreadcrumbSegment & { kind?: string };
-  worktree?: UniverArtifactHeaderBreadcrumbSegment & { stateLabel?: string };
 }
 
 export interface UniverArtifactHeaderViewModel {
@@ -64,7 +61,7 @@ export interface UniverArtifactHeaderViewModel {
   fileMetaLabel?: string;
   breadcrumb: UniverArtifactHeaderBreadcrumb;
   unitOptions: UniverArtifactHeaderUnitOption[];
-  worktreeGroups: UniverArtifactHeaderWorktreeGroup[];
+  contentViewOptions: UniverArtifactHeaderContentViewOption[];
   badges: CoworkContentBadge[];
   editGate?: CoworkContentEditGate;
   contentActions: CoworkContentAction[];
@@ -79,7 +76,6 @@ export interface DeriveUniverArtifactHeaderViewModelInput {
   currentView?: CoworkContentViewState | null;
   snapshot?: CoworkSnapshot | null;
   sessionWorktreeId?: string | null;
-  worktreeOwnerTitles?: Record<string, string>;
 }
 
 export function deriveUniverArtifactHeaderViewModel(
@@ -99,7 +95,8 @@ export function deriveUniverArtifactHeaderViewModel(
   const fileMetaLabel = input.target.exists === false ? "missing" : input.fileSizeLabel;
   const breadcrumb = buildBreadcrumb(input);
   const unitOptions = buildUnitOptions(input);
-  const worktreeGroups = buildWorktreeGroups(input);
+  const contentViewOptions = buildContentViewOptions(input);
+  const contentActions = buildContentActions(input);
 
   return {
     primaryTitle,
@@ -108,44 +105,30 @@ export function deriveUniverArtifactHeaderViewModel(
     ...(fileMetaLabel ? { fileMetaLabel } : {}),
     breadcrumb,
     unitOptions,
-    worktreeGroups,
+    contentViewOptions,
     badges: input.contentState?.badges ?? [],
     ...(input.contentState?.editGate ? { editGate: input.contentState.editGate } : {}),
-    contentActions: input.contentState?.actions ?? [],
+    contentActions,
     fileActions: fileActionsForTarget(input.target, input.isRemoteWorkspace),
   };
 }
 
 function buildBreadcrumb(input: DeriveUniverArtifactHeaderViewModelInput): UniverArtifactHeaderBreadcrumb {
   const snapshot = input.snapshot?.loadState === "ready" ? input.snapshot : null;
-  const unitId = input.currentView?.unitId ?? input.target.unitId;
+  const unitId = currentUnitIdForInput(input);
   const unit = unitId
     ? snapshot?.units.find((candidate) => candidate.unitId === unitId)
     : undefined;
-  const worktree = input.currentView && input.currentView.scope !== "trunk"
-    ? findWorktree(snapshot, input.currentView.worktreeId)
-    : null;
-  const worktreeStateLabel = input.currentView?.scope === "trunk"
-    ? undefined
-    : worktree
-      ? stateLabelForWorktree(worktree.kind, worktree.hasConflict)
-      : undefined;
-  const worktreeLabel = input.currentView?.scope === "trunk"
-    ? "Current version"
-    : input.currentView?.scope === "worktree"
-      ? worktreeLabelFor(input, input.currentView.worktreeId, worktree?.displayName ?? input.contentState?.scopeLabel ?? "Worktree")
-      : worktree?.displayName ?? input.contentState?.scopeLabel ?? "Worktree";
 
   return {
     univerfile: { label: input.target.name },
     ...(unit ? { unit: { label: unit.displayName, kind: unit.kind } } : input.contentState?.unitTitle ? { unit: { label: input.contentState.unitTitle } } : {}),
-    ...(input.currentView ? { worktree: { label: worktreeLabel, ...(worktreeStateLabel ? { stateLabel: worktreeStateLabel } : {}) } } : {}),
   };
 }
 
 function buildUnitOptions(input: DeriveUniverArtifactHeaderViewModelInput): UniverArtifactHeaderUnitOption[] {
   if (input.snapshot?.loadState !== "ready") return [];
-  const currentUnitId = input.currentView?.unitId ?? input.target.unitId ?? input.snapshot.units[0]?.unitId ?? "";
+  const currentUnitId = currentUnitIdForInput(input) ?? "";
 
   return input.snapshot.units.map((unit) => {
     const view = input.currentView && input.currentView.scope !== "trunk"
@@ -169,95 +152,176 @@ function buildUnitOptions(input: DeriveUniverArtifactHeaderViewModelInput): Univ
   });
 }
 
-function buildWorktreeGroups(input: DeriveUniverArtifactHeaderViewModelInput): UniverArtifactHeaderWorktreeGroup[] {
-  if (input.snapshot?.loadState !== "ready") return [];
-  const unitId = input.currentView?.unitId ?? input.target.unitId ?? input.snapshot.units[0]?.unitId;
+function buildContentViewOptions(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+): UniverArtifactHeaderContentViewOption[] {
+  const unitId = currentUnitIdForInput(input);
   if (!unitId) return [];
 
-  const currentWorktreeId = input.currentView?.scope !== "trunk" ? input.currentView?.worktreeId : undefined;
-  const currentOption: UniverArtifactHeaderWorktreeOption = {
-    id: "current-version",
-    label: "Current version",
-    selected: input.currentView?.scope === "trunk",
-    view: {
-      scope: "trunk",
-      unitId,
-      trunkEditIntent: "auto",
-    },
-  };
+  const options: UniverArtifactHeaderContentViewOption[] = [];
+  addContentViewOption(options, contentViewOptionFor(input, {
+    scope: "trunk",
+    unitId,
+    trunkEditIntent: input.currentView?.scope === "trunk"
+      ? input.currentView.trunkEditIntent
+      : "auto",
+  }));
 
-  const sessionWorktreeId = input.sessionWorktreeId?.trim();
-  const worktrees = [
-    ...input.snapshot.reviewableWorktrees.map((worktree) => ({
-      id: worktree.worktreeId,
-      displayName: worktree.displayName,
-      kind: "reviewable",
-      hasConflict: Boolean(worktree.reviewSummary?.counts.conflict),
-    })),
-    ...input.snapshot.activeWorktrees.map((worktree) => ({
-      id: worktree.worktreeId,
-      displayName: worktree.displayName,
-      kind: "active",
-      hasConflict: false,
-    })),
-  ];
-  const uniqueWorktrees = worktrees.filter((worktree, index, list) => (
-    list.findIndex((candidate) => candidate.id === worktree.id) === index
-  ));
-  const optionForWorktree = (worktree: typeof uniqueWorktrees[number]): UniverArtifactHeaderWorktreeOption => ({
-    id: `worktree:${worktree.id}`,
-    label: worktreeLabelFor(input, worktree.id, worktree.displayName),
-    stateLabel: stateLabelForWorktree(worktree.kind, worktree.hasConflict),
-    selected: currentWorktreeId === worktree.id,
-    tooltip: worktree.id,
-    view: {
+  for (const action of input.contentState?.actions ?? []) {
+    if (action.type !== "setContentScope") continue;
+    addContentViewOption(
+      options,
+      contentViewOptionFor(input, action.target, action.selected, action.disabledReason),
+    );
+  }
+
+  const fallbackWorktreeId = pendingWorktreeIdForInput(input);
+  if (!fallbackWorktreeId) return options;
+
+  const reviewableWorktree = input.snapshot?.loadState === "ready"
+    ? input.snapshot.reviewableWorktrees.find((worktree) => worktree.worktreeId === fallbackWorktreeId)
+    : undefined;
+  const activeWorktree = input.snapshot?.loadState === "ready"
+    ? input.snapshot.activeWorktrees.find((worktree) => worktree.worktreeId === fallbackWorktreeId)
+    : undefined;
+  const canShowOriginal = Boolean(
+    reviewableWorktree?.status === "ready" ||
+      activeWorktree ||
+      (input.currentView?.scope === "worktree" && input.currentView.worktreeId === fallbackWorktreeId),
+  );
+
+  if (canShowOriginal) {
+    addContentViewOption(options, contentViewOptionFor(input, {
       scope: "worktree",
-      worktreeId: worktree.id,
+      worktreeId: fallbackWorktreeId,
       unitId,
-    },
-  });
-  const thisSessionOptions = sessionWorktreeId
-    ? uniqueWorktrees.filter((worktree) => worktree.id === sessionWorktreeId).map(optionForWorktree)
-    : [];
-  const otherSessionOptions = uniqueWorktrees
-    .filter((worktree) => !sessionWorktreeId || worktree.id !== sessionWorktreeId)
-    .map(optionForWorktree);
+    }));
+  }
 
-  return [
-    { label: "Current version", options: [currentOption] },
-    ...(thisSessionOptions.length ? [{ label: "This session", options: thisSessionOptions } satisfies UniverArtifactHeaderWorktreeGroup] : []),
-    ...(otherSessionOptions.length ? [{ label: "Other sessions", options: otherSessionOptions } satisfies UniverArtifactHeaderWorktreeGroup] : []),
-  ];
+  const canShowMergePreview = Boolean(
+    input.currentView?.scope === "mergePreview" ||
+      reviewableWorktree?.reviewSummary?.diverged === true,
+  );
+
+  if (canShowMergePreview) {
+    addContentViewOption(options, contentViewOptionFor(input, {
+      scope: "mergePreview",
+      worktreeId: fallbackWorktreeId,
+      unitId,
+    }));
+  }
+
+  return options;
 }
 
-function worktreeLabelFor(
+function buildContentActions(input: DeriveUniverArtifactHeaderViewModelInput): CoworkContentAction[] {
+  const scope = input.currentView?.scope ?? input.contentState?.scope;
+  const isPendingChangeView = scope === "worktree" || scope === "mergePreview";
+  if (!isPendingChangeView) return [];
+
+  return (input.contentState?.actions ?? []).filter((action) => (
+    action.type === "mergeWorktree" || action.type === "discardWorktree"
+  ));
+}
+
+function currentUnitIdForInput(
   input: DeriveUniverArtifactHeaderViewModelInput,
-  worktreeId: string,
-  fallback: string,
-): string {
-  const ownerTitle = input.worktreeOwnerTitles?.[worktreeId]?.trim();
-  return ownerTitle || fallback;
+): string | undefined {
+  const contentAction = input.contentState?.actions?.find((action) => action.type === "setContentScope");
+  const fallbackUnit = input.snapshot?.loadState === "ready"
+    ? input.snapshot.units[0]?.unitId
+    : undefined;
+  return input.currentView?.unitId ?? input.target.unitId ?? input.contentState?.unitId ?? contentAction?.target.unitId ?? fallbackUnit;
 }
 
-function findWorktree(
-  snapshot: CoworkSnapshot | null,
-  worktreeId: string,
-): { displayName: string; kind: "active" | "reviewable"; hasConflict: boolean } | null {
-  const reviewable = snapshot?.reviewableWorktrees.find((worktree) => worktree.worktreeId === worktreeId);
-  if (reviewable) {
+function pendingWorktreeIdForInput(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+): string | undefined {
+  if (input.currentView?.scope === "worktree" || input.currentView?.scope === "mergePreview") {
+    return input.currentView.worktreeId;
+  }
+  const sessionWorktreeId = input.sessionWorktreeId?.trim();
+  return sessionWorktreeId || input.target.worktreeId;
+}
+
+function addContentViewOption(
+  options: UniverArtifactHeaderContentViewOption[],
+  option: UniverArtifactHeaderContentViewOption,
+) {
+  if (options.some((candidate) => candidate.id === option.id)) return;
+  options.push(option);
+}
+
+function contentViewOptionFor(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  view: CoworkContentViewState,
+  actionSelected?: boolean,
+  disabledReason?: string,
+): UniverArtifactHeaderContentViewOption {
+  const copy = contentViewCopy(view);
+  return {
+    id: contentViewOptionId(view),
+    label: copy.label,
+    tooltip: copy.tooltip,
+    selected: contentViewSelected(input, view, actionSelected),
+    ...(disabledReason ? { disabledReason } : {}),
+    view,
+  };
+}
+
+function contentViewOptionId(view: CoworkContentViewState): string {
+  if (view.scope === "trunk") {
+    return `trunk:${view.unitId}`;
+  }
+  return `${view.scope}:${view.worktreeId}:${view.unitId}`;
+}
+
+function contentViewCopy(view: CoworkContentViewState): { label: string; tooltip: string } {
+  if (view.scope === "trunk") {
     return {
-      displayName: reviewable.displayName,
-      kind: "reviewable",
-      hasConflict: Boolean(reviewable.reviewSummary?.counts.conflict),
+      label: "当前版本",
+      tooltip: "查看 Univerfile 的当前版本。",
     };
   }
-  const active = snapshot?.activeWorktrees.find((worktree) => worktree.worktreeId === worktreeId);
-  return active ? { displayName: active.displayName, kind: "active", hasConflict: false } : null;
+  if (view.scope === "mergePreview") {
+    return {
+      label: "合并后",
+      tooltip: "预览这些修改合入当前版本后的结果。",
+    };
+  }
+  return {
+    label: "原始修改",
+    tooltip: "查看任务原本产生的修改。",
+  };
 }
 
-function stateLabelForWorktree(kind: "active" | "reviewable" | string, hasConflict: boolean): string {
-  if (hasConflict) return "Conflict";
-  return kind === "active" ? "Working" : "Ready";
+function contentViewSelected(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  view: CoworkContentViewState,
+  actionSelected?: boolean,
+): boolean {
+  if (input.currentView) {
+    return sameContentView(input.currentView, view);
+  }
+  if (actionSelected !== undefined) {
+    return actionSelected;
+  }
+  return input.contentState?.scope === view.scope;
+}
+
+function sameContentView(
+  left: CoworkContentViewState,
+  right: CoworkContentViewState,
+): boolean {
+  if (left.scope !== right.scope) return false;
+  if (left.unitId !== right.unitId) return false;
+  if (left.scope === "trunk" && right.scope === "trunk") {
+    return left.trunkEditIntent === right.trunkEditIntent;
+  }
+  if (left.scope !== "trunk" && right.scope !== "trunk") {
+    return left.worktreeId === right.worktreeId;
+  }
+  return false;
 }
 
 function fileActionsForTarget(

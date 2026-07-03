@@ -253,8 +253,9 @@ async function clickMergeChanges(ctx) {
     const button = Array.from(document.querySelectorAll("button")).find((candidate) => {
       const text = (candidate.textContent || "").trim();
       return candidate.getAttribute("aria-label") === "Merge changes" ||
+        candidate.getAttribute("aria-label") === "合入当前版本" ||
         text === "Merge changes" ||
-        text === "合入到当前版本";
+        text === "合入";
     });
     if (!button || button.disabled) return false;
     button.scrollIntoView({ block: "center", inline: "nearest" });
@@ -336,22 +337,21 @@ async function waitForUniverBreadcrumb(ctx) {
   ctx.assert(visible === true, "Could not find the Univer surface breadcrumb.");
 }
 
-async function openWorktreeBreadcrumbMenu(ctx) {
+async function openContentViewSelector(ctx) {
   const opened = await ctx.waitFor(`(() => {
-    const trigger = Array.from(document.querySelectorAll("button"))
-      .find((candidate) => candidate.getAttribute("aria-label")?.startsWith("Select worktree."));
+    const trigger = document.querySelector('[data-testid="univer-content-view-selector"]');
     if (!trigger || trigger.disabled) return false;
     if (trigger.getAttribute("aria-expanded") === "true") return true;
     trigger.click();
     return false;
   })()`, {
     timeoutMs: 30_000,
-    label: "worktree breadcrumb menu",
+    label: "content view selector",
   });
-  ctx.assert(opened === true, "Could not open the worktree breadcrumb menu.");
+  ctx.assert(opened === true, "Could not open the content view selector.");
 }
 
-async function clickBreadcrumbMenuItem(ctx, selectorExpression, label) {
+async function clickContentViewMenuItem(ctx, selectorExpression, label) {
   const clicked = await ctx.waitFor(`(() => {
     const item = ${selectorExpression};
     if (!item) return false;
@@ -514,9 +514,9 @@ export default {
       },
     },
     {
-      name: "Switch the Univer Surface breadcrumb route",
+      name: "Switch the Univer content view selector route",
       run: async (ctx) => {
-        await ctx.prove("Breadcrumb worktree route switching does not change the session-owned Univer worktree", {
+        await ctx.prove("Content view switching does not change the session-owned Univer worktree", {
           action: async () => {
             ctx.assert(typeof readyWorktreeId === "string", "Ready worktree id was not captured.");
             await closeBoundUniverPopovers(ctx);
@@ -532,60 +532,74 @@ export default {
             ctx.assert(before.sessionUniverWorktreeId === readyWorktreeId, "Selected session is not bound to the ready worktree before route switching.");
 
             await waitForUniverBreadcrumb(ctx);
-            await openWorktreeBreadcrumbMenu(ctx);
-            await clickBreadcrumbMenuItem(
+            await openContentViewSelector(ctx);
+            await clickContentViewMenuItem(
               ctx,
               `Array.from(document.querySelectorAll('[role="menuitem"]'))
-                .find((candidate) => (candidate.textContent || "").trim().startsWith("Current version"))`,
-              "Current version breadcrumb option",
+                .find((candidate) => (candidate.textContent || "").trim().startsWith("当前版本"))`,
+              "当前版本 content view option",
             );
             await ctx.waitFor(`(() => {
+              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
               const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
-              return Boolean(breadcrumb && (breadcrumb.textContent || "").includes("Current version"));
+              const breadcrumbText = breadcrumb?.textContent || "";
+              return Boolean(selector && (selector.textContent || "").includes("当前版本"))
+                && breadcrumbText.includes(${JSON.stringify(UNIVER_BASENAME)})
+                && breadcrumbText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                && !breadcrumbText.includes("当前版本")
+                && !breadcrumbText.includes("原始修改");
             })()`, {
               timeoutMs: 30_000,
-              label: "breadcrumb switched to Current version",
+              label: "content selector switched to 当前版本",
             });
 
-            await openWorktreeBreadcrumbMenu(ctx);
-            await clickBreadcrumbMenuItem(
+            await openContentViewSelector(ctx);
+            await clickContentViewMenuItem(
               ctx,
-              `document.querySelector(${JSON.stringify(`[title="${readyWorktreeId}"]`)})`,
-              "session worktree breadcrumb option",
+              `Array.from(document.querySelectorAll('[role="menuitem"]'))
+                .find((candidate) => (candidate.textContent || "").trim().startsWith("原始修改"))`,
+              "原始修改 content view option",
             );
             await ctx.waitFor(`(() => {
               const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
               const text = breadcrumb?.textContent || "";
               return text.includes(${JSON.stringify(UNIVER_BASENAME)})
                 && text.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
-                && !text.includes(${JSON.stringify(readyWorktreeId)});
+                && !text.includes(${JSON.stringify(readyWorktreeId)})
+                && !text.includes("原始修改")
+                && Boolean(selector && (selector.textContent || "").includes("原始修改"));
             })()`, {
               timeoutMs: 30_000,
-              label: "breadcrumb switched back to session worktree label",
+              label: "content selector switched back to 原始修改",
             });
 
             const after = await selectedUniverMetadata(ctx);
-            ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Breadcrumb route switching changed the Primary Univerfile.");
-            ctx.assert(after.sessionUniverWorktreeId === before.sessionUniverWorktreeId, "Breadcrumb route switching changed the session-owned worktree.");
-            await openWorktreeBreadcrumbMenu(ctx);
+            ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Content view switching changed the Primary Univerfile.");
+            ctx.assert(after.sessionUniverWorktreeId === before.sessionUniverWorktreeId, "Content view switching changed the session-owned worktree.");
+            await openContentViewSelector(ctx);
           },
           assert: async () => {
             const result = await ctx.eval(`(() => {
               const breadcrumb = document.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              const selector = document.querySelector('[data-testid="univer-content-view-selector"]');
               return {
                 breadcrumbText: breadcrumb?.textContent || "",
+                selectorText: selector?.textContent || "",
                 bodyText: document.body.innerText || "",
               };
             })()`);
             ctx.assert(result.breadcrumbText.includes(UNIVER_BASENAME), `Breadcrumb missing Univerfile: ${result.breadcrumbText}`);
             ctx.assert(result.breadcrumbText.includes(UNIT_DISPLAY_NAME), `Breadcrumb missing unit: ${result.breadcrumbText}`);
             ctx.assert(!result.breadcrumbText.includes(readyWorktreeId), "Breadcrumb shows the raw worktree id.");
-            ctx.assert(result.bodyText.includes("Current version"), "Worktree menu does not show Current version.");
-            ctx.assert(result.bodyText.includes("This session"), "Worktree menu does not group the session worktree.");
+            ctx.assert(!result.breadcrumbText.includes("当前版本"), "Breadcrumb includes the content view label.");
+            ctx.assert(!result.breadcrumbText.includes("原始修改"), "Breadcrumb includes the worktree content view label.");
+            ctx.assert(result.selectorText.includes("原始修改"), `Content view selector missing active view: ${result.selectorText}`);
+            ctx.assert(result.bodyText.includes("当前版本"), "Content view menu does not show 当前版本.");
           },
           screenshot: {
-            name: "breadcrumb-route-switching",
-            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "Current version", "This session"],
+            name: "content-view-route-switching",
+            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "当前版本", "原始修改"],
             rejectText: ["Something went wrong", "Application error"],
           },
         });

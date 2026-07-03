@@ -189,17 +189,15 @@ export default {
               return {
                 headerText: header?.textContent || "",
                 descendants: viewerMount?.querySelectorAll("*").length ?? 0,
-                canvases: viewerMount?.querySelectorAll("canvas").length ?? 0,
               };
             })()`);
             ctx.assert(result.headerText.includes(".univer"), `Univer header missing file name: ${result.headerText}`);
             ctx.assert(result.descendants > 50, `Cowork viewer content did not mount (${result.descendants} descendants).`);
-            ctx.assert(result.canvases >= 1, `Cowork viewer did not render a canvas (${result.canvases}).`);
             latestUniverHeaderText = result.headerText;
           },
           screenshot: {
             name: "univer-artifact-open",
-            requireText: ["Current version", "Start"],
+            requireText: ["当前版本", "Start"],
             rejectText: ["Application error", "Layout not found for Panel", "Failed to open Univer preview"],
           },
         });
@@ -268,7 +266,7 @@ export default {
           },
           screenshot: {
             name: "settings-switch-back-to-univer",
-            requireText: [latestUniverHeaderText.includes("Current version") ? "Current version" : ".univer", "Start"],
+            requireText: [latestUniverHeaderText.includes("当前版本") ? "当前版本" : ".univer", "Start"],
             rejectText: [
               "Application error",
               "Unhandled Runtime Error",

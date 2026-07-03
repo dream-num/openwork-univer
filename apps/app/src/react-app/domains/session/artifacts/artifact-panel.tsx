@@ -1,6 +1,5 @@
 /** @jsxImportSource react */
 import {
-  Fragment,
   lazy,
   Suspense,
   useEffect,
@@ -14,10 +13,16 @@ import {
   ChevronDown,
   Database,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   FolderOpen,
+  GitCompareArrows,
+  GitMerge,
+  Lock,
   Loader2,
+  MoreHorizontal,
+  PencilLine,
   Presentation,
   Sheet,
   Trash2,
@@ -42,7 +47,6 @@ import {
 import "@univer/cowork/viewer/styles.css";
 
 import type { SidebarSessionItem } from "@/app/types";
-import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import {
   getDesktopFileIcon,
@@ -101,10 +105,10 @@ import {
 } from "./univer-cowork-session";
 import {
   deriveUniverArtifactHeaderViewModel,
+  type UniverArtifactHeaderContentViewOption,
   type UniverArtifactHeaderFileActionId,
   type UniverArtifactHeaderUnitOption,
   type UniverArtifactHeaderViewModel,
-  type UniverArtifactHeaderWorktreeOption,
 } from "./univer-artifact-header-view-model";
 import type { UniverOpenSurface } from "./univer-surface";
 
@@ -162,31 +166,6 @@ function isTextContent(target: OpenTarget): boolean {
     ["markdown", "text", "sheet", "html"].includes(target.preview) &&
     !/\.(xlsx|xls|ods)$/i.test(target.value)
   );
-}
-
-function buildUniverWorktreeOwnerTitles(
-  workspaceSessions: SidebarSessionItem[],
-  currentSessionId: string,
-  targetPath: string,
-): Record<string, string> {
-  const targetKey = normalizeUniverTargetPath(targetPath);
-  const titles: Record<string, string> = {};
-  const orderedSessions = [
-    ...workspaceSessions.filter((session) => session.id === currentSessionId),
-    ...workspaceSessions.filter((session) => session.id !== currentSessionId),
-  ];
-
-  for (const session of orderedSessions) {
-    const worktreeId = session.sessionUniverWorktreeId?.trim();
-    if (!worktreeId || titles[worktreeId]) continue;
-    const sessionTargetKey = normalizeUniverTargetPath(
-      session.primaryUniverTarget?.path,
-    );
-    if (sessionTargetKey !== targetKey) continue;
-    titles[worktreeId] = getDisplaySessionTitle(session.title);
-  }
-
-  return titles;
 }
 
 function resolveSessionUniverWorktreeId(
@@ -262,15 +241,6 @@ function ArtifactPanelView({
         ? absoluteWorkspacePath(workspaceRoot, target.value)
         : target.value,
     [target.kind, target.value, workspaceRoot],
-  );
-  const worktreeOwnerTitles = useMemo(
-    () =>
-      buildUniverWorktreeOwnerTitles(
-        workspaceSessions,
-        sessionId,
-        target.value,
-      ),
-    [sessionId, target.value, workspaceSessions],
   );
   const sessionWorktreeId = useMemo(
     () =>
@@ -520,7 +490,6 @@ function ArtifactPanelView({
           client={client}
           workspaceId={workspaceId}
           target={target}
-          worktreeOwnerTitles={worktreeOwnerTitles}
           sessionWorktreeId={sessionWorktreeId}
           fileIcon={fileIcon}
           isRemoteWorkspace={isRemoteWorkspace}
@@ -796,7 +765,6 @@ interface UniverArtifactWorkspaceProps {
   client: OpenworkServerClient;
   workspaceId: string;
   target: UniverTarget;
-  worktreeOwnerTitles: Record<string, string>;
   sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
@@ -810,7 +778,6 @@ function UniverArtifactWorkspace({
   client,
   workspaceId,
   target,
-  worktreeOwnerTitles,
   sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
@@ -836,7 +803,6 @@ function UniverArtifactWorkspace({
         surface={surface}
         viewerDataSource={viewerDataSource}
         target={target}
-        worktreeOwnerTitles={worktreeOwnerTitles}
         sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -851,7 +817,6 @@ function UniverArtifactWorkspace({
     <>
       <UniverArtifactHeader
         target={target}
-        worktreeOwnerTitles={worktreeOwnerTitles}
         sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -878,7 +843,6 @@ interface UniverArtifactWorkspaceContentProps {
   surface: UniverOpenSurface;
   viewerDataSource: CoworkContentViewerDataSource | null;
   target: UniverTarget;
-  worktreeOwnerTitles: Record<string, string>;
   sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
@@ -895,7 +859,6 @@ function UniverArtifactWorkspaceContent({
   surface,
   viewerDataSource,
   target,
-  worktreeOwnerTitles,
   sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
@@ -909,16 +872,24 @@ function UniverArtifactWorkspaceContent({
   );
 
   useEffect(() => {
-    if (snapshot.loadState !== "ready" || !target.worktreeId) return;
-    const reviewable = snapshot.reviewableWorktrees.find(
-      (worktree) => worktree.worktreeId === target.worktreeId,
-    );
+    if (snapshot.loadState !== "ready") return;
+    const routeWorktreeId = target.worktreeId?.trim();
+    const reviewable = routeWorktreeId
+      ? snapshot.reviewableWorktrees.find(
+          (worktree) => worktree.worktreeId === routeWorktreeId,
+        )
+      : snapshot.units.length === 0
+        ? snapshot.reviewableWorktrees.find(
+            (worktree) => !worktree.reviewSummary,
+          )
+        : undefined;
     if (!reviewable || reviewable.reviewSummary) return;
-    void controller.loadReviewSummary(target.worktreeId);
+    void controller.loadReviewSummary(reviewable.worktreeId);
   }, [
     controller,
     snapshot.loadState,
     snapshot.reviewableWorktrees,
+    snapshot.units.length,
     target.worktreeId,
   ]);
 
@@ -1036,7 +1007,6 @@ function UniverArtifactWorkspaceContent({
     <>
       <UniverArtifactHeader
         target={target}
-        worktreeOwnerTitles={worktreeOwnerTitles}
         sessionWorktreeId={sessionWorktreeId}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -1078,7 +1048,6 @@ function UniverArtifactWorkspaceContent({
 
 interface UniverArtifactHeaderProps {
   target: OpenTarget;
-  worktreeOwnerTitles?: Record<string, string>;
   sessionWorktreeId?: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
@@ -1097,7 +1066,6 @@ interface UniverArtifactHeaderProps {
 
 export function UniverArtifactHeader({
   target,
-  worktreeOwnerTitles,
   sessionWorktreeId,
   isRemoteWorkspace,
   contentSurface,
@@ -1122,11 +1090,12 @@ export function UniverArtifactHeader({
     ...(currentView ? { currentView } : {}),
     ...(snapshot ? { snapshot } : {}),
     ...(ownerWorktreeId ? { sessionWorktreeId: ownerWorktreeId } : {}),
-    ...(worktreeOwnerTitles ? { worktreeOwnerTitles } : {}),
     ...(contentSurface?.status === "ready"
       ? {
           contentState: {
             unitTitle: contentSurface.title,
+            ...(contentSurface.unit?.unitId ? { unitId: contentSurface.unit.unitId } : {}),
+            scope: contentSurface.scope,
             scopeLabel: contentSurface.scopeLabel,
             badges: contentSurface.badges,
             editGate: contentSurface.editGate,
@@ -1140,34 +1109,70 @@ export function UniverArtifactHeader({
     return null;
   }
 
+  const editAction =
+    viewModel.editGate && "action" in viewModel.editGate
+      ? viewModel.editGate.action
+      : undefined;
+  const hasStatusControls = Boolean(
+    viewModel.contentViewOptions.length > 0 ||
+      viewModel.editGate ||
+      viewModel.badges.length > 0,
+  );
+  const hasWorkflowActions = Boolean(
+    editAction || viewModel.contentActions.length > 0,
+  );
+
   return (
     <div
-      className="shrink-0 bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150"
+      className="@container/univer-artifact-header shrink-0 bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150"
       data-testid="univer-artifact-header"
     >
-      <div className="flex h-10 items-center gap-3 border-b border-border pe-2 ps-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <div className="min-w-0 flex-1">
+      <div className="flex h-10 min-w-0 items-center gap-2 overflow-hidden border-b border-border pe-2 ps-3 @md/univer-artifact-header:ps-4">
+        <div className="flex min-w-0 flex-[1_1_auto] basis-0 items-center gap-2 overflow-hidden">
+          <div className="min-w-0 shrink">
             <UniverSurfaceBreadcrumb
               viewModel={viewModel}
               onContentViewChange={onContentViewChange}
             />
           </div>
+          {hasStatusControls ? (
+            <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
+              <UniverContentViewSelector
+                options={viewModel.contentViewOptions}
+                onContentViewChange={onContentViewChange}
+              />
+              <UniverArtifactHeaderStatusControls viewModel={viewModel} />
+            </div>
+          ) : null}
         </div>
-        <div
-          className="hidden shrink-0 items-center justify-end gap-1 md:flex"
-          data-testid="univer-artifact-header-content-actions"
-        >
-          <UniverArtifactHeaderContentControls
-            viewModel={viewModel}
-            onContentViewChange={onContentViewChange}
-            onRequestTrunkEdit={onRequestTrunkEdit}
-            onStopTrunkEdit={onStopTrunkEdit}
-            onMergeWorktree={onMergeWorktree}
-            onDiscardWorktree={onDiscardWorktree}
-          />
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
+          {hasWorkflowActions ? (
+            <>
+              <div
+                className="hidden min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden @3xl/univer-artifact-header:flex"
+                data-testid="univer-artifact-header-content-actions"
+              >
+                <UniverArtifactHeaderContentControls
+                  viewModel={viewModel}
+                  onContentViewChange={onContentViewChange}
+                  onRequestTrunkEdit={onRequestTrunkEdit}
+                  onStopTrunkEdit={onStopTrunkEdit}
+                  onMergeWorktree={onMergeWorktree}
+                  onDiscardWorktree={onDiscardWorktree}
+                />
+              </div>
+              <div className="flex min-w-0 shrink-0 items-center gap-1 @3xl/univer-artifact-header:hidden">
+                <UniverArtifactHeaderWorkflowMenu
+                  viewModel={viewModel}
+                  onContentViewChange={onContentViewChange}
+                  onRequestTrunkEdit={onRequestTrunkEdit}
+                  onStopTrunkEdit={onStopTrunkEdit}
+                  onMergeWorktree={onMergeWorktree}
+                  onDiscardWorktree={onDiscardWorktree}
+                />
+              </div>
+            </>
+          ) : null}
           {viewModel.fileActions.map((action) => (
             <Tooltip key={action.id}>
               <TooltipTrigger
@@ -1205,7 +1210,6 @@ function UniverSurfaceBreadcrumb({
   onContentViewChange?: (view: CoworkContentViewState) => void;
 }) {
   const unit = viewModel.breadcrumb.unit;
-  const worktree = viewModel.breadcrumb.worktree;
 
   return (
     <div
@@ -1213,7 +1217,7 @@ function UniverSurfaceBreadcrumb({
       data-testid="univer-surface-breadcrumb"
     >
       <span
-        className="min-w-0 max-w-[28ch] shrink-0 truncate"
+        className="min-w-0 max-w-[28ch] shrink-[5] truncate"
         title={viewModel.breadcrumb.univerfile.label}
       >
         {viewModel.breadcrumb.univerfile.label}
@@ -1224,16 +1228,6 @@ function UniverSurfaceBreadcrumb({
           <UniverUnitBreadcrumbSegment
             current={unit}
             options={viewModel.unitOptions}
-            onContentViewChange={onContentViewChange}
-          />
-        </>
-      ) : null}
-      {worktree ? (
-        <>
-          <BreadcrumbDivider />
-          <UniverWorktreeBreadcrumbSegment
-            current={worktree}
-            groups={viewModel.worktreeGroups}
             onContentViewChange={onContentViewChange}
           />
         </>
@@ -1264,7 +1258,7 @@ function UniverUnitBreadcrumbSegment({
 
   if (!options.length || !onContentViewChange) {
     return (
-      <span className="flex min-w-0 max-w-[34ch] items-center gap-1.5 truncate">
+      <span className="flex min-w-[4rem] max-w-[34ch] shrink-[3] items-center gap-1.5 truncate">
         {content}
       </span>
     );
@@ -1273,7 +1267,7 @@ function UniverUnitBreadcrumbSegment({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="flex min-w-0 max-w-[34ch] items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-[4rem] max-w-[34ch] shrink-[3] items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Select unit. Current unit: ${current.label}`}
       >
         {content}
@@ -1299,90 +1293,92 @@ function UniverUnitBreadcrumbSegment({
   );
 }
 
-function UniverWorktreeBreadcrumbSegment({
-  current,
-  groups,
+function UniverContentViewSelector({
+  options,
   onContentViewChange,
 }: {
-  current: { label: string; stateLabel?: string };
-  groups: UniverArtifactHeaderViewModel["worktreeGroups"];
+  options: UniverArtifactHeaderContentViewOption[];
   onContentViewChange?: (view: CoworkContentViewState) => void;
 }) {
+  const selected = options.find((option) => option.selected) ?? options[0];
+  if (!selected) return null;
+
   const content = (
     <>
-      <span className="min-w-0 truncate">{current.label}</span>
-      {current.stateLabel ? (
-        <WorktreeStateChip label={current.stateLabel} />
-      ) : null}
+      <UniverContentViewIcon option={selected} />
+      <span className="min-w-0 truncate">{selected.label}</span>
     </>
   );
 
-  if (!groups.length || !onContentViewChange) {
+  if (options.length < 2 || !onContentViewChange) {
     return (
-      <span className="flex min-w-0 max-w-[26ch] items-center gap-1.5 truncate">
-        {content}
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className="flex max-w-[7.5rem] shrink items-center gap-1.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              data-testid="univer-content-view-selector"
+            >
+              {content}
+            </span>
+          }
+        />
+        <TooltipContent>{selected.tooltip}</TooltipContent>
+      </Tooltip>
     );
   }
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex min-w-0 max-w-[26ch] items-center gap-1.5 rounded-md px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`Select worktree. Current route: ${current.label}`}
-      >
-        {content}
-        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-72">
-        {groups.map((group, index) => (
-          <Fragment key={group.label}>
-            {index > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
-              {group.options.map((option) => (
-                <WorktreeDropdownItem
-                  key={option.id}
-                  option={option}
-                  onContentViewChange={onContentViewChange}
-                />
-              ))}
-            </DropdownMenuGroup>
-          </Fragment>
-        ))}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              className="flex max-w-[8.5rem] shrink items-center gap-1.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="univer-content-view-selector"
+              aria-label={`切换内容视图。当前视图：${selected.label}`}
+            >
+              {content}
+              <ChevronDown className="size-3 shrink-0" />
+            </DropdownMenuTrigger>
+          }
+        />
+        <TooltipContent>{selected.tooltip}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>视图</DropdownMenuLabel>
+          {options.map((option) => (
+            <DropdownMenuItem
+              key={option.id}
+              disabled={option.disabledReason !== undefined}
+              onClick={() => onContentViewChange(option.view)}
+              aria-pressed={option.selected}
+              title={option.tooltip}
+            >
+              <UniverContentViewIcon option={option} />
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.selected ? <Check className="size-3.5 shrink-0" /> : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function WorktreeDropdownItem({
+function UniverContentViewIcon({
   option,
-  onContentViewChange,
 }: {
-  option: UniverArtifactHeaderWorktreeOption;
-  onContentViewChange: (view: CoworkContentViewState) => void;
+  option: UniverArtifactHeaderContentViewOption;
 }) {
-  return (
-    <DropdownMenuItem
-      onClick={() => onContentViewChange(option.view)}
-      aria-pressed={option.selected}
-      title={option.tooltip}
-    >
-      <span className="min-w-0 flex-1 truncate">{option.label}</span>
-      {option.stateLabel ? (
-        <WorktreeStateChip label={option.stateLabel} />
-      ) : null}
-      {option.selected ? <Check className="size-3.5 shrink-0" /> : null}
-    </DropdownMenuItem>
-  );
-}
-
-function WorktreeStateChip({ label }: { label: string }) {
-  return (
-    <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {label}
-    </span>
-  );
+  if (option.view.scope === "mergePreview") {
+    return <GitMerge className="size-3 shrink-0" />;
+  }
+  if (option.view.scope === "worktree") {
+    return <GitCompareArrows className="size-3 shrink-0" />;
+  }
+  return <Eye className="size-3 shrink-0" />;
 }
 
 function unitIcon(kind: string) {
@@ -1414,6 +1410,40 @@ function runUniverArtifactHeaderAction(
   handlers.onClose();
 }
 
+function UniverArtifactHeaderStatusControls({
+  viewModel,
+}: {
+  viewModel: UniverArtifactHeaderViewModel;
+}) {
+  return (
+    <>
+      {viewModel.badges.map((badge) => {
+        const copy = badgeCopy(badge);
+        return (
+          <span
+            key={`${badge.type}:${badge.label}`}
+            className={cn(
+              "max-w-[7rem] shrink truncate rounded-sm px-1.5 py-0.5 text-[10px]",
+              badge.tone === "warn"
+                ? "bg-destructive/10 text-destructive"
+                : "bg-muted text-muted-foreground",
+            )}
+            title={copy.tooltip}
+          >
+            {copy.label}
+          </span>
+        );
+      })}
+      {viewModel.editGate ? (
+        <UniverArtifactHeaderEditGate
+          editGate={viewModel.editGate}
+          className="max-w-[6rem]"
+        />
+      ) : null}
+    </>
+  );
+}
+
 function UniverArtifactHeaderContentControls({
   viewModel,
   onContentViewChange,
@@ -1436,45 +1466,12 @@ function UniverArtifactHeaderContentControls({
 
   return (
     <>
-      {viewModel.badges.map((badge) => (
-        <span
-          key={`${badge.type}:${badge.label}`}
-          className={cn(
-            "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]",
-            badge.tone === "warn"
-              ? "bg-destructive/10 text-destructive"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {badge.label}
-        </span>
-      ))}
-      {viewModel.editGate ? (
-        <span
-          className={cn(
-            "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]",
-            viewModel.editGate.editable
-              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "bg-muted text-muted-foreground",
-          )}
-          data-testid="univer-artifact-header-edit-gate"
-        >
-          {viewModel.editGate.label}
-        </span>
-      ) : null}
       {editAction ? (
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() =>
-            runCoworkEditAction(editAction, {
-              onRequestTrunkEdit,
-              onStopTrunkEdit,
-            })
-          }
-        >
-          {editAction.label}
-        </Button>
+        <UniverArtifactHeaderEditAction
+          action={editAction}
+          onRequestTrunkEdit={onRequestTrunkEdit}
+          onStopTrunkEdit={onStopTrunkEdit}
+        />
       ) : null}
       {viewModel.contentActions.map((action) => (
         <UniverArtifactHeaderContentAction
@@ -1489,6 +1486,249 @@ function UniverArtifactHeaderContentControls({
   );
 }
 
+function UniverArtifactHeaderWorkflowMenu({
+  viewModel,
+  onContentViewChange,
+  onRequestTrunkEdit,
+  onStopTrunkEdit,
+  onMergeWorktree,
+  onDiscardWorktree,
+}: {
+  viewModel: UniverArtifactHeaderViewModel;
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+  onRequestTrunkEdit?: () => void;
+  onStopTrunkEdit?: () => void;
+  onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
+  onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
+}) {
+  const editAction =
+    viewModel.editGate && "action" in viewModel.editGate
+      ? viewModel.editGate.action
+      : undefined;
+
+  if (!editAction && viewModel.contentActions.length === 0) {
+    return null;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="打开工作流控件"
+            title="工作流"
+          >
+            <MoreHorizontal />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-64">
+        {editAction ? (
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              onClick={() =>
+                runCoworkEditAction(editAction, {
+                  onRequestTrunkEdit,
+                  onStopTrunkEdit,
+                })
+              }
+            >
+              <PencilLine className="size-4" />
+              <span>{editActionCopy(editAction).label}</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        ) : null}
+        {viewModel.contentActions.length > 0 ? (
+          <>
+            {editAction ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>任务修改</DropdownMenuLabel>
+              {viewModel.contentActions.map((action) => (
+                <UniverArtifactHeaderContentMenuItem
+                  key={contentActionKey(action)}
+                  action={action}
+                  onContentViewChange={onContentViewChange}
+                  onMergeWorktree={onMergeWorktree}
+                  onDiscardWorktree={onDiscardWorktree}
+                />
+              ))}
+            </DropdownMenuGroup>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function UniverArtifactHeaderEditGate({
+  editGate,
+  className,
+}: {
+  editGate: NonNullable<UniverArtifactHeaderViewModel["editGate"]>;
+  className?: string;
+}) {
+  const copy = editGateCopy(editGate);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+              "max-w-[10rem]",
+              editGate.editable
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : editGate.status === "locked"
+                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "bg-muted text-muted-foreground",
+              className,
+            )}
+            data-testid="univer-artifact-header-edit-gate"
+          >
+            <UniverArtifactHeaderEditGateIcon editGate={editGate} />
+            <span className="min-w-0 truncate">{copy.label}</span>
+          </span>
+        }
+      />
+      <TooltipContent>{copy.tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function UniverArtifactHeaderEditGateIcon({
+  editGate,
+}: {
+  editGate: NonNullable<UniverArtifactHeaderViewModel["editGate"]>;
+}) {
+  if (editGate.status === "editable" || editGate.status === "editingWithPending") {
+    return <PencilLine className="size-3 shrink-0" />;
+  }
+  if (editGate.status === "locked") {
+    return <Lock className="size-3 shrink-0" />;
+  }
+  return <Eye className="size-3 shrink-0" />;
+}
+
+function editGateCopy(
+  editGate: NonNullable<UniverArtifactHeaderViewModel["editGate"]>,
+): { label: string; tooltip: string } {
+  if (editGate.status === "editable") {
+    return {
+      label: "可编辑",
+      tooltip: "当前版本可以直接编辑。",
+    };
+  }
+  if (editGate.status === "locked") {
+    return {
+      label: "有待处理修改",
+      tooltip: "已有任务修改待处理。继续编辑当前版本可能影响后续合入。",
+    };
+  }
+  if (editGate.status === "editingWithPending") {
+    return {
+      label: "正在编辑当前版本",
+      tooltip: "当前版本已解锁编辑；待处理修改仍保留在任务中。",
+    };
+  }
+  if (editGate.reason === "unsupportedUnitKind") {
+    return {
+      label: "只读",
+      tooltip: "此类型暂不支持在当前版本中直接编辑。",
+    };
+  }
+  if (editGate.reason === "nonTrunkScope") {
+    return {
+      label: "只读",
+      tooltip: "正在查看任务修改或合并预览，不能直接编辑。",
+    };
+  }
+  return {
+    label: "只读",
+    tooltip: "内容暂不可编辑。",
+  };
+}
+
+function badgeCopy(badge: UniverArtifactHeaderViewModel["badges"][number]): {
+  label: string;
+  tooltip: string;
+} {
+  const label = badge.label.trim();
+  if (label === "Ready") {
+    return {
+      label: "可合入",
+      tooltip: "这些修改已经准备好合入当前版本。",
+    };
+  }
+  if (label === "Working") {
+    return {
+      label: "修改中",
+      tooltip: "这个任务仍在修改中。",
+    };
+  }
+  if (label === "Conflict") {
+    return {
+      label: "冲突",
+      tooltip: "这些修改与当前版本存在冲突。",
+    };
+  }
+  return {
+    label,
+    tooltip: label,
+  };
+}
+
+function UniverArtifactHeaderEditAction({
+  action,
+  onRequestTrunkEdit,
+  onStopTrunkEdit,
+}: {
+  action: CoworkContentEditAction;
+  onRequestTrunkEdit?: () => void;
+  onStopTrunkEdit?: () => void;
+}) {
+  const copy = editActionCopy(action);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            title={copy.tooltip}
+            onClick={() =>
+              runCoworkEditAction(action, {
+                onRequestTrunkEdit,
+                onStopTrunkEdit,
+              })
+            }
+          >
+            <PencilLine data-icon="inline-start" />
+            <span>{copy.label}</span>
+          </Button>
+        }
+      />
+      <TooltipContent>{copy.tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function editActionCopy(action: CoworkContentEditAction): { label: string; tooltip: string } {
+  if (action.type === "requestTrunkEdit") {
+    return {
+      label: "继续编辑",
+      tooltip: "解锁当前版本并继续编辑。",
+    };
+  }
+  return {
+    label: "退出编辑",
+    tooltip: "停止直接编辑当前版本，回到自动保护状态。",
+  };
+}
+
 function UniverArtifactHeaderContentAction({
   action,
   onContentViewChange,
@@ -1500,62 +1740,218 @@ function UniverArtifactHeaderContentAction({
   onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
   onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
 }) {
+  const copy = contentActionCopy(action);
+
   if (action.type === "setContentScope") {
     return (
       <Button
         variant={action.selected ? "secondary" : "ghost"}
         size="xs"
+        className="max-w-[8.5rem] overflow-hidden px-2"
         disabled={action.disabledReason !== undefined}
         aria-pressed={action.selected}
+        aria-label={copy.ariaLabel}
+        title={copy.tooltip}
         onClick={() => onContentViewChange?.(action.target)}
       >
-        {action.label}
+        <UniverArtifactHeaderContentActionIcon action={action} />
+        <span className="min-w-0 truncate">{copy.label}</span>
       </Button>
     );
   }
 
   if (action.type === "mergeWorktree") {
     return (
-      <Button
-        variant="ghost"
-        size="xs"
-        disabled={
-          action.status === "running" || action.disabledReason !== undefined
-        }
-        onClick={() => void onMergeWorktree?.(action.worktreeId)}
-      >
-        {action.status === "running" ? (
-          <Loader2 data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <Check data-icon="inline-start" />
-        )}
-        {action.label}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={copy.tooltip}
+              disabled={
+                action.status === "running" || action.disabledReason !== undefined
+              }
+              aria-label={copy.ariaLabel}
+              onClick={() => void onMergeWorktree?.(action.worktreeId)}
+            >
+              <UniverArtifactHeaderContentActionIcon action={action} />
+            </Button>
+          }
+        />
+        <TooltipContent>{copy.tooltip}</TooltipContent>
+      </Tooltip>
     );
   }
 
   if (action.type === "discardWorktree") {
     return (
-      <Button
-        variant="ghost"
-        size="xs"
-        className="text-destructive hover:text-destructive"
-        disabled={
-          action.status === "running" || action.disabledReason === "busy"
-        }
-        onClick={() => void onDiscardWorktree?.(action.worktreeId)}
-      >
-        {action.status === "running" ? (
-          <Loader2 data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <Trash2 data-icon="inline-start" />
-        )}
-        {action.label}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-destructive hover:text-destructive"
+              title={copy.tooltip}
+              disabled={
+                action.status === "running" || action.disabledReason === "busy"
+              }
+              aria-label={copy.ariaLabel}
+              onClick={() => void onDiscardWorktree?.(action.worktreeId)}
+            >
+              <UniverArtifactHeaderContentActionIcon action={action} />
+            </Button>
+          }
+        />
+        <TooltipContent>{copy.tooltip}</TooltipContent>
+      </Tooltip>
     );
   }
 
   return null;
+}
+
+function UniverArtifactHeaderContentMenuItem({
+  action,
+  onContentViewChange,
+  onMergeWorktree,
+  onDiscardWorktree,
+}: {
+  action: CoworkContentAction;
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+  onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
+  onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
+}) {
+  const copy = contentActionCopy(action);
+  if (action.type === "setContentScope") {
+    return (
+      <DropdownMenuItem
+        disabled={action.disabledReason !== undefined}
+        onClick={() => onContentViewChange?.(action.target)}
+        aria-label={copy.ariaLabel}
+        title={copy.tooltip}
+      >
+        <UniverArtifactHeaderContentActionIcon action={action} />
+        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
+        {action.selected ? <Check className="size-3.5 shrink-0" /> : null}
+      </DropdownMenuItem>
+    );
+  }
+  if (action.type === "mergeWorktree") {
+    return (
+      <DropdownMenuItem
+        disabled={action.status === "running" || action.disabledReason !== undefined}
+        onClick={() => void onMergeWorktree?.(action.worktreeId)}
+        aria-label={copy.ariaLabel}
+        title={copy.tooltip}
+      >
+        <UniverArtifactHeaderContentActionIcon action={action} />
+        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
+      </DropdownMenuItem>
+    );
+  }
+  if (action.type === "discardWorktree") {
+    return (
+      <DropdownMenuItem
+        variant="destructive"
+        disabled={action.status === "running" || action.disabledReason === "busy"}
+        onClick={() => void onDiscardWorktree?.(action.worktreeId)}
+        aria-label={copy.ariaLabel}
+        title={copy.tooltip}
+      >
+        <UniverArtifactHeaderContentActionIcon action={action} />
+        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
+      </DropdownMenuItem>
+    );
+  }
+  return null;
+}
+
+function UniverArtifactHeaderContentActionIcon({
+  action,
+}: {
+  action: CoworkContentAction;
+}) {
+  if (
+    (action.type === "mergeWorktree" || action.type === "discardWorktree") &&
+    action.status === "running"
+  ) {
+    return <Loader2 data-icon="inline-start" className="animate-spin" />;
+  }
+  if (action.type === "setContentScope") {
+    return action.target.scope === "mergePreview"
+      ? <GitMerge data-icon="inline-start" />
+      : <GitCompareArrows data-icon="inline-start" />;
+  }
+  if (action.type === "mergeWorktree") {
+    return <GitMerge data-icon="inline-start" />;
+  }
+  if (action.type === "discardWorktree") {
+    return <Trash2 data-icon="inline-start" />;
+  }
+  return <PencilLine data-icon="inline-start" />;
+}
+
+function contentActionCopy(action: CoworkContentAction): {
+  label: string;
+  tooltip: string;
+  ariaLabel: string;
+} {
+  if (action.type === "requestTrunkEdit" || action.type === "stopTrunkEdit") {
+    const copy = editActionCopy(action);
+    return {
+      ...copy,
+      ariaLabel: copy.label,
+    };
+  }
+  if (action.type === "setContentScope") {
+    if (action.target.scope === "mergePreview") {
+      return {
+        label: "合并后",
+        tooltip: "预览这些修改合入当前版本后的结果。",
+        ariaLabel: "合并后",
+      };
+    }
+    return {
+      label: "原始修改",
+      tooltip: "查看任务原本产生的修改。",
+      ariaLabel: "原始修改",
+    };
+  }
+  if (action.type === "mergeWorktree") {
+    if (action.disabledReason === "conflict") {
+      return {
+        label: "合入",
+        tooltip: "存在冲突，解决后才能合入当前版本。",
+        ariaLabel: "合入当前版本",
+      };
+    }
+    if (action.status === "running") {
+      return {
+        label: "正在合入",
+        tooltip: "正在把这些修改合入当前版本。",
+        ariaLabel: "正在合入当前版本",
+      };
+    }
+    return {
+      label: "合入",
+      tooltip: "接受这些修改，并更新当前版本。",
+      ariaLabel: "合入当前版本",
+    };
+  }
+  if (action.status === "running") {
+    return {
+      label: "正在丢弃",
+      tooltip: "正在丢弃这些修改。",
+      ariaLabel: "正在丢弃修改",
+    };
+  }
+  return {
+    label: "丢弃",
+    tooltip: "放弃这个任务产生的修改。",
+    ariaLabel: "丢弃修改",
+  };
 }
 
 function runCoworkEditAction(

@@ -31,6 +31,10 @@ const SELECTED_SESSION_ROUTE_EXPR = `(() => {
   return /\\/session\\/[^/?#]+/.test(route);
 })()`;
 
+function normalizeUniverPath(value) {
+  return `${value ?? ""}`.trim().replace(/[\\]+/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+
 function isDaemonBuildMismatch(error) {
   return /Daemon build mismatch/i.test(`${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${error?.message ?? ""}`);
 }
@@ -186,6 +190,27 @@ async function closeComposerToolbarPopovers(ctx) {
   );
 }
 
+async function ensureSessionCanOpenUniverArtifact(ctx, relativePath) {
+  const metadata = await ctx.control("eval.session.current_univer_metadata");
+  const currentPrimaryPath = metadata?.primaryUniverTarget?.path;
+  if (normalizeUniverPath(currentPrimaryPath) === "" || normalizeUniverPath(currentPrimaryPath) === normalizeUniverPath(relativePath)) {
+    return;
+  }
+
+  const previousRoute = await ctx.eval("window.__openworkControl.snapshot().route");
+  ctx.log(`Current session is bound to ${currentPrimaryPath}; creating a fresh task for ${relativePath}`);
+  const created = await ctx.control("session.create_task");
+  ctx.assert(created === true, "Could not create a fresh task for the generated Univer artifact.");
+  await ctx.waitFor(
+    `(() => {
+      const route = window.__openworkControl.snapshot().route || "";
+      return route !== ${JSON.stringify(previousRoute)} && /\\/session\\/[^/?#]+/.test(route);
+    })()`,
+    { timeoutMs: 60_000, label: "fresh task route" },
+  );
+  await ensureSessionAndSidePanel(ctx);
+}
+
 async function openChangesPopover(ctx) {
   const alreadyOpen = await ctx.eval(`Boolean(document.querySelector('[data-testid="workspace-cowork-panel"]'))`);
   if (alreadyOpen) {
@@ -261,6 +286,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("Opening a native .univer artifact mounts Cowork Content Viewer inside OpenWork without iframe fallback", {
           action: async () => {
+            await ensureSessionCanOpenUniverArtifact(ctx, RELATIVE_UNIVER_PATH);
             const seeded = await ctx.control("eval.artifact_tabs.seed_univer", {
               path: RELATIVE_UNIVER_PATH,
               worktreeId: latestDeepLink.worktreeId,
@@ -274,6 +300,20 @@ export default {
             );
             await ctx.waitFor(
               `(() => {
+                const tab = Array.from(document.querySelectorAll("button"))
+                  .find((button) => button.getAttribute("aria-label") === ${JSON.stringify(`Select tab: ${UNIVER_BASENAME}`)});
+                if (!tab) return false;
+                tab.click();
+                return true;
+              })()`,
+              { timeoutMs: 30_000, label: "seeded Univer artifact tab selected" },
+            );
+            await ctx.waitFor(
+              `document.querySelector('[data-testid="univer-artifact-header"]')?.textContent?.includes(${JSON.stringify(UNIVER_BASENAME)})`,
+              { timeoutMs: 30_000, label: "seeded Univer artifact header selected" },
+            );
+            await ctx.waitFor(
+              `(() => {
                 const header = document.querySelector('[data-testid="univer-artifact-header"]');
                 const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
                 const viewerMount = document.querySelector('[data-testid="univer-cowork-content-viewer"]');
@@ -282,7 +322,7 @@ export default {
                 return !document.querySelector('iframe[data-testid="univer-collab-surface"]')
                   && header.textContent.includes(${JSON.stringify(UNIVER_BASENAME)})
                   && header.textContent.includes("原始修改")
-                  && header.textContent.includes("仅查看")
+                  && header.textContent.includes("只读")
                   && !document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Open externally"]')
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Download artifact"]'))
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Show in folder"]'))
@@ -291,6 +331,37 @@ export default {
                   && rect.height > 200;
               })()`,
               { timeoutMs: 60_000, label: "native Univer content viewer and dedicated header" },
+            );
+            await ctx.waitFor(
+              `(() => {
+                const button = document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="打开工作流控件"]');
+                if (!button || button.disabled) return false;
+                button.click();
+                return true;
+              })()`,
+              { timeoutMs: 30_000, label: "workflow menu button clicked" },
+            );
+            await ctx.waitFor(
+              `(() => {
+                const text = document.querySelector('[data-slot="dropdown-menu-content"]')?.textContent || "";
+                return text.includes("任务修改")
+                  && (text.includes("合入") || text.includes("丢弃"))
+                  && !text.includes("合入当前版本")
+                  && !text.includes("丢弃修改")
+                  && !text.includes("状态")
+                  && !text.includes("可编辑");
+              })()`,
+              { timeoutMs: 10_000, label: "workflow menu opened" },
+            );
+            await ctx.eval(`(() => {
+              const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+              document.dispatchEvent(event);
+              window.dispatchEvent(event);
+              return true;
+            })()`);
+            await ctx.waitFor(
+              `!document.querySelector('[data-slot="dropdown-menu-content"]')`,
+              { timeoutMs: 10_000, label: "workflow menu closed" },
             );
             await closeComposerToolbarPopovers(ctx);
             await ctx.eval("new Promise((resolve) => setTimeout(resolve, 8000))", { awaitPromise: true });
@@ -310,6 +381,22 @@ export default {
               const descendantCount = viewerMount.querySelectorAll("*").length;
               const canvasCount = viewerMount.querySelectorAll("canvas").length;
               const viewerText = viewerMount.textContent || "";
+              const breadcrumb = header.querySelector('[data-testid="univer-surface-breadcrumb"]');
+              const breadcrumbChildren = breadcrumb ? Array.from(breadcrumb.children) : [];
+              const breadcrumbSlashGaps = breadcrumbChildren
+                .map((node, index) => ({ node, index }))
+                .filter(({ node }) => (node.textContent || "").trim() === "/")
+                .map(({ node, index }) => {
+                  const previous = breadcrumbChildren[index - 1];
+                  const next = breadcrumbChildren[index + 1];
+                  const slashRect = node.getBoundingClientRect();
+                  const previousRect = previous?.getBoundingClientRect();
+                  const nextRect = next?.getBoundingClientRect();
+                  return {
+                    before: previousRect ? Math.round(slashRect.left - previousRect.right) : null,
+                    after: nextRect ? Math.round(nextRect.left - slashRect.right) : null,
+                  };
+                });
               return {
                 ok: true,
                 hasOldIframe: Boolean(oldIframe),
@@ -322,6 +409,7 @@ export default {
                 canvasCount,
                 viewerText,
                 headerText,
+                breadcrumbSlashGaps,
                 hasOpenExternally: Boolean(header.querySelector('button[aria-label="Open externally"]')),
                 hasDownload: Boolean(header.querySelector('button[aria-label="Download artifact"]')),
                 hasReveal: Boolean(header.querySelector('button[aria-label="Show in folder"]')),
@@ -332,8 +420,13 @@ export default {
             })()`);
             ctx.assert(result.ok, result.reason || "Univer content viewer not found.");
             ctx.assert(result.headerText.includes(UNIVER_BASENAME), `Dedicated Univer header did not show fallback file title: ${result.headerText}`);
-            ctx.assert(result.headerText.includes("原始修改"), `Dedicated Univer header did not show cowork scope: ${result.headerText}`);
-            ctx.assert(result.headerText.includes("仅查看"), `Dedicated Univer header did not show cowork edit gate: ${result.headerText}`);
+            ctx.assert(result.headerText.includes("原始修改"), `Dedicated Univer header did not show the selected content view: ${result.headerText}`);
+            ctx.assert(!result.headerText.includes("OpenWork deep link review"), `Dedicated Univer breadcrumb should not include the worktree name: ${result.headerText}`);
+            ctx.assert(result.headerText.includes("只读"), `Dedicated Univer header did not show cowork edit gate: ${result.headerText}`);
+            ctx.assert(result.breadcrumbSlashGaps.length >= 1, "Dedicated Univer breadcrumb did not render a file/unit divider.");
+            for (const gap of result.breadcrumbSlashGaps) {
+              ctx.assert((gap.before ?? 0) <= 12 && (gap.after ?? 0) <= 12, `Breadcrumb divider is visually detached: ${JSON.stringify(gap)}`);
+            }
             ctx.assert(!result.hasOpenExternally, "Dedicated Univer header should not expose normal Open externally.");
             ctx.assert(result.hasDownload, "Dedicated Univer header did not keep Download artifact fallback.");
             ctx.assert(result.hasReveal, "Dedicated Univer header did not keep Show in folder fallback.");
@@ -352,12 +445,13 @@ export default {
           },
           screenshot: {
             name: "univer-cowork-content-viewer",
-            requireText: [UNIVER_BASENAME, "原始修改", "仅查看", "Start"],
+            requireText: [UNIVER_BASENAME, "原始修改", "只读", "Start"],
             rejectText: [
               "Open externally",
               "Failed to open Univer preview",
               "Setup incomplete",
               "remote workspaces only",
+              "状态",
               "MAIN WORKTREE",
               "READY FOR REVIEW",
               "ACTIVE CHANGES",

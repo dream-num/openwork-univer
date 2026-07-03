@@ -152,6 +152,52 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
     expect(view).toEqual({ scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" });
   });
 
+  test("opens a ready worktree unit when the Univerfile trunk has no units", () => {
+    const reviewable = readySnapshot.reviewableWorktrees[0];
+    if (!reviewable?.reviewSummary) throw new Error("expected review summary");
+
+    const snapshot: CoworkSnapshot = {
+      ...readySnapshot,
+      units: [],
+      reviewableWorktrees: [
+        {
+          ...reviewable,
+          worktreeId: "wt_created",
+          reviewSummary: {
+            ...reviewable.reviewSummary,
+            worktreeId: "wt_created",
+            units: [
+              {
+                unitId: "unit_created",
+                kind: "sheet",
+                displayName: "日本工资计算器",
+                status: "created",
+                baseStale: false,
+              },
+            ],
+            counts: {
+              total: 1,
+              created: 1,
+              modified: 0,
+              deleted: 0,
+              unchanged: 0,
+              conflict: 0,
+              baseStale: 0,
+            },
+          },
+        },
+      ],
+    };
+
+    const view = contentViewFromTarget(
+      snapshot,
+      fileTarget({ name: "japan-salary-calculator.univer", value: "artifacts/japan-salary-calculator.univer" }),
+      null,
+    );
+
+    expect(view).toEqual({ scope: "worktree", worktreeId: "wt_created", unitId: "unit_created" });
+  });
+
   test("does not keep a preferred content view after target route changes", () => {
     const snapshot: CoworkSnapshot = {
       ...readySnapshot,
@@ -173,7 +219,7 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
     expect(view).toEqual({ scope: "trunk", unitId: "unit_2", trunkEditIntent: "auto" });
   });
 
-  test("derives breadcrumb route selectors from units and session-owned worktrees", () => {
+  test("derives breadcrumb identity and content view choices separately", () => {
     const baseReviewable = readySnapshot.reviewableWorktrees[0];
     if (!baseReviewable?.reviewSummary) throw new Error("expected base review summary");
 
@@ -219,10 +265,6 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
       snapshot,
       currentView: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
       sessionWorktreeId: "wt_current",
-      worktreeOwnerTitles: {
-        wt_current: "5月工资表制作",
-        wt_other: "季度总结更新",
-      },
     });
 
     if (!model) throw new Error("expected Univer header model");
@@ -230,7 +272,6 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
     expect(model.breadcrumb).toEqual({
       univerfile: { label: "工资表.univer" },
       unit: { label: "中国大陆工资表", kind: "sheet" },
-      worktree: { label: "5月工资表制作", stateLabel: "Working" },
     });
     expect(model.unitOptions.map((option) => ({
       label: option.label,
@@ -251,47 +292,28 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
         view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_2" },
       },
     ]);
-    expect(model.worktreeGroups.map((group) => group.label)).toEqual([
-      "Current version",
-      "This session",
-      "Other sessions",
-    ]);
-    expect(model.worktreeGroups.flatMap((group) => group.options.map((option) => ({
+    expect(model.contentViewOptions.map((option) => ({
       id: option.id,
       label: option.label,
-      stateLabel: option.stateLabel,
       selected: option.selected,
-      tooltip: option.tooltip,
       view: option.view,
-    })))).toEqual([
+    }))).toEqual([
       {
-        id: "current-version",
-        label: "Current version",
-        stateLabel: undefined,
+        id: "trunk:unit_1",
+        label: "当前版本",
         selected: false,
-        tooltip: undefined,
         view: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
       },
       {
-        id: "worktree:wt_current",
-        label: "5月工资表制作",
-        stateLabel: "Working",
+        id: "worktree:wt_current:unit_1",
+        label: "原始修改",
         selected: true,
-        tooltip: "wt_current",
         view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
-      },
-      {
-        id: "worktree:wt_other",
-        label: "季度总结更新",
-        stateLabel: "Ready",
-        selected: false,
-        tooltip: "wt_other",
-        view: { scope: "worktree", worktreeId: "wt_other", unitId: "unit_1" },
       },
     ]);
   });
 
-  test("keeps the session worktree route available while viewing the current version", () => {
+  test("keeps session worktree content views available while viewing the current version", () => {
     const reviewable = readySnapshot.reviewableWorktrees[0];
     if (!reviewable) throw new Error("expected reviewable worktree fixture");
 
@@ -315,25 +337,39 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
       snapshot,
       currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
       sessionWorktreeId: "wt_current",
-      worktreeOwnerTitles: {
-        wt_current: "5月工资表制作",
-      },
     });
 
     if (!model) throw new Error("expected Univer header model");
 
-    expect(model.breadcrumb.worktree).toEqual({ label: "Current version" });
-    expect(model.worktreeGroups.map((group) => group.label)).toEqual([
-      "Current version",
-      "This session",
-    ]);
-    expect(model.worktreeGroups[1]?.options[0]).toMatchObject({
-      id: "worktree:wt_current",
-      label: "5月工资表制作",
-      stateLabel: "Ready",
-      selected: false,
-      view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+    expect(model.breadcrumb).toEqual({
+      univerfile: { label: "工资表.univer" },
+      unit: { label: "中国大陆工资表", kind: "sheet" },
     });
+    expect(model.contentViewOptions.map((option) => ({
+      id: option.id,
+      label: option.label,
+      selected: option.selected,
+      view: option.view,
+    }))).toEqual([
+      {
+        id: "trunk:unit_1",
+        label: "当前版本",
+        selected: true,
+        view: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      },
+      {
+        id: "worktree:wt_current:unit_1",
+        label: "原始修改",
+        selected: false,
+        view: { scope: "worktree", worktreeId: "wt_current", unitId: "unit_1" },
+      },
+      {
+        id: "mergePreview:wt_current:unit_1",
+        label: "合并后",
+        selected: false,
+        view: { scope: "mergePreview", worktreeId: "wt_current", unitId: "unit_1" },
+      },
+    ]);
   });
 });
 
@@ -351,7 +387,6 @@ describe("artifact headers", () => {
     );
 
     expect(html).toContain("data-testid=\"univer-artifact-header\"");
-    expect(html).toContain("data-testid=\"univer-artifact-header-content-actions\"");
     expect(html).toContain("payroll.univer");
     expect(html).toContain("Download artifact");
     expect(html).toContain("Show in folder");
@@ -359,8 +394,9 @@ describe("artifact headers", () => {
     expect(html).not.toContain("Open externally");
 
     const headerClass = html.match(/class="([^"]*)" data-testid="univer-artifact-header"/)?.[1];
+    expect(headerClass).toContain("@container/univer-artifact-header");
     expect(headerClass).not.toContain("border-b");
-    expect(html).toContain("h-10 items-center gap-3 border-b border-border");
+    expect(html).toContain("h-10 min-w-0 items-center gap-2 overflow-hidden border-b border-border");
   });
 
   test("generic artifact header keeps the external open action", () => {
@@ -412,6 +448,12 @@ describe("artifact headers", () => {
           selected: false,
         },
         {
+          type: "setContentScope",
+          target: { scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" },
+          label: "原始修改",
+          selected: true,
+        },
+        {
           type: "mergeWorktree",
           worktreeId: "wt_1",
           label: "合入到当前版本",
@@ -447,13 +489,58 @@ describe("artifact headers", () => {
 
     expect(html).toContain("中国大陆工资表");
     expect(html).toContain("工资表.univer");
-    expect(html).toContain("仅查看");
-    expect(html).toContain("合并预览");
-    expect(html).toContain("合入到当前版本");
-    expect(html).toContain("丢弃");
-    expect(html).not.toContain("原始修改");
+    expect(html).toContain("只读");
+    expect(html).toContain("原始修改");
+    expect(html).toContain("aria-label=\"合入当前版本\"");
+    expect(html).toContain("aria-label=\"丢弃修改\"");
+    expect(html).toContain("max-w-[28ch] shrink-[5] truncate");
+    expect(html).toContain("max-w-[34ch] shrink-[3]");
+    expect(html).not.toContain("grow truncate");
+    expect(html).not.toContain("状态");
     expect(html).not.toContain("artifacts/工资表.univer");
     expect(html).not.toContain("Open externally");
+  });
+
+  test("Univer header does not show workflow overflow for static editable status", () => {
+    const contentSurface: CoworkContentSurface = {
+      status: "ready",
+      container: readySnapshot.container,
+      unit: readySnapshot.units[0],
+      scope: "trunk",
+      title: "中国大陆工资表",
+      scopeLabel: "当前版本",
+      badges: [],
+      editGate: {
+        status: "editable",
+        editable: true,
+        label: "可编辑",
+        pendingWorktreeCount: 0,
+      },
+      actions: [],
+      viewerRequest: {
+        container: readyContainer,
+        unitId: "unit_1",
+        unitKind: "sheet",
+        scope: "trunk",
+        editable: true,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <UniverArtifactHeader
+        target={fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" })}
+        fileIcon={null}
+        isRemoteWorkspace={false}
+        contentSurface={contentSurface}
+        onDownload={noop}
+        onReveal={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(html).toContain("当前版本");
+    expect(html).toContain("可编辑");
+    expect(html).not.toContain("打开工作流控件");
+    expect(html).not.toContain("状态");
   });
 
   test("Univer open surface is structured around gateway origin", () => {
