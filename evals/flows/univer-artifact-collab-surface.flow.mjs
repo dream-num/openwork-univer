@@ -18,7 +18,11 @@ const UNIVER_BASENAME = `native-univer-eval-${RUN_SUFFIX}.univer`;
 const CSV_BASENAME = `native-univer-eval-${RUN_SUFFIX}.csv`;
 const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
 const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
+const DEEP_LINK_WORKTREE_DISPLAY_NAME = "OpenWork deep link review";
 const MIN_UNIVER_ARTIFACT_VIEWER_WIDTH = 600;
+const UNIT_STATUS_LABELS = ["已修改", "未改动", "新增", "删除", "冲突"];
+const PRIMARY_STATUS_LABELS = ["冲突", "基线有变", "待处理", "编辑中", "只读", "可编辑"];
+const LONG_STATUS_LABELS = ["最新版本有改动", "有待处理修改", "正在编辑当前版本"];
 const UNIVER_EXECUTABLE = process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "univer";
 
 let latestDeepLink = {
@@ -83,7 +87,7 @@ async function createUniverfile(workspaceRoot) {
     UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspaceRoot,
   });
   const unitId = readJsonString(imported.stdout, "unitId");
-  const worktree = await runUniver(["worktree", "add", absolutePath, "--name", "OpenWork deep link review", "--json"], workspaceRoot, {
+  const worktree = await runUniver(["worktree", "add", absolutePath, "--name", DEEP_LINK_WORKTREE_DISPLAY_NAME, "--json"], workspaceRoot, {
     UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspaceRoot,
   });
   const worktreeId = readJsonString(worktree.stdout, "worktreeId");
@@ -309,7 +313,7 @@ export default {
               { timeoutMs: 30_000, label: "seeded Univer artifact tab selected" },
             );
             await ctx.waitFor(
-              `document.querySelector('[data-testid="univer-artifact-header"]')?.textContent?.includes(${JSON.stringify(UNIVER_BASENAME)})`,
+              `document.querySelector('[data-testid="univer-artifact-header"]')?.textContent?.includes(${JSON.stringify(DEEP_LINK_WORKTREE_DISPLAY_NAME)})`,
               { timeoutMs: 30_000, label: "seeded Univer artifact header selected" },
             );
             await ctx.waitFor(
@@ -319,10 +323,11 @@ export default {
                 const viewerMount = document.querySelector('[data-testid="univer-cowork-content-viewer"]');
                 if (!header || !nativeViewer || !viewerMount) return false;
                 const rect = nativeViewer.getBoundingClientRect();
+                const primaryStatusText = header.querySelector('[data-testid="univer-artifact-header-primary-status"]')?.textContent || "";
                 return !document.querySelector('iframe[data-testid="univer-collab-surface"]')
-                  && header.textContent.includes(${JSON.stringify(UNIVER_BASENAME)})
-                  && header.textContent.includes("原始修改")
-                  && header.textContent.includes("只读")
+                  && header.textContent.includes(${JSON.stringify(DEEP_LINK_WORKTREE_DISPLAY_NAME)})
+                  && ${JSON.stringify(PRIMARY_STATUS_LABELS)}.some((label) => primaryStatusText.includes(label))
+                  && ${JSON.stringify(LONG_STATUS_LABELS)}.every((label) => !header.textContent.includes(label))
                   && !document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Open externally"]')
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Download artifact"]'))
                   && Boolean(document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="Show in folder"]'))
@@ -334,36 +339,36 @@ export default {
             );
             await ctx.waitFor(
               `(() => {
-                const button = document.querySelector('[data-testid="univer-artifact-header"] button[aria-label="打开工作流控件"]');
-                if (!button || button.disabled) return false;
-                button.click();
-                return true;
+                const header = document.querySelector('[data-testid="univer-artifact-header"]');
+                if (!header) return false;
+                const reviewActions = header.querySelector('[data-testid="univer-artifact-header-review-actions"]');
+                return Boolean(reviewActions?.querySelector('button[aria-label="合入当前版本"]'))
+                  && Boolean(reviewActions?.querySelector('button[aria-label="丢弃修改"]'))
+                  && !reviewActions.textContent.includes("合入当前版本")
+                  && !reviewActions.textContent.includes("丢弃修改");
               })()`,
-              { timeoutMs: 30_000, label: "workflow menu button clicked" },
+              { timeoutMs: 30_000, label: "direct worktree review actions visible" },
+            );
+            await closeComposerToolbarPopovers(ctx);
+            await ctx.waitFor(
+              `(() => {
+                const trigger = document.querySelector('[data-testid="univer-surface-selector"]');
+                if (!trigger) return false;
+                if (trigger.getAttribute("aria-expanded") === "true") return true;
+                trigger.click();
+                return false;
+              })()`,
+              { timeoutMs: 30_000, label: "surface selector menu opened" },
             );
             await ctx.waitFor(
               `(() => {
-                const text = document.querySelector('[data-slot="dropdown-menu-content"]')?.textContent || "";
-                return text.includes("任务修改")
-                  && (text.includes("合入") || text.includes("丢弃"))
-                  && !text.includes("合入当前版本")
-                  && !text.includes("丢弃修改")
-                  && !text.includes("状态")
-                  && !text.includes("可编辑");
+                const bodyText = document.body.innerText || "";
+                return bodyText.includes(${JSON.stringify(latestDeepLink.worktreeId)})
+                  && bodyText.includes("可合入")
+                  && ${JSON.stringify(UNIT_STATUS_LABELS)}.some((label) => bodyText.includes(label));
               })()`,
-              { timeoutMs: 10_000, label: "workflow menu opened" },
+              { timeoutMs: 30_000, label: "surface selector expanded details" },
             );
-            await ctx.eval(`(() => {
-              const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
-              document.dispatchEvent(event);
-              window.dispatchEvent(event);
-              return true;
-            })()`);
-            await ctx.waitFor(
-              `!document.querySelector('[data-slot="dropdown-menu-content"]')`,
-              { timeoutMs: 10_000, label: "workflow menu closed" },
-            );
-            await closeComposerToolbarPopovers(ctx);
             await ctx.eval("new Promise((resolve) => setTimeout(resolve, 8000))", { awaitPromise: true });
           },
           assert: async () => {
@@ -381,14 +386,15 @@ export default {
               const descendantCount = viewerMount.querySelectorAll("*").length;
               const canvasCount = viewerMount.querySelectorAll("canvas").length;
               const viewerText = viewerMount.textContent || "";
-              const breadcrumb = header.querySelector('[data-testid="univer-surface-breadcrumb"]');
-              const breadcrumbChildren = breadcrumb ? Array.from(breadcrumb.children) : [];
-              const breadcrumbSlashGaps = breadcrumbChildren
+              const surfaceSelector = header.querySelector('[data-testid="univer-surface-selector"]');
+              const primaryStatus = header.querySelector('[data-testid="univer-artifact-header-primary-status"]');
+              const selectorChildren = surfaceSelector ? Array.from(surfaceSelector.children) : [];
+              const selectorSlashGaps = selectorChildren
                 .map((node, index) => ({ node, index }))
                 .filter(({ node }) => (node.textContent || "").trim() === "/")
                 .map(({ node, index }) => {
-                  const previous = breadcrumbChildren[index - 1];
-                  const next = breadcrumbChildren[index + 1];
+                  const previous = selectorChildren[index - 1];
+                  const next = selectorChildren[index + 1];
                   const slashRect = node.getBoundingClientRect();
                   const previousRect = previous?.getBoundingClientRect();
                   const nextRect = next?.getBoundingClientRect();
@@ -409,29 +415,35 @@ export default {
                 canvasCount,
                 viewerText,
                 headerText,
-                breadcrumbSlashGaps,
+                selectorText: surfaceSelector?.textContent || "",
+                primaryStatusText: primaryStatus?.textContent || "",
+                selectorSlashGaps,
                 hasOpenExternally: Boolean(header.querySelector('button[aria-label="Open externally"]')),
                 hasDownload: Boolean(header.querySelector('button[aria-label="Download artifact"]')),
                 hasReveal: Boolean(header.querySelector('button[aria-label="Show in folder"]')),
                 hasClose: Boolean(header.querySelector('button[aria-label="Close artifact"]')),
-                hasContentActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-content-actions"]')),
+                hasReviewActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-review-actions"]')),
+                hasSecondaryActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-secondary-actions"]')),
                 errorVisible: /Failed to open Univer preview|Setup incomplete|remote workspaces only/i.test(document.body.innerText),
               };
             })()`);
             ctx.assert(result.ok, result.reason || "Univer content viewer not found.");
-            ctx.assert(result.headerText.includes(UNIVER_BASENAME), `Dedicated Univer header did not show fallback file title: ${result.headerText}`);
-            ctx.assert(result.headerText.includes("原始修改"), `Dedicated Univer header did not show the selected content view: ${result.headerText}`);
-            ctx.assert(!result.headerText.includes("OpenWork deep link review"), `Dedicated Univer breadcrumb should not include the worktree name: ${result.headerText}`);
-            ctx.assert(result.headerText.includes("只读"), `Dedicated Univer header did not show cowork edit gate: ${result.headerText}`);
-            ctx.assert(result.breadcrumbSlashGaps.length >= 1, "Dedicated Univer breadcrumb did not render a file/unit divider.");
-            for (const gap of result.breadcrumbSlashGaps) {
-              ctx.assert((gap.before ?? 0) <= 12 && (gap.after ?? 0) <= 12, `Breadcrumb divider is visually detached: ${JSON.stringify(gap)}`);
+            ctx.assert(result.selectorText.includes(DEEP_LINK_WORKTREE_DISPLAY_NAME), `Dedicated Univer surface selector did not show the worktree display name: ${result.headerText}`);
+            ctx.assert(!result.selectorText.includes(UNIVER_BASENAME), `Dedicated Univer surface selector should not show the Univerfile: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes(latestDeepLink.worktreeId), `Dedicated Univer surface selector should keep the worktree id in the expanded menu: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes("可合入"), `Dedicated Univer surface selector should not show worktree status while collapsed: ${result.selectorText}`);
+            ctx.assert(UNIT_STATUS_LABELS.every((label) => !result.selectorText.includes(label)), `Dedicated Univer surface selector should not show unit status while collapsed: ${result.selectorText}`);
+            ctx.assert(PRIMARY_STATUS_LABELS.some((label) => result.primaryStatusText.includes(label)), `Dedicated Univer header did not show a controlled primary status: ${result.headerText}`);
+            ctx.assert(LONG_STATUS_LABELS.every((label) => !result.headerText.includes(label)), `Dedicated Univer header showed a phrase-length status: ${result.headerText}`);
+            ctx.assert(result.selectorSlashGaps.length >= 1, "Dedicated Univer surface selector did not render the worktree/unit divider.");
+            for (const gap of result.selectorSlashGaps) {
+              ctx.assert((gap.before ?? 0) <= 12 && (gap.after ?? 0) <= 12, `Surface selector divider is visually detached: ${JSON.stringify(gap)}`);
             }
             ctx.assert(!result.hasOpenExternally, "Dedicated Univer header should not expose normal Open externally.");
             ctx.assert(result.hasDownload, "Dedicated Univer header did not keep Download artifact fallback.");
             ctx.assert(result.hasReveal, "Dedicated Univer header did not keep Show in folder fallback.");
             ctx.assert(result.hasClose, "Dedicated Univer header did not keep Close artifact.");
-            ctx.assert(result.hasContentActionZone, "Dedicated Univer header did not reserve the content action zone.");
+            ctx.assert(result.hasReviewActionZone, "Dedicated Univer header did not show direct review actions.");
             ctx.assert(!result.hasOldIframe, "The old collab-client iframe fallback is still present.");
             ctx.assert(result.width >= MIN_UNIVER_ARTIFACT_VIEWER_WIDTH, `Native viewer is narrower than the Univer artifact default (${result.width}px).`);
             ctx.assert(result.height > 200, `Native viewer is not visibly tall (${result.width}x${result.height}).`);
@@ -445,7 +457,7 @@ export default {
           },
           screenshot: {
             name: "univer-cowork-content-viewer",
-            requireText: [UNIVER_BASENAME, "原始修改", "只读", "Start"],
+            requireText: [UNIVER_BASENAME, DEEP_LINK_WORKTREE_DISPLAY_NAME, "Start"],
             rejectText: [
               "Open externally",
               "Failed to open Univer preview",
