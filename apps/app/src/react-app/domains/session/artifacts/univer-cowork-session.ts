@@ -202,11 +202,13 @@ function firstOpenableReviewUnit(
 
 export function useUniverCoworkSession({
   client,
+  enabled = true,
   workspaceId,
   target,
   isRemoteWorkspace,
 }: {
   client: OpenworkServerClient | null;
+  enabled?: boolean;
   workspaceId: string | null;
   target: UniverTarget | null;
   isRemoteWorkspace: boolean;
@@ -228,7 +230,7 @@ export function useUniverCoworkSession({
       }
       return openUniverSurface(client, workspaceId, surfaceTarget, isRemoteWorkspace);
     },
-    enabled: Boolean(client && workspaceId && surfaceTarget),
+    enabled: Boolean(enabled && client && workspaceId && surfaceTarget),
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
     retry: false,

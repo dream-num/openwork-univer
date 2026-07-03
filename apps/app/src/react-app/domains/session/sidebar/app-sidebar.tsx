@@ -627,9 +627,9 @@ type UniverTargetHub = {
 };
 
 const EMPTY_WORKTREE_STATUSES: Record<string, UniverTargetWorktreeStatus> = {};
-const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-16 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
+const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md pe-16 ps-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
 const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
-const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none";
+const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 max-w-[8.5rem] flex-[0_1_auto] items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none";
 const UNIVER_FILE_ACTIONS_CLASS = "absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5";
 const SESSION_DEPTH_1_CLASS = "ps-8";
 const SESSION_DEPTH_DEEP_CLASS = "ps-11";
@@ -1545,7 +1545,7 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
             }}
           >
             <FileSpreadsheet className={UNIVER_FILE_ICON_CLASS} />
-            <span className="min-w-0 flex-1 truncate">{hub.target.name}</span>
+            <span className="min-w-[4rem] flex-1 truncate">{hub.target.name}</span>
             {taskSummaryLabel ? (
               <span
                 className={cn(UNIVER_FILE_PENDING_CLASS, "bg-amber-3 text-amber-11")}
@@ -1553,7 +1553,7 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
                 aria-label={taskSummaryTitle ?? undefined}
               >
                 <AlertCircle className="size-3" aria-hidden="true" />
-                <span>{taskSummaryLabel}</span>
+                <span className="min-w-0 truncate">{taskSummaryLabel}</span>
               </span>
             ) : null}
           </button>

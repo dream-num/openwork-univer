@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { AlertTriangle, Columns2, FileSpreadsheet, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import type { CoworkController } from "@univer/cowork";
+import { useCoworkSnapshot } from "@univer/cowork/react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -55,10 +57,10 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
-import { isUniverTarget, targetFromPrimaryUniverfile } from "../artifacts/univer-cowork-session";
+import { isUniverTarget, targetFromPrimaryUniverfile, useUniverCoworkSession, type UniverTarget } from "../artifacts/univer-cowork-session";
 import { notifyUniverSessionMetadataUpdated } from "../univer-session-events";
 import { resolveSessionUniverWorktreePersistence } from "../univer-session-worktree-adapter";
-import { normalizeUniverTargetPath } from "../univer-worktree-status-store";
+import { normalizeUniverTargetPath, useUniverWorktreeStatusStore } from "../univer-worktree-status-store";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
@@ -79,6 +81,10 @@ const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const UNIVER_ARTIFACT_PANEL_WIDTH = 760;
 const UNIVER_ARTIFACT_ACTIVE_EVENT = "openwork-univer-artifact-active";
+const MAX_SIDEBAR_UNIVER_STATUS_PROBES = 1;
+const SIDEBAR_UNIVER_STATUS_INITIAL_REFRESH_DELAY_MS = 2_000;
+const SIDEBAR_UNIVER_STATUS_REFRESH_INTERVAL_MS = 10_000;
+const SIDEBAR_UNIVER_STATUS_SESSION_SWITCH_DELAY_MS = 3_000;
 
 export type OpenSessionTab = {
   workspaceId: string;
@@ -108,6 +114,183 @@ export type SessionPageHistoryControls = {
   onUndo: () => void | Promise<void>;
   onRedo: () => void | Promise<void>;
 };
+
+function sessionNeedsSidebarUniverStatus(
+  session: WorkspaceSessionGroup["sessions"][number],
+): boolean {
+  if (session.sessionUniverWorktreeTerminalState) return false;
+  if (!session.primaryUniverTarget?.path) return false;
+  return Boolean(session.sessionUniverWorktreeId?.trim() || session.sessionUniverWorktreeIssue);
+}
+
+function addSidebarUniverStatusProbeTarget(
+  targetsByPath: Map<string, UniverTarget>,
+  primaryUniverTarget: { path?: string | null; value?: string | null; name?: string | null } | null | undefined,
+) {
+  const path = normalizeUniverTargetPath(primaryUniverTarget?.path ?? primaryUniverTarget?.value);
+  if (!path || targetsByPath.has(path)) return;
+  const target = targetFromPrimaryUniverfile({
+    path,
+    name: primaryUniverTarget?.name,
+  });
+  if (!target) return;
+  targetsByPath.set(path, target);
+}
+
+function buildSidebarUniverStatusProbeTargets(
+  group: WorkspaceSessionGroup | null,
+  selectedSessionId: string | null,
+  univerArtifactActive: boolean,
+  selectedSessionLoading: boolean,
+): UniverTarget[] {
+  if (!group || group.status !== "ready") return [];
+  if (selectedSessionLoading) return [];
+  if (univerArtifactActive) return [];
+
+  const discoveredTargetsByPath = new Map(
+    group.univerTargets.map((target) => [
+      normalizeUniverTargetPath(target.path),
+      target,
+    ]),
+  );
+  const targetsByPath = new Map<string, UniverTarget>();
+  const selectedId = selectedSessionId?.trim() ?? "";
+  const selectedSession = selectedId
+    ? group.sessions.find((session) => session.id === selectedId)
+    : undefined;
+  addSidebarUniverStatusProbeTarget(targetsByPath, selectedSession?.primaryUniverTarget);
+  const addSessionTarget = (session: WorkspaceSessionGroup["sessions"][number]) => {
+    if (!sessionNeedsSidebarUniverStatus(session)) return;
+    const path = normalizeUniverTargetPath(session.primaryUniverTarget?.path);
+    const discovered = discoveredTargetsByPath.get(path);
+    addSidebarUniverStatusProbeTarget(targetsByPath, {
+      path,
+      name: discovered?.name ?? session.primaryUniverTarget?.name,
+    });
+  };
+
+  for (const session of group.sessions) {
+    if (targetsByPath.size >= MAX_SIDEBAR_UNIVER_STATUS_PROBES) break;
+    if (session.id === selectedId) continue;
+    addSessionTarget(session);
+  }
+
+  return Array.from(targetsByPath.values());
+}
+
+function SidebarUniverWorktreeStatusProbes({
+  client,
+  isRemoteWorkspace,
+  serverWorkspaceId,
+  storeWorkspaceId,
+  targets,
+}: {
+  client: OpenworkServerClient | null;
+  isRemoteWorkspace: boolean;
+  serverWorkspaceId: string | null;
+  storeWorkspaceId: string;
+  targets: UniverTarget[];
+}) {
+  const normalizedServerWorkspaceId = serverWorkspaceId?.trim() ?? "";
+  const normalizedStoreWorkspaceId = storeWorkspaceId.trim();
+  const targetSignature = targets.map((target) => target.id).join("\n");
+  const [activeTargetSignature, setActiveTargetSignature] = useState("");
+
+  useEffect(() => {
+    setActiveTargetSignature("");
+    if (!targetSignature) return;
+    const timeoutId = window.setTimeout(() => {
+      setActiveTargetSignature(targetSignature);
+    }, SIDEBAR_UNIVER_STATUS_INITIAL_REFRESH_DELAY_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [targetSignature]);
+
+  const activeTargets = activeTargetSignature === targetSignature ? targets : [];
+  if (!client || !normalizedServerWorkspaceId || !normalizedStoreWorkspaceId || activeTargets.length === 0) return null;
+
+  return (
+    <>
+      {activeTargets.map((target) => (
+        <SidebarUniverWorktreeStatusProbe
+          key={target.id}
+          client={client}
+          isRemoteWorkspace={isRemoteWorkspace}
+          serverWorkspaceId={normalizedServerWorkspaceId}
+          storeWorkspaceId={normalizedStoreWorkspaceId}
+          target={target}
+        />
+      ))}
+    </>
+  );
+}
+
+function SidebarUniverWorktreeStatusProbe({
+  client,
+  isRemoteWorkspace,
+  serverWorkspaceId,
+  storeWorkspaceId,
+  target,
+}: {
+  client: OpenworkServerClient;
+  isRemoteWorkspace: boolean;
+  serverWorkspaceId: string;
+  storeWorkspaceId: string;
+  target: UniverTarget;
+}) {
+  const { controller } = useUniverCoworkSession({
+    client,
+    workspaceId: serverWorkspaceId,
+    target,
+    isRemoteWorkspace,
+  });
+
+  if (!controller) return null;
+
+  return (
+    <SidebarUniverWorktreeStatusSnapshotProbe
+      controller={controller}
+      storeWorkspaceId={storeWorkspaceId}
+      target={target}
+    />
+  );
+}
+
+function SidebarUniverWorktreeStatusSnapshotProbe({
+  controller,
+  storeWorkspaceId,
+  target,
+}: {
+  controller: CoworkController;
+  storeWorkspaceId: string;
+  target: UniverTarget;
+}) {
+  const snapshot = useCoworkSnapshot(controller);
+  const updateTargetSnapshot = useUniverWorktreeStatusStore((state) => state.updateTargetSnapshot);
+  const refresh = useCallback(() => {
+    void controller.refresh();
+  }, [controller]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(refresh, SIDEBAR_UNIVER_STATUS_INITIAL_REFRESH_DELAY_MS);
+    const intervalId = window.setInterval(refresh, SIDEBAR_UNIVER_STATUS_REFRESH_INTERVAL_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [refresh, target.value]);
+
+  useEffect(() => {
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (snapshot.loadState !== "ready") return;
+    updateTargetSnapshot(storeWorkspaceId, target.value, snapshot);
+  }, [snapshot, storeWorkspaceId, target.value, updateTargetSnapshot]);
+
+  return null;
+}
 
 export type SessionPageSidebarProps = {
   workspaceSessionGroups: WorkspaceSessionGroup[];
@@ -377,6 +560,7 @@ export function SessionPage(props: SessionPageProps) {
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
   const pendingUniverWorktreePersistenceRef = useRef(new Set<string>());
+  const previousSelectedSessionIdRef = useRef(props.selectedSessionId);
   const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
@@ -412,9 +596,37 @@ export function SessionPage(props: SessionPageProps) {
   const activeUniverArtifactTarget = univerArtifactRailActive && activeArtifactTarget && isUniverTarget(activeArtifactTarget)
     ? activeArtifactTarget
     : null;
+  const [sessionSwitchProbePausedFor, setSessionSwitchProbePausedFor] = useState<string | null>(null);
+  const selectedSessionChanged = previousSelectedSessionIdRef.current !== props.selectedSessionId;
+  useEffect(() => {
+    previousSelectedSessionIdRef.current = props.selectedSessionId;
+  }, [props.selectedSessionId]);
+  useEffect(() => {
+    const sessionId = props.selectedSessionId;
+    if (!sessionId) {
+      setSessionSwitchProbePausedFor(null);
+      return;
+    }
+    setSessionSwitchProbePausedFor(sessionId);
+    const timeoutId = window.setTimeout(() => {
+      setSessionSwitchProbePausedFor((current) => current === sessionId ? null : current);
+    }, SIDEBAR_UNIVER_STATUS_SESSION_SWITCH_DELAY_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [props.selectedSessionId]);
   const selectedWorkspaceSessionGroup = useMemo(
     () => props.sidebar.workspaceSessionGroups.find((group) => group.workspace.id === props.selectedWorkspaceId) ?? null,
     [props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups],
+  );
+  const selectedSessionLoading = Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId);
+  const selectedSessionSwitchSettling = selectedSessionChanged || sessionSwitchProbePausedFor === props.selectedSessionId;
+  const sidebarUniverStatusProbeTargets = useMemo(
+    () => buildSidebarUniverStatusProbeTargets(
+      selectedWorkspaceSessionGroup,
+      props.selectedSessionId,
+      univerArtifactRailActive,
+      selectedSessionLoading || selectedSessionSwitchSettling,
+    ),
+    [props.selectedSessionId, selectedSessionLoading, selectedSessionSwitchSettling, selectedWorkspaceSessionGroup, univerArtifactRailActive],
   );
   const selectedSidebarSession = useMemo(() => {
     if (!props.selectedSessionId) return null;
@@ -1045,7 +1257,7 @@ export function SessionPage(props: SessionPageProps) {
     props.startupPhase !== "firstSessionReady" &&
     props.startupPhase !== "ready";
   const showSessionLoadingState =
-    Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId) && !showWorkspaceSetupEmptyState;
+    selectedSessionLoading && !showWorkspaceSetupEmptyState;
   const sidebarInitialLoading = useMemo(() => getSidebarInitialLoading(props.sidebar), [props.sidebar]);
   // Derive the main-pane error from the same data the sidebar uses so the two
   // panes can never disagree. We check (in priority order):
@@ -1252,6 +1464,13 @@ export function SessionPage(props: SessionPageProps) {
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
+        />
+        <SidebarUniverWorktreeStatusProbes
+          client={props.openworkServerClient}
+          isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+          serverWorkspaceId={props.runtimeWorkspaceId}
+          storeWorkspaceId={props.sidebar.selectedWorkspaceId}
+          targets={sidebarUniverStatusProbeTargets}
         />
         <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
           <div className="flex min-h-0 flex-1">
@@ -1664,6 +1883,7 @@ export function SessionPage(props: SessionPageProps) {
                       workspaceRoot={props.selectedWorkspaceRoot}
                       workspaceSessions={selectedWorkspaceSessionGroup?.sessions ?? []}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                      onOpenSession={props.sidebar.onOpenSession}
                       onClose={closeRightPane}
                     />
                   ) : null}

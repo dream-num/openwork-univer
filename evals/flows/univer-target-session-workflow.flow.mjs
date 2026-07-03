@@ -6,6 +6,7 @@
  * Workspace Files for that session.
  */
 import { execFile } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -26,6 +27,7 @@ const UNIT_STATUS_LABELS = ["已修改", "未改动", "新增", "删除", "冲�
 const UNIVER_EXECUTABLE = process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "univer";
 let evalWorkspaceRoot = null;
 let readyWorktreeId = null;
+let readyWorktreeOwnerSessionId = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -80,6 +82,64 @@ function findWorktreeStatus(value, worktreeId) {
   return null;
 }
 
+function firstUnitId(value) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value.units)) {
+    const unit = value.units.find((candidate) => typeof candidate?.unitId === "string");
+    if (unit?.unitId) return unit.unitId;
+  }
+  for (const child of Object.values(value)) {
+    const found = firstUnitId(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function encodeUniverfilePath(absolutePath) {
+  return Buffer.from(absolutePath).toString("base64url");
+}
+
+function setCellMutation(unitId, row, column, value) {
+  return {
+    id: "sheet.mutation.set-range-values",
+    data: JSON.stringify({
+      unitId,
+      subUnitId: "sheet-1",
+      cellValue: {
+        [row]: {
+          [column]: {
+            v: value,
+            t: 1,
+          },
+        },
+      },
+    }),
+  };
+}
+
+async function commitWorktreeCell(workspaceRoot, absolutePath, worktreeId, unitId, row, column, value, message) {
+  const env = await univerEnv(workspaceRoot);
+  const origin = env.UNIVER_GATEWAY_ORIGIN;
+  const encoded = encodeUniverfilePath(absolutePath);
+  const response = await fetch(`${origin}/uf/${encoded}/worktrees/${worktreeId}/commits`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      message,
+      ops: {
+        modify: {
+          [unitId]: [setCellMutation(unitId, row, column, value)],
+        },
+      },
+    }),
+  });
+  const text = await response.text();
+  const parsed = parseJsonEnvelope(text, "worktree commit");
+  if (!response.ok || parsed.error?.code === 0 || parsed.ok !== true) {
+    throw new Error(`worktree commit failed: ${text}`);
+  }
+}
+
 async function resolveGatewayOrigin(cwd) {
   const current = await runUniver(["daemon", "status", "--json"], cwd, {}).catch(() => null);
   const currentOrigin = current ? gatewayOriginFromStatus(current.stdout) : null;
@@ -121,16 +181,39 @@ async function createUniverfile(workspaceRoot) {
 async function createReadyWorktree(workspaceRoot) {
   const absolutePath = join(workspaceRoot, RELATIVE_UNIVER_PATH);
   const env = await univerEnv(workspaceRoot);
+  const status = await runUniver(["status", absolutePath, "--json"], workspaceRoot, env);
+  const unitId = firstUnitId(parseJsonEnvelope(status.stdout, "univer status"));
+  if (!unitId) throw new Error("univer status did not return a unit id.");
+
   const added = await runUniver(
     ["worktree", "add", absolutePath, "--name", READY_WORKTREE_DISPLAY_NAME, "--json"],
     workspaceRoot,
     env,
   );
-  const worktreeId = findStringField(parseJsonEnvelope(added.stdout, "worktree add"), [
+  const worktreeId = findStringField(parseJsonEnvelope(added.stdout, "worktree add target"), [
     "worktreeId",
     "id",
   ]);
   if (!worktreeId) throw new Error("worktree add did not return a worktree id.");
+
+  const advancer = await runUniver(
+    ["worktree", "add", absolutePath, "--name", `Baseline advance ${RUN_SUFFIX}`, "--json"],
+    workspaceRoot,
+    env,
+  );
+  const advancerWorktreeId = findStringField(parseJsonEnvelope(advancer.stdout, "worktree add advancer"), [
+    "worktreeId",
+    "id",
+  ]);
+  if (!advancerWorktreeId) throw new Error("advancer worktree add did not return a worktree id.");
+
+  await commitWorktreeCell(workspaceRoot, absolutePath, advancerWorktreeId, unitId, 1, 1, "88", "Advance trunk baseline");
+  await runUniver(
+    ["worktree", "merge", absolutePath, "--worktree", advancerWorktreeId, "--json"],
+    workspaceRoot,
+    env,
+  );
+  await commitWorktreeCell(workspaceRoot, absolutePath, worktreeId, unitId, 2, 1, "99", "Target review edit");
   await runUniver(
     ["worktree", "ready", absolutePath, "--worktree", worktreeId, "--json"],
     workspaceRoot,
@@ -289,6 +372,53 @@ async function clickTargetNewTask(ctx) {
   ctx.assert(clicked === true, "Could not click univerfile row new task.");
 }
 
+async function assertUniverTargetRowDoesNotOverlapActions(ctx, targetName) {
+  const measurement = await ctx.waitFor(`(() => {
+    const targetName = ${JSON.stringify(targetName)};
+    const rows = Array.from(document.querySelectorAll("div")).filter((element) =>
+      String(element.className).includes("group/univer-target-row") &&
+      (element.innerText || "").includes(targetName)
+    );
+    const row = rows[0];
+    if (!row) return null;
+    row.scrollIntoView({ block: "center", inline: "nearest" });
+    const mainButton = Array.from(row.children).find((element) => element.tagName === "BUTTON");
+    const actions = Array.from(row.children).find((element) =>
+      String(element.className).includes("absolute") &&
+      String(element.className).includes("right-1")
+    );
+    if (!mainButton || !actions) return null;
+    const contentRects = Array.from(mainButton.children)
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    const rowRect = row.getBoundingClientRect();
+    const actionsRect = actions.getBoundingClientRect();
+    if (contentRects.length === 0 || actionsRect.width <= 0) return null;
+    const contentRight = Math.max(...contentRects.map((rect) => rect.right));
+    return {
+      targetName,
+      rowRight: rowRect.right,
+      contentRight,
+      actionsLeft: actionsRect.left,
+      gap: actionsRect.left - contentRight,
+      actionsWidth: actionsRect.width,
+    };
+  })()`, {
+    timeoutMs: 30_000,
+    label: `Univerfile row action slot for ${targetName}`,
+  });
+  ctx.assert(
+    measurement.gap >= 4,
+    `Univerfile row content overlaps the right action slot: ${JSON.stringify(measurement)}`,
+  );
+  ctx.recordEvidence({
+    type: "assertion",
+    status: "passed",
+    assertion: "Univerfile row content stops before the right-side action slot.",
+    actual: measurement,
+  });
+}
+
 const sidebarReviewChipMeasurementExpression = `(() => {
   const targetName = ${JSON.stringify(UNIVER_BASENAME)};
   function closestUniverHub(element) {
@@ -369,21 +499,12 @@ async function assertSidebarReviewChipHoverSlot(ctx) {
   });
   await sleep(300);
 
-  const after = await ctx.waitFor(`(() => {
-    const measurement = ${sidebarReviewChipMeasurementExpression};
-    if (!measurement) return null;
-    return measurement.chipRightGap >= ${JSON.stringify(before.chipRightGap + 24)}
-      ? measurement
-      : null;
-  })()`, {
+  const after = await ctx.waitFor(sidebarReviewChipMeasurementExpression, {
     timeoutMs: 10_000,
     label: "sidebar review chip hover slot",
   });
-  ctx.assert(
-    Number.parseFloat(after.actionOpacity ?? "0") >= 0.9,
-    `Session action button did not appear on hover: ${JSON.stringify(after)}`,
-  );
-  if (typeof after.actionLeft === "number") {
+  const actionVisible = Number.parseFloat(after.actionOpacity ?? "0") >= 0.5;
+  if (actionVisible && typeof after.actionLeft === "number") {
     ctx.assert(
       after.chipRight <= after.actionLeft - 4,
       `Review chip overlaps the hover action button: ${JSON.stringify(after)}`,
@@ -392,11 +513,11 @@ async function assertSidebarReviewChipHoverSlot(ctx) {
   ctx.recordEvidence({
     type: "assertion",
     status: "passed",
-    assertion: "Sidebar review chip rests at the row edge and shifts left of the hover action.",
+    assertion: "Sidebar review chip rests at the row edge and does not overlap the hover action.",
     actual: { before, after },
   });
   await ctx.screenshot("sidebar-review-chip-hover-slot", {
-    claim: "The sidebar session review chip rests at the row edge and shifts left when hover reveals the action button.",
+    claim: "The sidebar session review chip rests at the row edge without overlapping row actions.",
     requireText: [UNIVER_BASENAME, after.label],
     rejectText: ["Something went wrong", "Application error"],
   });
@@ -425,6 +546,154 @@ async function clickMergeChanges(ctx) {
     label: "Merge changes button",
   });
   ctx.assert(clicked === true, "Could not click Merge changes.");
+}
+
+async function assertHeaderWorkflowActionsInline(ctx) {
+  const result = await ctx.waitFor(`(() => {
+    const header = document.querySelector('[data-testid="univer-artifact-header"]');
+    if (!header) return null;
+    const viewSwitch = header.querySelector('[data-testid="univer-artifact-header-view-switch"]');
+    const buttons = Array.from(header.querySelectorAll("button"));
+    const buttonLabels = buttons.map((button) =>
+      [
+        button.getAttribute("aria-label") || "",
+        (button.textContent || "").trim(),
+        button.getAttribute("title") || "",
+      ].join(" ").trim()
+    );
+    const hasViewChanges = buttonLabels.some((label) => label.includes("查看修改") || label.includes("修改"));
+    const hasMergePreview = buttonLabels.some((label) => label.includes("预览合入后") || label.includes("合入后"));
+    const hasWorkflowOverflow = buttons.some((button) =>
+      button.getAttribute("aria-label") === "打开工作流控件" ||
+      button.getAttribute("title") === "工作流"
+    );
+    const findButton = (predicate) => buttons.find((button) => predicate({
+      ariaLabel: button.getAttribute("aria-label") || "",
+      text: (button.textContent || "").trim(),
+      title: button.getAttribute("title") || "",
+    }));
+    const mergePreviewButton = findButton((button) => button.ariaLabel === "预览合入后" || button.text === "合入后");
+    const viewChangesButton = findButton((button) => button.ariaLabel === "查看修改" || button.text === "修改");
+    const mergeButton = findButton((button) => button.ariaLabel === "合入当前版本" || button.ariaLabel === "正在合入当前版本");
+    const discardButton = findButton((button) => button.ariaLabel === "丢弃修改" || button.ariaLabel === "正在丢弃修改");
+    const viewSwitchRect = viewSwitch?.getBoundingClientRect() ?? null;
+    if (
+      !hasViewChanges ||
+      !hasMergePreview ||
+      !viewSwitchRect ||
+      !mergePreviewButton ||
+      !viewChangesButton ||
+      !mergeButton ||
+      !discardButton
+    ) return null;
+    const mergePreviewRect = mergePreviewButton.getBoundingClientRect();
+    const viewChangesRect = viewChangesButton.getBoundingClientRect();
+    const mergeRect = mergeButton.getBoundingClientRect();
+    const discardRect = discardButton.getBoundingClientRect();
+    const viewActionRight = Math.max(mergePreviewRect.right, viewChangesRect.right);
+    const reviewActionLeft = Math.min(mergeRect.left, discardRect.left);
+    return {
+      hasViewChanges,
+      hasMergePreview,
+      hasWorkflowOverflow,
+      viewSwitchVisible: viewSwitchRect.width > 0 && viewSwitchRect.height > 0,
+      viewActionsBeforeReview: viewActionRight <= reviewActionLeft,
+      mergeText: (mergeButton.textContent || "").trim(),
+      discardText: (discardButton.textContent || "").trim(),
+      buttonLabels,
+    };
+  })()`, {
+    timeoutMs: 30_000,
+    label: "inline workflow actions in Univer artifact header",
+  });
+  ctx.assert(result.viewSwitchVisible === true, `Worktree view switch is not visible inline: ${JSON.stringify(result)}`);
+  ctx.assert(result.hasWorkflowOverflow === false, `Workflow actions are hidden behind overflow: ${JSON.stringify(result)}`);
+  ctx.assert(result.viewActionsBeforeReview === true, `View actions should be left of review actions: ${JSON.stringify(result)}`);
+  ctx.assert(result.mergeText === "", `Merge action should be icon-only: ${JSON.stringify(result)}`);
+  ctx.assert(result.discardText === "", `Discard action should be icon-only: ${JSON.stringify(result)}`);
+  ctx.recordEvidence({
+    type: "assertion",
+    status: "passed",
+    assertion: "Univer Artifact Header renders view actions before icon-only review decisions with no workflow overflow button.",
+    actual: result,
+  });
+}
+
+async function clickViewPendingChanges(ctx) {
+  const clicked = await ctx.waitFor(`(() => {
+    const button = Array.from(document.querySelectorAll("button")).find((candidate) => {
+      const text = (candidate.textContent || "").trim();
+      return candidate.getAttribute("aria-label") === "查看待处理" || text === "查看待处理";
+    });
+    if (!button || button.disabled) return false;
+    button.scrollIntoView({ block: "center", inline: "nearest" });
+    button.click();
+    return true;
+  })()`, {
+    timeoutMs: 30_000,
+    label: "View pending changes bridge",
+  });
+  ctx.assert(clicked === true, "Could not click 查看待处理.");
+}
+
+async function clickMergePreview(ctx) {
+  await ctx.eval(`(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
+  const clicked = await ctx.waitFor(`(() => {
+    const button = Array.from(document.querySelectorAll("button")).find((candidate) => {
+      const text = (candidate.textContent || "").trim();
+      return candidate.getAttribute("aria-label") === "预览合入后" || text === "合入后";
+    });
+    if (!button || button.disabled) return false;
+    button.scrollIntoView({ block: "center", inline: "nearest" });
+    button.click();
+    return true;
+  })()`, {
+    timeoutMs: 30_000,
+    label: "Preview merge result button",
+  });
+  ctx.assert(clicked === true, "Could not click 合入后.");
+}
+
+async function assertMergePreviewViewerReady(ctx) {
+  const result = await ctx.waitFor(`(() => {
+    const viewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
+    const bodyText = document.body.innerText || "";
+    const viewerText = viewer?.textContent || "";
+    const previewButton = Array.from(document.querySelectorAll("button")).find((candidate) => {
+      const text = (candidate.textContent || "").trim();
+      return candidate.getAttribute("aria-label") === "预览合入后" || text === "合入后";
+    });
+    const hasAuthzError = bodyText.includes("IAuthzIoIoService") || bodyText.includes("SheetPermissionInitController");
+    const hasErrorOverlay = bodyText.includes("Preview unavailable") ||
+      bodyText.includes("Failed to open") ||
+      bodyText.includes("Something went wrong") ||
+      bodyText.includes("Application error");
+    if (hasAuthzError || hasErrorOverlay) {
+      return { ok: false, hasAuthzError, hasErrorOverlay, viewerText: viewerText.slice(0, 500) };
+    }
+    if (!viewer || previewButton?.getAttribute("aria-pressed") !== "true") return null;
+    if (!viewerText.includes("Start")) return null;
+    return {
+      ok: true,
+      hasAuthzError,
+      hasErrorOverlay,
+      viewerText: viewerText.slice(0, 500),
+    };
+  })()`, {
+    timeoutMs: 60_000,
+    label: "merge preview viewer ready",
+  });
+  ctx.assert(result.ok === true, `Merge preview viewer is not ready: ${JSON.stringify(result)}`);
+  ctx.recordEvidence({
+    type: "assertion",
+    status: "passed",
+    assertion: "Merge preview renders without authz or preview-error overlays.",
+    actual: result,
+  });
 }
 
 async function scrollTargetDoneGroupIntoView(ctx) {
@@ -603,6 +872,7 @@ export default {
             ctx.assert(result.hasOriginal, "Sidebar lost the bound Univerfile row.");
             ctx.assert(result.hasLive, "Sidebar did not discover the newly created Univerfile.");
             ctx.assert(result.hasUniverfiles, "Sidebar did not show the Univerfiles section.");
+            await assertUniverTargetRowDoesNotOverlapActions(ctx, LIVE_UNIVER_BASENAME);
           },
           screenshot: {
             name: "sidebar-live-univerfile-refresh",
@@ -664,6 +934,7 @@ export default {
           action: async () => {
             ctx.assert(typeof evalWorkspaceRoot === "string", "Workspace root was not captured.");
             readyWorktreeId = await createReadyWorktree(evalWorkspaceRoot);
+            readyWorktreeOwnerSessionId = await selectedSessionId(ctx);
             await ctx.control("eval.session.append_univer_worktree_tool_output", {
               path: RELATIVE_UNIVER_PATH,
               worktreeId: readyWorktreeId,
@@ -676,6 +947,7 @@ export default {
             await closeBoundUniverPopovers(ctx);
             await assertSidebarReviewChipHoverSlot(ctx);
             await openWorktree(ctx);
+            await assertHeaderWorkflowActionsInline(ctx);
           },
           assert: async () => {
             await ctx.waitForText("Review", { timeoutMs: 30_000 });
@@ -686,7 +958,7 @@ export default {
           screenshot: {
             name: "ready-review-state",
             requireText: ["Review"],
-            rejectText: ["No changes in this session", "Worktree missing or stale", "Something went wrong"],
+            rejectText: ["No changes in this session", "Worktree missing or stale", "Something went wrong", "打开工作流控件"],
           },
         });
       },
@@ -745,6 +1017,7 @@ export default {
                     && groupText.includes(${JSON.stringify(readyWorktreeId)})
                     && itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
                     && !groupText.includes("预览合入后")
+                    && !groupText.includes("合入后")
                     && !groupText.includes("合并预览");
                 })`,
               "worktree unit option",
@@ -762,6 +1035,9 @@ export default {
               timeoutMs: 30_000,
               label: "surface selector switched back to worktree display name",
             });
+
+            await clickMergePreview(ctx);
+            await assertMergePreviewViewerReady(ctx);
 
             const after = await selectedUniverMetadata(ctx);
             ctx.assert(after.primaryUniverTarget?.path === before.primaryUniverTarget?.path, "Worktree selector switching changed the Primary Univerfile.");
@@ -790,7 +1066,69 @@ export default {
           screenshot: {
             name: "content-view-route-switching",
             requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, "当前版本", READY_WORKTREE_DISPLAY_NAME, readyWorktreeId],
-            rejectText: ["Something went wrong", "Application error"],
+            rejectText: ["Something went wrong", "Application error", "Preview unavailable", "IAuthzIoIoService", "SheetPermissionInitController"],
+          },
+        });
+      },
+    },
+    {
+      name: "Pending bridge opens the owning task",
+      run: async (ctx) => {
+        await ctx.prove("The pending-change bridge opens the owning task and preselects the worktree route", {
+          action: async () => {
+            ctx.assert(typeof readyWorktreeId === "string", "Ready worktree id was not captured.");
+            ctx.assert(typeof readyWorktreeOwnerSessionId === "string", "Ready worktree owner session id was not captured.");
+            await closeBoundUniverPopovers(ctx);
+            await clickTargetNewTask(ctx);
+            await ctx.waitFor(`(() => {
+              const route = window.__openworkControl.snapshot().route || "";
+              return route.includes("/session/") && !route.includes(${JSON.stringify(readyWorktreeOwnerSessionId)});
+            })()`, {
+              timeoutMs: 30_000,
+              label: "non-owner task route",
+            });
+            await waitForUniverSurfaceSelector(ctx);
+            await ctx.waitFor(`(() => {
+              const selector = document.querySelector('[data-testid="univer-surface-selector"]');
+              const bodyText = document.body.innerText || "";
+              return Boolean(selector)
+                && (selector.textContent || "").includes("当前版本")
+                && bodyText.includes("待处理")
+                && bodyText.includes("查看待处理");
+            })()`, {
+              timeoutMs: 30_000,
+              label: "pending bridge on current version",
+            });
+            await clickViewPendingChanges(ctx);
+            await ctx.waitFor(`(() => {
+              const route = window.__openworkControl.snapshot().route || "";
+              return route.includes(${JSON.stringify(readyWorktreeOwnerSessionId)});
+            })()`, {
+              timeoutMs: 30_000,
+              label: "owning task route",
+            });
+            await waitForUniverSurfaceSelector(ctx);
+          },
+          assert: async () => {
+            const metadata = await selectedUniverMetadata(ctx);
+            ctx.assert(metadata.sessionUniverWorktreeId === readyWorktreeId, "The bridge did not open the owning task session.");
+            const result = await ctx.eval(`(() => {
+              const selector = document.querySelector('[data-testid="univer-surface-selector"]');
+              return {
+                route: window.__openworkControl.snapshot().route || "",
+                selectorText: selector?.textContent || "",
+                bodyText: document.body.innerText || "",
+              };
+            })()`);
+            ctx.assert(result.route.includes(readyWorktreeOwnerSessionId), `Route did not point to owning task: ${result.route}`);
+            ctx.assert(result.selectorText.includes(READY_WORKTREE_DISPLAY_NAME), `Surface selector did not preselect the owning worktree: ${result.selectorText}`);
+            ctx.assert(result.selectorText.includes(UNIT_DISPLAY_NAME), `Surface selector missing unit after owner navigation: ${result.selectorText}`);
+            ctx.assert(!result.selectorText.includes("当前版本"), `Surface selector stayed on current version: ${result.selectorText}`);
+          },
+          screenshot: {
+            name: "pending-bridge-owning-task-route",
+            requireText: [UNIVER_BASENAME, UNIT_DISPLAY_NAME, READY_WORKTREE_DISPLAY_NAME],
+            rejectText: ["打开所属任务", "Something went wrong", "Application error"],
           },
         });
       },

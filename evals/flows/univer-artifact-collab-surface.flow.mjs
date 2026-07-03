@@ -423,7 +423,7 @@ export default {
                 hasReveal: Boolean(header.querySelector('button[aria-label="Show in folder"]')),
                 hasClose: Boolean(header.querySelector('button[aria-label="Close artifact"]')),
                 hasReviewActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-review-actions"]')),
-                hasSecondaryActionZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-secondary-actions"]')),
+                hasViewSwitchZone: Boolean(header.querySelector('[data-testid="univer-artifact-header-view-switch"]')),
                 errorVisible: /Failed to open Univer preview|Setup incomplete|remote workspaces only/i.test(document.body.innerText),
               };
             })()`);
@@ -444,6 +444,7 @@ export default {
             ctx.assert(result.hasReveal, "Dedicated Univer header did not keep Show in folder fallback.");
             ctx.assert(result.hasClose, "Dedicated Univer header did not keep Close artifact.");
             ctx.assert(result.hasReviewActionZone, "Dedicated Univer header did not show direct review actions.");
+            ctx.assert(result.hasViewSwitchZone, "Dedicated Univer header did not show the worktree view switch.");
             ctx.assert(!result.hasOldIframe, "The old collab-client iframe fallback is still present.");
             ctx.assert(result.width >= MIN_UNIVER_ARTIFACT_VIEWER_WIDTH, `Native viewer is narrower than the Univer artifact default (${result.width}px).`);
             ctx.assert(result.height > 200, `Native viewer is not visibly tall (${result.width}x${result.height}).`);

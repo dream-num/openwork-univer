@@ -110,6 +110,19 @@ describe("composer toolbar context entrypoints", () => {
     expect(source).not.toContain("composer-toolbar-current-target");
   });
 
+  test("refreshes sidebar Univer worktree state outside the Worktree popover", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
+    const popoverSource = await Bun.file(new URL("../src/react-app/domains/session/panel/workspace-file-tree-popover.tsx", import.meta.url)).text();
+
+    expect(source).toContain("SidebarUniverWorktreeStatusProbes");
+    expect(source).toContain("buildSidebarUniverStatusProbeTargets");
+    expect(source).toContain("useUniverWorktreeStatusStore");
+    expect(source).toContain("SIDEBAR_UNIVER_STATUS_REFRESH_INTERVAL_MS");
+    expect(source).toContain("window.setInterval(refresh, SIDEBAR_UNIVER_STATUS_REFRESH_INTERVAL_MS)");
+    expect(source).toContain("updateTargetSnapshot(storeWorkspaceId, target.value, snapshot)");
+    expect(popoverSource).toContain("enabled: open");
+  });
+
   test("places transient composer accessories above the toolbar slot", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/surface/composer/composer.tsx", import.meta.url)).text();
     const toolbarIndex = source.indexOf("data-testid=\"composer-toolbar-slot\"");

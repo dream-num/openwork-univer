@@ -62,6 +62,7 @@ type SidePanelProps = {
   workspaceRoot: string;
   workspaceSessions?: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
   onClose: () => void;
 };
 
@@ -445,6 +446,7 @@ export function SidePanel({
   workspaceRoot,
   workspaceSessions = [],
   isRemoteWorkspace = false,
+  onOpenSession,
   onClose,
 }: SidePanelProps) {
   const { tabs } = useSessionPanelState(sessionId);
@@ -804,6 +806,7 @@ export function SidePanel({
               workspaceRoot={workspaceRoot}
               workspaceSessions={workspaceSessions}
               isRemoteWorkspace={isRemoteWorkspace}
+              onOpenSession={onOpenSession}
               onClose={onClose}
             />
           </div>

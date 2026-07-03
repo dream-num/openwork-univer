@@ -8,7 +8,7 @@ The header needs a sharper information architecture before further visual polish
 
 - Replace the split breadcrumb plus worktree chip with one Univer Surface Selector: `<Worktree source> / <Unit>`.
 - Let the selector expose `当前版本` plus all viewable worktrees, with worktree id, worktree status, and unit status visible in the expanded menu where available.
-- Treat `查看修改` and `预览合入后` as view actions for the selected worktree, not as sibling worktree choices.
+- Treat selected-worktree view modes as `修改` / `合入后`, not as sibling worktree choices or current-version bridge actions.
 - Make `合入` and `丢弃` first-line review decision actions whenever a selected worktree can be reviewed.
 - Treat the Univer Edit Gate as a status chip, not as an overflow menu section.
 - Keep the normal bar to one concise primary status chip, chosen by risk/action priority, with long explanations moved to tooltip or expanded detail.

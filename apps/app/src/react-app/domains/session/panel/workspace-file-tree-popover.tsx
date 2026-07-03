@@ -191,6 +191,7 @@ export function UniverWorktreePopover({
 }: UniverWorktreePopoverProps) {
   const { controller, error, isError, isLoading } = useUniverCoworkSession({
     client,
+    enabled: open,
     workspaceId,
     target,
     isRemoteWorkspace,

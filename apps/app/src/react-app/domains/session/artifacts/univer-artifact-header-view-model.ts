@@ -65,6 +65,24 @@ export interface UniverArtifactHeaderWorktreeOption {
   unitOptions: UniverArtifactHeaderUnitOption[];
 }
 
+export type UniverArtifactHeaderBridgeAction =
+  | {
+      type: "openPendingWorktree";
+      label: string;
+      tooltip: string;
+      target: CoworkContentViewState;
+      ownerSessionId?: string;
+      ownerSessionTitle?: string;
+    }
+  | {
+      type: "openOwningTask";
+      label: string;
+      tooltip: string;
+      ownerSessionId: string;
+      ownerSessionTitle?: string;
+      target?: CoworkContentViewState;
+    };
+
 export interface UniverArtifactHeaderBreadcrumb {
   univerfile: UniverArtifactHeaderBreadcrumbSegment;
   unit?: UniverArtifactHeaderBreadcrumbSegment & { kind?: string };
@@ -80,6 +98,7 @@ export interface UniverArtifactHeaderViewModel {
   worktreeOptions: UniverArtifactHeaderWorktreeOption[];
   badges: CoworkContentBadge[];
   editGate?: CoworkContentEditGate;
+  bridgeActions: UniverArtifactHeaderBridgeAction[];
   contentActions: CoworkContentAction[];
   fileActions: UniverArtifactHeaderFileAction[];
 }
@@ -113,6 +132,7 @@ export function deriveUniverArtifactHeaderViewModel(
   const breadcrumb = buildBreadcrumb(input);
   const unitOptions = buildUnitOptions(input);
   const worktreeOptions = buildWorktreeOptions(input);
+  const bridgeActions = buildBridgeActions(input, worktreeOptions);
   const contentActions = buildContentActions(input);
 
   return {
@@ -125,6 +145,7 @@ export function deriveUniverArtifactHeaderViewModel(
     worktreeOptions,
     badges: input.contentState?.badges ?? [],
     ...(input.contentState?.editGate ? { editGate: input.contentState.editGate } : {}),
+    bridgeActions,
     contentActions,
     fileActions: fileActionsForTarget(input.target, input.isRemoteWorkspace),
   };
@@ -218,6 +239,68 @@ function buildContentActions(input: DeriveUniverArtifactHeaderViewModelInput): C
     }
     return worktreeRelationForId(input, action.worktreeId) !== "otherTask";
   });
+}
+
+function buildBridgeActions(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  worktreeOptions: UniverArtifactHeaderWorktreeOption[],
+): UniverArtifactHeaderBridgeAction[] {
+  const selectedWorktree = worktreeOptions.find((option) => option.selected) ?? worktreeOptions[0];
+  const actions: UniverArtifactHeaderBridgeAction[] = [];
+
+  if (selectedWorktree?.relation === "currentVersion") {
+    const pendingWorktreeCount = input.contentState?.editGate?.pendingWorktreeCount ?? 0;
+    const editGateStatus = input.contentState?.editGate?.status;
+    const hasPendingGate =
+      pendingWorktreeCount > 0 ||
+      editGateStatus === "locked" ||
+      editGateStatus === "editingWithPending";
+    const currentTaskWorktree = worktreeOptions.find((option) => (
+      option.relation === "currentTask" && option.view.scope !== "trunk"
+    ));
+    const pendingWorktree = currentTaskWorktree ?? pendingWorktreeOptionForInput(input, worktreeOptions);
+    if (hasPendingGate && pendingWorktree) {
+      const opensOwningTask = pendingWorktree.relation === "otherTask" && pendingWorktree.ownerSessionId;
+      actions.push({
+        type: "openPendingWorktree",
+        label: "查看待处理",
+        tooltip: opensOwningTask
+          ? pendingWorktree.ownerSessionTitle
+            ? `打开任务「${pendingWorktree.ownerSessionTitle}」查看这批修改。`
+            : "打开所属任务查看这批修改。"
+          : `查看「${pendingWorktree.label}」的待处理修改。`,
+        target: pendingWorktree.view,
+        ...(pendingWorktree.ownerSessionId ? { ownerSessionId: pendingWorktree.ownerSessionId } : {}),
+        ...(pendingWorktree.ownerSessionTitle ? { ownerSessionTitle: pendingWorktree.ownerSessionTitle } : {}),
+      });
+    }
+  }
+
+  if (selectedWorktree?.relation === "otherTask" && selectedWorktree.ownerSessionId) {
+    actions.push({
+      type: "openOwningTask",
+      label: "打开所属任务",
+      tooltip: selectedWorktree.ownerSessionTitle
+        ? `打开任务「${selectedWorktree.ownerSessionTitle}」处理这些修改。`
+        : "打开所属任务处理这些修改。",
+      ownerSessionId: selectedWorktree.ownerSessionId,
+      ...(selectedWorktree.ownerSessionTitle ? { ownerSessionTitle: selectedWorktree.ownerSessionTitle } : {}),
+      ...(selectedWorktree.view.scope === "trunk" ? {} : { target: selectedWorktree.view }),
+    });
+  }
+
+  return actions;
+}
+
+function pendingWorktreeOptionForInput(
+  input: DeriveUniverArtifactHeaderViewModelInput,
+  worktreeOptions: UniverArtifactHeaderWorktreeOption[],
+): UniverArtifactHeaderWorktreeOption | null {
+  const pendingWorktreeId = pendingWorktreeIdForInput(input);
+  if (!pendingWorktreeId) return null;
+  return worktreeOptions.find((option) => (
+    option.view.scope !== "trunk" && option.view.worktreeId === pendingWorktreeId
+  )) ?? null;
 }
 
 function currentUnitIdForInput(

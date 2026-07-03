@@ -42,10 +42,12 @@ The `Univer Artifact Header` SHALL render cowork content state through distinct 
 #### Scenario: Selected worktree view actions inspect one worktree
 
 - **WHEN** a reviewable worktree is selected
-- **THEN** the header MAY show `查看修改` and `预览合入后` as selected-worktree view actions
+- **THEN** the header MAY show a compact worktree view switch with `修改` and `合入后` options
 - **AND** these actions SHALL apply to the selected worktree
 - **AND** these actions SHALL NOT be rendered as worktree selector choices
+- **AND** when review decision controls are also visible, these view actions SHALL appear to the left of the review decision controls
 - **AND** choosing merge preview SHALL keep the same worktree selected while changing only the rendered view mode
+- **AND** the worktree view switch SHALL NOT use the current-version bridge label `查看待处理`
 
 #### Scenario: Edit gate is a status indicator
 
@@ -67,7 +69,7 @@ The `Univer Artifact Header` SHALL render cowork content state through distinct 
 #### Scenario: View and review affordances are not duplicated as status
 
 - **WHEN** merge preview is selected
-- **THEN** the selected state of `预览合入后` SHALL communicate the view mode
+- **THEN** the selected state of `合入后` SHALL communicate the view mode
 - **AND** the header SHALL NOT add a separate normal-bar status chip just to say merge preview is currently shown
 
 - **WHEN** a worktree can be merged
@@ -88,11 +90,29 @@ The `Univer Artifact Header` SHALL render cowork content state through distinct 
 - **THEN** the header SHALL NOT show merge or discard review actions for a worktree
 - **AND** direct trunk editing state MAY show only edit-related commands that apply to the current version
 - **AND** a ready worktree owned by the current task MAY be summarized as pending status, but its merge or discard decisions SHALL remain hidden until that worktree source is selected
+- **AND** when a pending worktree route can be resolved, the header SHALL expose a first-line `查看待处理` action that routes directly to the task/session where that worktree can be handled
+- **AND** if the pending worktree belongs to the current task, invoking `查看待处理` SHALL switch the current Univer Surface Route to that worktree source
+- **AND** if the pending worktree belongs to another known task, invoking `查看待处理` SHALL open that owning task session and preselect the same Univerfile/worktree route there without mutating the current session's `sessionUniverWorktreeId`
+- **AND** if no owning task is known, invoking `查看待处理` MAY switch the current Univer Surface Route to that worktree source as a view-only fallback
+- **AND** `查看待处理` SHALL be displayed adjacent to the primary status chip rather than hidden in the far-right file action zone or overflow menu
+- **AND** `查看待处理` SHALL be shown whenever the primary status indicates pending current-version work and a pending worktree route can be resolved, even if aggregate pending counts have not refreshed yet
+- **AND** edit gate commands such as `继续编辑` and `退出编辑` SHALL be displayed in the same state cluster as `待处理` or `编辑中`
+- **AND** after the owning worktree source is selected, review decisions SHALL become available according to the selected worktree state
 
 - **WHEN** the selected source is a ready-review worktree
-- **THEN** the header SHALL show `合入` and `丢弃` as first-line controls when the selected worktree can be reviewed
+- **THEN** the header SHALL show `合入` and `丢弃` as first-line icon controls when the selected worktree can be reviewed
 - **AND** those actions SHALL apply to the selected worktree rather than to the whole Univerfile
+- **AND** those icon controls SHALL keep accessible names and tooltips while omitting visible text labels in the normal bar
 - **AND** those actions SHALL NOT be hidden inside the overflow menu
+
+#### Scenario: Status bridges to the owning task
+
+- **WHEN** the selected source belongs to another task
+- **THEN** the header SHALL keep the selected source view-only for the current session
+- **AND** the header SHALL NOT show merge or discard review decisions for that source
+- **AND** when the owning task is known, the header SHALL expose `打开所属任务` as a first-line navigation action
+- **AND** `打开所属任务` SHALL be displayed adjacent to the primary read-only status chip rather than hidden in file fallback actions
+- **AND** invoking `打开所属任务` SHALL open the owning task session without changing the current session's `sessionUniverWorktreeId`
 
 #### Scenario: Default source follows selected task state
 
@@ -115,13 +135,10 @@ The `Univer Artifact Header` SHALL render cowork content state through distinct 
 - **THEN** OpenWork SHALL treat the worktree as awaiting human review when cowork state indicates it is reviewable
 - **AND** OpenWork SHALL NOT merge or discard the worktree automatically unless the user explicitly asks for that action
 
-#### Scenario: Overflow menu contains actions only
+#### Scenario: Workflow actions stay inline
 
-- **WHEN** the header has no secondary commands to expose
-- **THEN** it SHALL NOT show the overflow action menu
-
-- **WHEN** the header shows the overflow action menu
-- **THEN** every menu item SHALL represent an executable command or navigation action
-- **AND** the menu SHALL NOT contain static-only groups such as `状态 / 可编辑`
-- **AND** the menu SHALL NOT contain `合入` or `丢弃` when those review decisions are available for the selected worktree
-- **AND** file fallback actions such as download, reveal, and close SHALL remain in the file fallback action zone rather than moving into the workflow overflow menu
+- **WHEN** the header has secondary workflow commands such as `继续编辑`, `退出编辑`, `修改`, or `合入后`
+- **THEN** it SHALL render those commands directly in the header
+- **AND** it SHALL NOT collapse them into a workflow overflow or more menu at any container width
+- **AND** it SHALL NOT show an overflow menu for static-only status such as `可编辑`
+- **AND** file fallback actions such as download, reveal, and close SHALL remain in the file fallback action zone

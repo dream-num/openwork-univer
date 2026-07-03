@@ -63,6 +63,10 @@
 - [x] 6.9 Detect duplicate live worktree owners and keep only the earliest bound non-terminal task as owner.
 - [x] 6.10 Show duplicate non-owner sessions as Attention with Open owning task as the primary recovery path.
 - [x] 6.11 Summarize Univerfile Row state as review and issue counts instead of one generic pending count.
+- [x] 6.12 Surface Open owning task in the Univer Artifact Header when ownership conflict or other-task source state is visible.
+- [x] 6.13 Preselect the same Primary Univerfile worktree route after opening the owning task from the Univer Artifact Header.
+- [x] 6.13 Refresh sidebar live worktree status for bound Univerfile rows without relying on the composer Worktree popover being opened.
+- [x] 6.14 Keep file-level review/issue summaries from obscuring the Univerfile name.
 
 ## 7. Agent Context and Behavior
 
@@ -88,6 +92,7 @@
 - [x] 8.12 Add focused server test for one Univerfile Overview Session per Primary Univerfile.
 - [x] 8.13 Add focused tests for minimal Univer Session Context.
 - [x] 8.14 Add focused tests for duplicate worktree owner detection and review/issues sidebar summaries.
+- [x] 8.15 Add focused tests for proactive sidebar worktree status refresh and file-level summary layout constraints.
 
 ## 9. Univer Surface Breadcrumb Route
 

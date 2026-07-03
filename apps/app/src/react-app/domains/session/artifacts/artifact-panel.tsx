@@ -18,11 +18,11 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  GitBranch,
   GitCompareArrows,
   GitMerge,
   Lock,
   Loader2,
-  MoreHorizontal,
   PencilLine,
   Presentation,
   Sheet,
@@ -62,7 +62,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -78,7 +77,10 @@ import {
   usePanelTabStore,
 } from "../panel/panel-tab-store";
 import { notifyUniverSessionMetadataUpdated } from "../univer-session-events";
-import { normalizeUniverTargetPath } from "../univer-worktree-status-store";
+import {
+  normalizeUniverTargetPath,
+  useUniverWorktreeStatusStore,
+} from "../univer-worktree-status-store";
 import {
   isCollectibleArtifactTarget,
   type BinaryData,
@@ -107,6 +109,7 @@ import {
 } from "./univer-cowork-session";
 import {
   deriveUniverArtifactHeaderViewModel,
+  type UniverArtifactHeaderBridgeAction,
   type UniverArtifactHeaderFileActionId,
   type UniverArtifactHeaderUnitOption,
   type UniverArtifactHeaderViewModel,
@@ -137,6 +140,7 @@ type ArtifactPanelProps = {
   workspaceRoot: string;
   workspaceSessions?: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
   onClose: () => void;
 };
 
@@ -148,6 +152,7 @@ type ArtifactPanelViewProps = {
   workspaceSessions: SidebarSessionItem[];
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
   onClose: () => void;
 };
 
@@ -249,6 +254,7 @@ export function ArtifactPanel({
   workspaceRoot,
   workspaceSessions = [],
   isRemoteWorkspace = false,
+  onOpenSession,
   onClose,
 }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore(
@@ -274,6 +280,7 @@ export function ArtifactPanel({
       workspaceSessions={workspaceSessions}
       isRemoteWorkspace={isRemoteWorkspace}
       target={target}
+      onOpenSession={onOpenSession}
       onClose={onClose}
     />
   );
@@ -287,6 +294,7 @@ function ArtifactPanelView({
   workspaceSessions,
   isRemoteWorkspace = false,
   target,
+  onOpenSession,
   onClose,
 }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
@@ -553,6 +561,7 @@ function ArtifactPanelView({
           sessionWorktreeId={sessionWorktreeId}
           fileIcon={fileIcon}
           isRemoteWorkspace={isRemoteWorkspace}
+          onOpenSession={onOpenSession}
           onDownload={download}
           onReveal={revealExternal}
           onClose={onClose}
@@ -829,6 +838,7 @@ interface UniverArtifactWorkspaceProps {
   sessionWorktreeId: string | null;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
   onDownload: () => void | Promise<void>;
   onReveal: () => void | Promise<void>;
   onClose: () => void;
@@ -843,6 +853,7 @@ function UniverArtifactWorkspace({
   sessionWorktreeId,
   fileIcon,
   isRemoteWorkspace,
+  onOpenSession,
   onDownload,
   onReveal,
   onClose,
@@ -873,6 +884,7 @@ function UniverArtifactWorkspace({
         worktreeOwnershipById={worktreeOwnershipById}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
+        onOpenSession={onOpenSession}
         onDownload={onDownload}
         onReveal={onReveal}
         onClose={onClose}
@@ -888,6 +900,7 @@ function UniverArtifactWorkspace({
         worktreeOwnershipById={worktreeOwnershipById}
         fileIcon={fileIcon}
         isRemoteWorkspace={isRemoteWorkspace}
+        onOpenOwnerSession={(ownerSessionId) => onOpenSession?.(workspaceId, ownerSessionId)}
         onDownload={onDownload}
         onReveal={onReveal}
         onClose={onClose}
@@ -915,6 +928,7 @@ interface UniverArtifactWorkspaceContentProps {
   worktreeOwnershipById: Record<string, UniverArtifactHeaderWorktreeOwnership>;
   fileIcon: string | null | undefined;
   isRemoteWorkspace: boolean;
+  onOpenSession?: (workspaceId: string, sessionId: string) => void;
   onDownload: () => void | Promise<void>;
   onReveal: () => void | Promise<void>;
   onClose: () => void;
@@ -932,11 +946,13 @@ function UniverArtifactWorkspaceContent({
   worktreeOwnershipById,
   fileIcon,
   isRemoteWorkspace,
+  onOpenSession,
   onDownload,
   onReveal,
   onClose,
 }: UniverArtifactWorkspaceContentProps) {
   const snapshot = useCoworkSnapshot(controller);
+  const updateTargetSnapshot = useUniverWorktreeStatusStore((state) => state.updateTargetSnapshot);
   const [contentView, setContentView] = useState<CoworkContentViewState | null>(
     null,
   );
@@ -965,6 +981,11 @@ function UniverArtifactWorkspaceContent({
 
   useEffect(() => {
     if (snapshot.loadState !== "ready") return;
+    updateTargetSnapshot(workspaceId, target.value, snapshot);
+  }, [snapshot, target.value, updateTargetSnapshot, workspaceId]);
+
+  useEffect(() => {
+    if (snapshot.loadState !== "ready") return;
     const nextView = contentViewFromTarget(snapshot, target, contentView);
     if (!sameContentView(contentView, nextView)) {
       setContentView(nextView);
@@ -978,42 +999,63 @@ function UniverArtifactWorkspaceContent({
     sessionWorktreeId ?? target.sessionWorktreeId ?? target.worktreeId ?? null;
 
   useEffect(() => {
-    if (!target.worktreeId?.trim()) return;
     void controller.refresh();
   }, [controller, target.value, target.worktreeId]);
 
-  const syncTargetRoute = (nextTarget: UniverTarget) => {
+  const syncTargetRouteForSession = (
+    targetSessionId: string,
+    nextTarget: UniverTarget,
+    sessionWorktreeOwnerId: string | null,
+  ) => {
     const store = usePanelTabStore.getState();
     const nextTargetWithOwner = targetWithSessionWorktreeOwner(
       nextTarget,
-      routeOwnerWorktreeId,
+      sessionWorktreeOwnerId,
     );
 
-    store.upsertTranscriptArtifactTarget(sessionId, nextTargetWithOwner);
-    store.openTab(sessionId, {
+    store.upsertTranscriptArtifactTarget(targetSessionId, nextTargetWithOwner);
+    store.openTab(targetSessionId, {
       id: nextTargetWithOwner.id,
       type: "artifact",
       label: nextTargetWithOwner.name,
       preview: nextTargetWithOwner.preview,
     });
-    store.selectTab(sessionId, nextTargetWithOwner.id);
+    store.selectTab(targetSessionId, nextTargetWithOwner.id);
+  };
+
+  const targetForContentView = (view: CoworkContentViewState) => {
+    if (view.scope === "trunk") {
+      return targetFromSelection(target, { type: "unit", unitId: view.unitId });
+    }
+    return targetFromSelection(target, {
+      type: "reviewUnit",
+      worktreeId: view.worktreeId,
+      unitId: view.unitId,
+    });
+  };
+
+  const syncTargetRoute = (nextTarget: UniverTarget) => {
+    syncTargetRouteForSession(sessionId, nextTarget, routeOwnerWorktreeId);
   };
 
   const setContentViewAndRoute = (view: CoworkContentViewState) => {
     setContentView(view);
-    if (view.scope === "trunk") {
-      syncTargetRoute(
-        targetFromSelection(target, { type: "unit", unitId: view.unitId }),
+    syncTargetRoute(targetForContentView(view));
+  };
+
+  const openOwnerSession = (
+    ownerSessionId: string,
+    view?: CoworkContentViewState,
+  ) => {
+    if (view) {
+      const ownerWorktreeId = view.scope === "trunk" ? null : view.worktreeId;
+      syncTargetRouteForSession(
+        ownerSessionId,
+        targetForContentView(view),
+        ownerWorktreeId,
       );
-      return;
     }
-    syncTargetRoute(
-      targetFromSelection(target, {
-        type: "reviewUnit",
-        worktreeId: view.worktreeId,
-        unitId: view.unitId,
-      }),
-    );
+    onOpenSession?.(workspaceId, ownerSessionId);
   };
 
   const setTrunkEditIntent = (
@@ -1100,6 +1142,7 @@ function UniverArtifactWorkspaceContent({
         }}
         onMergeWorktree={mergeWorktree}
         onDiscardWorktree={discardWorktree}
+        onOpenOwnerSession={openOwnerSession}
         onDownload={onDownload}
         onReveal={onReveal}
         onClose={onClose}
@@ -1109,6 +1152,7 @@ function UniverArtifactWorkspaceContent({
         surface={surface}
         viewerDataSource={viewerDataSource}
         contentSurface={contentSurface}
+        snapshot={snapshot}
         error={null}
         isError={false}
         isLoading={false}
@@ -1131,6 +1175,7 @@ interface UniverArtifactHeaderProps {
   onStopTrunkEdit?: () => void;
   onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
   onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
+  onOpenOwnerSession?: (ownerSessionId: string, view?: CoworkContentViewState) => void;
   onDownload: () => void | Promise<void>;
   onReveal: () => void | Promise<void>;
   onClose: () => void;
@@ -1160,6 +1205,7 @@ export function UniverArtifactHeader({
   onStopTrunkEdit,
   onMergeWorktree,
   onDiscardWorktree,
+  onOpenOwnerSession,
   onDownload,
   onReveal,
   onClose,
@@ -1199,13 +1245,12 @@ export function UniverArtifactHeader({
       ? viewModel.editGate.action
       : undefined;
   const reviewActions = viewModel.contentActions.filter(isReviewDecisionAction);
-  const secondaryActions = viewModel.contentActions.filter(
+  const worktreeViewActions = viewModel.contentActions.filter(
     (action) => !isReviewDecisionAction(action),
   );
+  const bridgeActions = viewModel.bridgeActions;
   const primaryStatus = primaryStatusFor(viewModel);
-  const hasSecondaryWorkflowActions = Boolean(
-    editAction || secondaryActions.length > 0,
-  );
+  const hasWorktreeViewActions = worktreeViewActions.length > 0;
 
   return (
     <div
@@ -1218,16 +1263,50 @@ export function UniverArtifactHeader({
             viewModel={viewModel}
             onContentViewChange={onContentViewChange}
           />
-          {primaryStatus ? (
-            <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
-              <UniverArtifactHeaderPrimaryStatus status={primaryStatus} />
+          {primaryStatus || bridgeActions.length > 0 || editAction ? (
+            <div
+              className="flex min-w-0 shrink-0 items-center gap-1 overflow-hidden"
+              data-testid="univer-artifact-header-status-actions"
+            >
+              {primaryStatus ? (
+                <UniverArtifactHeaderPrimaryStatus status={primaryStatus} />
+              ) : null}
+              {bridgeActions.map((action) => (
+                <UniverArtifactHeaderBridgeActionButton
+                  key={bridgeActionKey(action)}
+                  action={action}
+                  onContentViewChange={onContentViewChange}
+                  onOpenOwnerSession={onOpenOwnerSession}
+                />
+              ))}
+              {editAction ? (
+                <UniverArtifactHeaderEditAction
+                  action={editAction}
+                  onRequestTrunkEdit={onRequestTrunkEdit}
+                  onStopTrunkEdit={onStopTrunkEdit}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {hasWorktreeViewActions ? (
+            <div
+              className="flex min-w-0 shrink-0 items-center justify-end overflow-hidden"
+              data-testid="univer-artifact-header-view-switch"
+            >
+              <UniverArtifactHeaderWorktreeViewSwitch
+                actions={worktreeViewActions}
+                onContentViewChange={onContentViewChange}
+              />
+            </div>
+          ) : null}
           {reviewActions.length > 0 ? (
             <div
-              className="flex min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden"
+              className={cn(
+                "flex min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden",
+                hasWorktreeViewActions && "ml-1 border-l border-border pl-1.5",
+              )}
               data-testid="univer-artifact-header-review-actions"
             >
               {reviewActions.map((action) => (
@@ -1240,35 +1319,6 @@ export function UniverArtifactHeader({
                 />
               ))}
             </div>
-          ) : null}
-          {hasSecondaryWorkflowActions ? (
-            <>
-              <div
-                className="hidden min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-hidden @3xl/univer-artifact-header:flex"
-                data-testid="univer-artifact-header-secondary-actions"
-              >
-                <UniverArtifactHeaderContentControls
-                  viewModel={viewModel}
-                  actions={secondaryActions}
-                  onContentViewChange={onContentViewChange}
-                  onRequestTrunkEdit={onRequestTrunkEdit}
-                  onStopTrunkEdit={onStopTrunkEdit}
-                  onMergeWorktree={onMergeWorktree}
-                  onDiscardWorktree={onDiscardWorktree}
-                />
-              </div>
-              <div className="flex min-w-0 shrink-0 items-center gap-1 @3xl/univer-artifact-header:hidden">
-                <UniverArtifactHeaderWorkflowMenu
-                  viewModel={viewModel}
-                  actions={secondaryActions}
-                  onContentViewChange={onContentViewChange}
-                  onRequestTrunkEdit={onRequestTrunkEdit}
-                  onStopTrunkEdit={onStopTrunkEdit}
-                  onMergeWorktree={onMergeWorktree}
-                  onDiscardWorktree={onDiscardWorktree}
-                />
-              </div>
-            </>
           ) : null}
           {viewModel.fileActions.map((action) => (
             <Tooltip key={action.id}>
@@ -1377,7 +1427,7 @@ function UniverSurfaceSelector({
               </div>
             ) : null}
             <DropdownMenuGroup>
-              <DropdownMenuLabel>
+              <div className="px-3 py-2.5 text-xs text-muted-foreground">
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{worktree.label}</span>
                   {worktree.description ? (
@@ -1386,7 +1436,7 @@ function UniverSurfaceSelector({
                     </span>
                   ) : null}
                 </span>
-              </DropdownMenuLabel>
+              </div>
               {worktree.unitOptions.map((option) => (
                 <DropdownMenuItem
                   key={`${worktree.id}:${option.unitId}`}
@@ -1636,125 +1686,103 @@ function UniverArtifactHeaderPrimaryStatus({
   );
 }
 
-function UniverArtifactHeaderContentControls({
-  viewModel,
-  actions,
+function bridgeActionKey(action: UniverArtifactHeaderBridgeAction): string {
+  if (action.type === "openPendingWorktree") {
+    const targetId = action.target.scope === "trunk" ? "trunk" : action.target.worktreeId;
+    return `${action.type}:${action.ownerSessionId ?? "current"}:${targetId}:${action.target.unitId}`;
+  }
+  return `${action.type}:${action.ownerSessionId}`;
+}
+
+function UniverArtifactHeaderBridgeActionButton({
+  action,
   onContentViewChange,
-  onRequestTrunkEdit,
-  onStopTrunkEdit,
-  onMergeWorktree,
-  onDiscardWorktree,
+  onOpenOwnerSession,
 }: {
-  viewModel: UniverArtifactHeaderViewModel;
-  actions: CoworkContentAction[];
+  action: UniverArtifactHeaderBridgeAction;
   onContentViewChange?: (view: CoworkContentViewState) => void;
-  onRequestTrunkEdit?: () => void;
-  onStopTrunkEdit?: () => void;
-  onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
-  onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
+  onOpenOwnerSession?: (ownerSessionId: string, view?: CoworkContentViewState) => void;
 }) {
-  const editAction =
-    viewModel.editGate && "action" in viewModel.editGate
-      ? viewModel.editGate.action
-      : undefined;
+  if (action.type === "openPendingWorktree") {
+    return (
+      <Button
+        variant="secondary"
+        size="xs"
+        className="h-6 max-w-[8.5rem] shrink-0 overflow-hidden px-2 text-[11px]"
+        title={action.tooltip}
+        aria-label={action.label}
+        onClick={() => {
+          if (action.ownerSessionId) {
+            onOpenOwnerSession?.(action.ownerSessionId, action.target);
+            return;
+          }
+          onContentViewChange?.(action.target);
+        }}
+      >
+        <GitCompareArrows data-icon="inline-start" />
+        <span className="min-w-0 truncate">{action.label}</span>
+      </Button>
+    );
+  }
 
   return (
-    <>
-      {editAction ? (
-        <UniverArtifactHeaderEditAction
-          action={editAction}
-          onRequestTrunkEdit={onRequestTrunkEdit}
-          onStopTrunkEdit={onStopTrunkEdit}
-        />
-      ) : null}
-      {actions.map((action) => (
+    <Button
+      variant="secondary"
+      size="xs"
+      className="h-6 max-w-[8rem] shrink-0 overflow-hidden px-2 text-[11px]"
+      title={action.tooltip}
+      aria-label={action.label}
+      onClick={() => onOpenOwnerSession?.(action.ownerSessionId, action.target)}
+    >
+      <GitBranch data-icon="inline-start" />
+      <span className="min-w-0 truncate">{action.label}</span>
+    </Button>
+  );
+}
+
+type CoworkSetContentScopeAction = Extract<CoworkContentAction, { type: "setContentScope" }>;
+
+function isContentScopeAction(action: CoworkContentAction): action is CoworkSetContentScopeAction {
+  return action.type === "setContentScope";
+}
+
+function worktreeViewActionOrder(action: CoworkSetContentScopeAction): number {
+  if (action.target.scope === "worktree") return 0;
+  if (action.target.scope === "mergePreview") return 1;
+  return 2;
+}
+
+function orderedWorktreeViewActions(
+  actions: CoworkContentAction[],
+): CoworkSetContentScopeAction[] {
+  return [...actions.filter(isContentScopeAction)]
+    .sort((left, right) => worktreeViewActionOrder(left) - worktreeViewActionOrder(right));
+}
+
+function UniverArtifactHeaderWorktreeViewSwitch({
+  actions,
+  onContentViewChange,
+}: {
+  actions: CoworkContentAction[];
+  onContentViewChange?: (view: CoworkContentViewState) => void;
+}) {
+  const viewActions = orderedWorktreeViewActions(actions);
+  if (viewActions.length === 0) return null;
+
+  return (
+    <div
+      className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
+      role="group"
+      aria-label="切换 Worktree 查看方式"
+    >
+      {viewActions.map((action) => (
         <UniverArtifactHeaderContentAction
           key={contentActionKey(action)}
           action={action}
           onContentViewChange={onContentViewChange}
-          onMergeWorktree={onMergeWorktree}
-          onDiscardWorktree={onDiscardWorktree}
         />
       ))}
-    </>
-  );
-}
-
-function UniverArtifactHeaderWorkflowMenu({
-  viewModel,
-  actions,
-  onContentViewChange,
-  onRequestTrunkEdit,
-  onStopTrunkEdit,
-  onMergeWorktree,
-  onDiscardWorktree,
-}: {
-  viewModel: UniverArtifactHeaderViewModel;
-  actions: CoworkContentAction[];
-  onContentViewChange?: (view: CoworkContentViewState) => void;
-  onRequestTrunkEdit?: () => void;
-  onStopTrunkEdit?: () => void;
-  onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
-  onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
-}) {
-  const editAction =
-    viewModel.editGate && "action" in viewModel.editGate
-      ? viewModel.editGate.action
-      : undefined;
-
-  if (!editAction && actions.length === 0) {
-    return null;
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="打开工作流控件"
-            title="工作流"
-          >
-            <MoreHorizontal />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" className="w-64">
-        {editAction ? (
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              onClick={() =>
-                runCoworkEditAction(editAction, {
-                  onRequestTrunkEdit,
-                  onStopTrunkEdit,
-                })
-              }
-            >
-              <PencilLine className="size-4" />
-              <span>{editActionCopy(editAction).label}</span>
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        ) : null}
-        {actions.length > 0 ? (
-          <>
-            {editAction ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>查看方式</DropdownMenuLabel>
-              {actions.map((action) => (
-                <UniverArtifactHeaderContentMenuItem
-                  key={contentActionKey(action)}
-                  action={action}
-                  onContentViewChange={onContentViewChange}
-                  onMergeWorktree={onMergeWorktree}
-                  onDiscardWorktree={onDiscardWorktree}
-                />
-              ))}
-            </DropdownMenuGroup>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </div>
   );
 }
 
@@ -1905,8 +1933,9 @@ function UniverArtifactHeaderEditAction({
       <TooltipTrigger
         render={
           <Button
-            variant="ghost"
+            variant="secondary"
             size="xs"
+            className="h-6 max-w-[7rem] shrink-0 overflow-hidden px-2 text-[11px]"
             title={copy.tooltip}
             onClick={() =>
               runCoworkEditAction(action, {
@@ -1916,7 +1945,7 @@ function UniverArtifactHeaderEditAction({
             }
           >
             <PencilLine data-icon="inline-start" />
-            <span>{copy.label}</span>
+            <span className="min-w-0 truncate">{copy.label}</span>
           </Button>
         }
       />
@@ -1954,9 +1983,14 @@ function UniverArtifactHeaderContentAction({
   if (action.type === "setContentScope") {
     return (
       <Button
-        variant={action.selected ? "secondary" : "ghost"}
+        variant="ghost"
         size="xs"
-        className="max-w-[8.5rem] overflow-hidden px-2"
+        className={cn(
+          "h-6 max-w-[5.75rem] overflow-hidden rounded-[5px] px-2 text-[11px]",
+          action.selected
+            ? "bg-background text-foreground shadow-sm hover:bg-background"
+            : "text-muted-foreground hover:text-foreground",
+        )}
         disabled={action.disabledReason !== undefined}
         aria-pressed={action.selected}
         aria-label={copy.ariaLabel}
@@ -1975,9 +2009,8 @@ function UniverArtifactHeaderContentAction({
         <TooltipTrigger
           render={
             <Button
-              variant="secondary"
-              size="xs"
-              className="px-2"
+              variant="ghost"
+              size="icon-sm"
               title={copy.tooltip}
               disabled={
                 action.status === "running" || action.disabledReason !== undefined
@@ -1986,7 +2019,6 @@ function UniverArtifactHeaderContentAction({
               onClick={() => void onMergeWorktree?.(action.worktreeId)}
             >
               <UniverArtifactHeaderContentActionIcon action={action} />
-              <span>{copy.label}</span>
             </Button>
           }
         />
@@ -2002,8 +2034,8 @@ function UniverArtifactHeaderContentAction({
           render={
             <Button
               variant="ghost"
-              size="xs"
-              className="px-2 text-destructive hover:text-destructive"
+              size="icon-sm"
+              className="text-destructive hover:text-destructive"
               title={copy.tooltip}
               disabled={
                 action.status === "running" || action.disabledReason === "busy"
@@ -2012,7 +2044,6 @@ function UniverArtifactHeaderContentAction({
               onClick={() => void onDiscardWorktree?.(action.worktreeId)}
             >
               <UniverArtifactHeaderContentActionIcon action={action} />
-              <span>{copy.label}</span>
             </Button>
           }
         />
@@ -2021,62 +2052,6 @@ function UniverArtifactHeaderContentAction({
     );
   }
 
-  return null;
-}
-
-function UniverArtifactHeaderContentMenuItem({
-  action,
-  onContentViewChange,
-  onMergeWorktree,
-  onDiscardWorktree,
-}: {
-  action: CoworkContentAction;
-  onContentViewChange?: (view: CoworkContentViewState) => void;
-  onMergeWorktree?: (worktreeId: string) => void | Promise<void>;
-  onDiscardWorktree?: (worktreeId: string) => void | Promise<void>;
-}) {
-  const copy = contentActionCopy(action);
-  if (action.type === "setContentScope") {
-    return (
-      <DropdownMenuItem
-        disabled={action.disabledReason !== undefined}
-        onClick={() => onContentViewChange?.(action.target)}
-        aria-label={copy.ariaLabel}
-        title={copy.tooltip}
-      >
-        <UniverArtifactHeaderContentActionIcon action={action} />
-        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
-        {action.selected ? <Check className="size-3.5 shrink-0" /> : null}
-      </DropdownMenuItem>
-    );
-  }
-  if (action.type === "mergeWorktree") {
-    return (
-      <DropdownMenuItem
-        disabled={action.status === "running" || action.disabledReason !== undefined}
-        onClick={() => void onMergeWorktree?.(action.worktreeId)}
-        aria-label={copy.ariaLabel}
-        title={copy.tooltip}
-      >
-        <UniverArtifactHeaderContentActionIcon action={action} />
-        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
-      </DropdownMenuItem>
-    );
-  }
-  if (action.type === "discardWorktree") {
-    return (
-      <DropdownMenuItem
-        variant="destructive"
-        disabled={action.status === "running" || action.disabledReason === "busy"}
-        onClick={() => void onDiscardWorktree?.(action.worktreeId)}
-        aria-label={copy.ariaLabel}
-        title={copy.tooltip}
-      >
-        <UniverArtifactHeaderContentActionIcon action={action} />
-        <span className="min-w-0 flex-1 truncate">{copy.label}</span>
-      </DropdownMenuItem>
-    );
-  }
   return null;
 }
 
@@ -2120,13 +2095,13 @@ function contentActionCopy(action: CoworkContentAction): {
   if (action.type === "setContentScope") {
     if (action.target.scope === "mergePreview") {
       return {
-        label: "预览合入后",
+        label: "合入后",
         tooltip: "预览这些修改合入当前版本后的结果。",
         ariaLabel: "预览合入后",
       };
     }
     return {
-      label: "查看修改",
+      label: "修改",
       tooltip: "查看这个 worktree 的修改内容。",
       ariaLabel: "查看修改",
     };
@@ -2209,6 +2184,7 @@ interface UniverContentViewerSurfaceProps {
   surface: UniverOpenSurface | undefined;
   viewerDataSource?: CoworkContentViewerDataSource | null;
   contentSurface?: CoworkContentSurface | null;
+  snapshot?: CoworkSnapshot | null;
   error: Error | null;
   isError: boolean;
   isLoading: boolean;
@@ -2219,6 +2195,7 @@ function UniverContentViewerSurface({
   surface,
   viewerDataSource,
   contentSurface,
+  snapshot,
   error,
   isError,
   isLoading,
@@ -2253,9 +2230,15 @@ function UniverContentViewerSurface({
         }
       />
     );
+  } else if (snapshot?.loadState === "error") {
+    content = (
+      <PreviewError
+        message={snapshot.error?.message ?? "Failed to load Univer content."}
+      />
+    );
   } else {
     if (!viewerRequest || !viewerDataSource) {
-      content = <PreviewUnavailable />;
+      content = <PreviewLoading />;
     } else {
       content = (
         <>

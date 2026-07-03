@@ -48,13 +48,13 @@ Default source selection follows the selected task state. Ready, conflict, and w
 
 ### Decision 3: View actions belong to the selected worktree
 
-`查看修改` and `预览合入后` are `Selected Worktree View Action`s. They apply to the selected worktree and change how that worktree is inspected. They are not rows in the surface selector and not path segments.
+`修改` and `合入后` are `Selected Worktree View Action`s. They apply to the selected worktree and change how that worktree is inspected. They are not rows in the surface selector and not path segments.
 
 Recommended ready-review shape:
 
-`季度汇总表 / 中国大陆工资表    查看修改    预览合入后`
+`季度汇总表 / 中国大陆工资表    修改 | 合入后`
 
-When the user chooses `预览合入后`, the selected worktree remains `季度汇总表`; only the rendered view mode changes.
+When the user chooses `合入后`, the selected worktree remains `季度汇总表`; only the rendered view mode changes.
 
 ### Decision 4: Merge and discard are first-line human review decisions
 
@@ -62,11 +62,17 @@ When the user chooses `预览合入后`, the selected worktree remains `季度�
 
 Reviewable worktree shape:
 
-`季度汇总表 / 中国大陆工资表    查看修改    预览合入后    合入    丢弃`
+`季度汇总表 / 中国大陆工资表    修改 | 合入后    合入    丢弃`
 
 These review decisions must be visible as first-line controls when available. They must not be hidden inside `...`.
 
 Review decisions are scoped to the selected worktree source. If the current task owns a ready worktree but the selector is currently on `当前版本`, the header should hide `合入` and `丢弃` and may show a concise pending-work status instead. This keeps every first-line review action attached to the source currently shown in the selector.
+
+That pending state must still bridge to the next step. When `当前版本` is selected and OpenWork can resolve the pending worktree, the normal bar should expose a first-line `查看待处理` action that takes the user directly to the place where that worktree can be handled. If the worktree belongs to the current task, the action switches the Univer Surface Route to that worktree. If the worktree belongs to another known task, the action opens that owning task and preselects the same Univerfile/worktree route there. Only after the owning source is selected should `合入` and `丢弃` appear. The user should not have to infer that the status chip is clickable, open a separate panel, or manually click `打开所属任务` after viewing a read-only source.
+
+The bridge action belongs visually with the status that creates it. `待处理` and `查看待处理` should appear as one readable cluster next to the surface selector. The action must not be placed in the far-right file fallback zone, because that zone is for download, reveal, and close. The same rule applies to `只读` plus `打开所属任务` for other-task sources.
+
+`查看待处理` is deliberately different from the selected-worktree view action. On `当前版本`, it is a bridge to pending work; on a selected worktree, the view switch should use short view-mode labels such as `修改` and `合入后`.
 
 ### Decision 5: Normal bar status is concise and priority-driven
 
@@ -83,7 +89,9 @@ Priority order for the normal bar:
 
 Longer copy such as `最新版本有改动 · 可预览合入后`, `最新版本有改动 · 正在预览合入后`, `有待处理修改`, or `正在编辑当前版本` belongs in tooltip text or expanded detail rather than as the normal bar label.
 
-`预览合入后` selected state is view state, not a separate status chip. `可合入` is represented by the presence of the `合入` review action and by expanded worktree detail; it should not become a normal-bar status chip.
+`合入后` selected state is view state, not a separate status chip. `可合入` is represented by the presence of the `合入` review action and by expanded worktree detail; it should not become a normal-bar status chip.
+
+Read-only other-task state must also provide a bridge when OpenWork knows the owning task. The status may remain `只读`, but the normal bar should expose `打开所属任务` as the primary recovery/navigation action so the user can reach the session where merge or discard is allowed.
 
 ### Decision 6: Edit gate and unit change state are status, not navigation
 
@@ -118,12 +126,12 @@ Invalid overflow content includes:
 The header should keep stable semantic zones:
 
 1. Surface selector zone: one control for selected worktree source and unit.
-2. Selected-worktree action zone: view actions and first-line review decisions for the selected worktree.
-3. Status zone: at most one concise primary status chip, selected by risk/action priority.
-4. Overflow action zone: secondary actions only when present.
+2. State cluster zone: at most one concise primary status chip, selected by risk/action priority, plus the first-line bridge/edit action created by that status when one exists.
+3. Worktree view switch zone: a compact segmented control for `修改` and `合入后`, shown only when the selected source is a worktree with switchable views.
+4. Review decision zone: first-line human decisions such as `合入` and `丢弃`, scoped to the selected worktree.
 5. File fallback zone: download, reveal, close.
 
-In constrained width, protect the surface selector and first-line review decisions. Secondary details, diagnostics, and lower-priority view actions may collapse before merge/discard. File fallback actions remain separate from review workflow actions.
+In constrained width, protect the surface selector, state cluster, and first-line review decisions. Secondary details and lower-priority view actions may collapse before merge/discard. File fallback actions remain separate from review workflow actions.
 
 ## Rejected Alternatives
 

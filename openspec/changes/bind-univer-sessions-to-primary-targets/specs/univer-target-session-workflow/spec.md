@@ -40,6 +40,7 @@ OpenWork SHALL auto-discover visible `.univer` files in the workspace and render
 - **THEN** it SHALL show compact Univerfile metadata including file name, unit count, and actionable session count
 - **AND** it SHALL use existing Univerfile language and SHALL NOT display a generic `Target` label
 - **AND** unit count and actionable session count SHALL render as compact numeric badges only when present
+- **AND** actionable session summaries SHALL shrink or truncate before they obscure the Univerfile name
 - **AND** it SHALL NOT expand into a unit tree
 
 #### Scenario: Empty Univerfile row does not create filler sessions
@@ -116,6 +117,7 @@ OpenWork SHALL render each bound task session row with a task title and one prim
 - **AND** OpenWork SHALL NOT treat agent text as authoritative for working, ready, conflict, merged, discarded, or needs-attention state
 - **AND** OpenWork SHALL use task status labels such as `Review`, `Conflict`, `Attention`, `Working`, `Merged`, and `Discarded`
 - **AND** OpenWork SHALL NOT use implementation concepts such as `Worktree` as session row status labels
+- **AND** OpenWork SHALL refresh live review state for bound Univerfile rows without requiring the user to open the composer `Worktree` panel first
 
 #### Scenario: Univerfile row summarizes task states by category
 
@@ -211,6 +213,8 @@ OpenWork SHALL associate modifying task worktrees with the owning Univer Task Se
 - **WHEN** a session is in Worktree Ownership Conflict
 - **THEN** the Worktree Panel SHALL explain which task owns the worktree
 - **AND** Open owning task SHALL be the primary recovery action
+- **AND** the Univer Artifact Header SHALL also expose `打开所属任务` when that conflicting worktree source is selected or summarized as read-only
+- **AND** opening the owning task from the Univer Artifact Header SHALL preselect the same Primary Univerfile worktree route in that task
 - **AND** Create new task from here MAY remain available as a secondary recovery action
 
 #### Scenario: Session has at most one active worktree

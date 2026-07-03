@@ -36,6 +36,7 @@ OpenWork SHALL route `.univer` spreadsheet, document, and slide navigation, view
 - **WHEN** a user views a ready-for-review worktree in merge preview scope
 - **THEN** OpenWork SHALL pass a `mergePreview` viewer request to the Cowork Content Viewer
 - **AND** the viewer SHALL use cowork review-unit preview data rather than the gateway-served embedded page
+- **AND** the native viewer SHALL render the preview without falling back to the artifact error state
 
 #### Scenario: Supported editing follows cowork edit gate
 

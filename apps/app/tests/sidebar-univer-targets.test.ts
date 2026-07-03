@@ -378,7 +378,10 @@ describe("sidebar Univer target grouping", () => {
 
     expect(source).not.toContain("unitCountLabel");
     expect(source).not.toContain("unitCountTitle");
-    expect(source).toContain('const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none"');
+    expect(source).toContain('const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 max-w-[8.5rem] flex-[0_1_auto] items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none"');
+    expect(source).toContain('const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md pe-16 ps-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"');
+    expect(source).toContain('<span className="min-w-[4rem] flex-1 truncate">{hub.target.name}</span>');
+    expect(source).toContain('<span className="min-w-0 truncate">{taskSummaryLabel}</span>');
     expect(source).toContain('countPhrase(hub.reviewSessionCount, "review", "reviews")');
     expect(source).toContain('countPhrase(hub.issueSessionCount, "issue", "issues")');
     expect(source).toContain("buildUniverFileTaskSummary(hub)");
@@ -400,5 +403,37 @@ describe("sidebar Univer target grouping", () => {
     expect(source).toContain("const canDeleteUnavailableTarget = !hub.target.discovered");
     expect(source).toContain("Remove unavailable Univerfile");
     expect(source).toContain("ctx.onOpenDeleteUnavailableUniverTarget?.(workspaceId, hub.target.name, hub.target.path, hubSessionIds)");
+  });
+
+  test("pauses sidebar Univer status probes while a Univer artifact is open", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
+    const start = source.indexOf("function buildSidebarUniverStatusProbeTargets");
+    const end = source.indexOf("function SidebarUniverWorktreeStatusProbes", start);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const probeSource = source.slice(start, end);
+    expect(probeSource).toContain("univerArtifactActive: boolean");
+    expect(probeSource).toContain("selectedSessionLoading: boolean");
+    expect(probeSource).toContain("if (selectedSessionLoading) return []");
+    expect(probeSource).toContain("if (univerArtifactActive) return []");
+    expect(probeSource).toContain("addSidebarUniverStatusProbeTarget(targetsByPath, selectedSession?.primaryUniverTarget)");
+    expect(probeSource).not.toContain("const maxTargets = activeTarget ? 2");
+    expect(probeSource).not.toContain("addSidebarUniverStatusProbeTarget(targetsByPath, activeTarget)");
+    expect(probeSource).not.toContain("for (const target of group.univerTargets)");
+    expect(probeSource).not.toContain("addSidebarUniverStatusProbeTarget(targetsByPath, target)");
+    expect(probeSource).toContain("MAX_SIDEBAR_UNIVER_STATUS_PROBES");
+  });
+
+  test("delays sidebar Univer status refresh so artifact panels can claim priority", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
+
+    expect(source).toContain("const MAX_SIDEBAR_UNIVER_STATUS_PROBES = 1");
+    expect(source).toContain("const targetSignature = targets.map((target) => target.id).join");
+    expect(source).toContain("const [activeTargetSignature, setActiveTargetSignature] = useState(\"\")");
+    expect(source).toContain("setActiveTargetSignature(targetSignature)");
+    expect(source).toContain("const activeTargets = activeTargetSignature === targetSignature ? targets : []");
+    expect(source).toContain("window.clearTimeout(timeoutId)");
   });
 });

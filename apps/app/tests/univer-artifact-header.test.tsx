@@ -470,6 +470,144 @@ describe("deriveUniverArtifactHeaderViewModel", () => {
     ]);
   });
 
+  test("offers a bridge action from current version to pending task changes", () => {
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" }),
+      isRemoteWorkspace: false,
+      snapshot: readySnapshot,
+      currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      sessionWorktreeId: "wt_1",
+      contentState: {
+        unitTitle: "中国大陆工资表",
+        unitId: "unit_1",
+        scope: "trunk",
+        editGate: {
+          status: "locked",
+          editable: false,
+          label: "已锁定",
+          pendingWorktreeCount: 1,
+          action: { type: "requestTrunkEdit", label: "仍要编辑" },
+        },
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.bridgeActions).toEqual([
+      {
+        type: "openPendingWorktree",
+        label: "查看待处理",
+        tooltip: "查看「Review payroll edits」的待处理修改。",
+        target: { scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" },
+      },
+    ]);
+  });
+
+  test("bridges pending current-version state even before ownership is classified", () => {
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" }),
+      isRemoteWorkspace: false,
+      snapshot: readySnapshot,
+      currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      contentState: {
+        unitTitle: "中国大陆工资表",
+        unitId: "unit_1",
+        scope: "trunk",
+        editGate: {
+          status: "locked",
+          editable: false,
+          label: "已锁定",
+          pendingWorktreeCount: 1,
+          action: { type: "requestTrunkEdit", label: "继续编辑" },
+        },
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.bridgeActions).toEqual([
+      {
+        type: "openPendingWorktree",
+        label: "查看待处理",
+        tooltip: "查看「Review payroll edits」的待处理修改。",
+        target: { scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" },
+      },
+    ]);
+  });
+
+  test("bridges locked current-version state when pending count has not refreshed", () => {
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" }),
+      isRemoteWorkspace: false,
+      snapshot: readySnapshot,
+      currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      contentState: {
+        unitTitle: "中国大陆工资表",
+        unitId: "unit_1",
+        scope: "trunk",
+        editGate: {
+          status: "locked",
+          editable: false,
+          label: "已锁定",
+          pendingWorktreeCount: 0,
+          action: { type: "requestTrunkEdit", label: "继续编辑" },
+        },
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.bridgeActions).toEqual([
+      {
+        type: "openPendingWorktree",
+        label: "查看待处理",
+        tooltip: "查看「Review payroll edits」的待处理修改。",
+        target: { scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" },
+      },
+    ]);
+  });
+
+  test("routes pending changes directly to the owning task when ownership is known", () => {
+    const model = deriveUniverArtifactHeaderViewModel({
+      target: fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" }),
+      isRemoteWorkspace: false,
+      snapshot: readySnapshot,
+      currentView: { scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" },
+      contentState: {
+        unitTitle: "中国大陆工资表",
+        unitId: "unit_1",
+        scope: "trunk",
+        editGate: {
+          status: "locked",
+          editable: false,
+          label: "已锁定",
+          pendingWorktreeCount: 1,
+          action: { type: "requestTrunkEdit", label: "继续编辑" },
+        },
+      },
+      worktreeOwnershipById: {
+        wt_1: {
+          relation: "otherTask",
+          ownerSessionId: "ses_owner",
+          ownerSessionTitle: "五月工资表制作",
+        },
+      },
+    });
+
+    if (!model) throw new Error("expected Univer header model");
+
+    expect(model.bridgeActions).toEqual([
+      {
+        type: "openPendingWorktree",
+        label: "查看待处理",
+        tooltip: "打开任务「五月工资表制作」查看这批修改。",
+        target: { scope: "worktree", worktreeId: "wt_1", unitId: "unit_1" },
+        ownerSessionId: "ses_owner",
+        ownerSessionTitle: "五月工资表制作",
+      },
+    ]);
+  });
+
   test("keeps the worktree row selected while viewing merge preview", () => {
     const reviewable = readySnapshot.reviewableWorktrees[0];
     if (!reviewable?.reviewSummary) throw new Error("expected reviewable worktree fixture");
@@ -642,11 +780,20 @@ describe("artifact headers", () => {
     expect(html).toContain("Review payroll edits");
     expect(html).not.toContain("已修改");
     expect(html).not.toContain(">改<");
-    expect(html).toContain("预览合入后");
-    expect(html).toContain("查看修改");
+    expect(html).toContain("合入后");
+    expect(html).toContain("修改");
+    expect(html).toContain("data-testid=\"univer-artifact-header-view-switch\"");
+    expect(html.indexOf("data-testid=\"univer-artifact-header-view-switch\"")).toBeLessThan(
+      html.indexOf("data-testid=\"univer-artifact-header-review-actions\""),
+    );
+    expect(html).not.toContain("打开工作流控件");
+    expect(html).not.toContain(">查看修改</span>");
+    expect(html).not.toContain(">预览合入后</span>");
     expect(html).not.toContain("原始修改");
     expect(html).toContain("aria-label=\"合入当前版本\"");
     expect(html).toContain("aria-label=\"丢弃修改\"");
+    expect(html).not.toContain("<span>合入</span>");
+    expect(html).not.toContain("<span>丢弃</span>");
     expect(html).toContain("data-testid=\"univer-artifact-header-review-actions\"");
     expect(html).not.toContain("Worktree 操作");
     expect(html).toContain("data-testid=\"univer-surface-selector\"");
@@ -711,6 +858,7 @@ describe("artifact headers", () => {
         worktreeOwnershipById={{
           wt_1: { relation: "otherTask", ownerSessionId: "ses_other", ownerSessionTitle: "Other task" },
         }}
+        onOpenOwnerSession={noop}
         onDownload={noop}
         onReveal={noop}
         onClose={noop}
@@ -719,12 +867,76 @@ describe("artifact headers", () => {
 
     expect(html).toContain("只读");
     expect(html).toContain("任务「Other task」");
+    expect(html).toContain("打开所属任务");
     expect(html).not.toContain("aria-label=\"合入当前版本\"");
     expect(html).not.toContain("aria-label=\"丢弃修改\"");
     expect(html).not.toContain("data-testid=\"univer-artifact-header-review-actions\"");
   });
 
-  test("Univer header does not show workflow overflow for static editable status", () => {
+  test("Univer header bridges pending current-version state to task changes", () => {
+    const contentSurface: CoworkContentSurface = {
+      status: "ready",
+      container: readySnapshot.container,
+      unit: readySnapshot.units[0],
+      scope: "trunk",
+      title: "中国大陆工资表",
+      scopeLabel: "当前版本",
+      badges: [],
+      editGate: {
+        status: "locked",
+        editable: false,
+        label: "已锁定",
+        pendingWorktreeCount: 1,
+        action: { type: "requestTrunkEdit", label: "仍要编辑" },
+      },
+      actions: [
+        {
+          type: "mergeWorktree",
+          worktreeId: "wt_1",
+          label: "合入到当前版本",
+          status: "idle",
+        },
+        {
+          type: "discardWorktree",
+          worktreeId: "wt_1",
+          label: "丢弃",
+          status: "idle",
+        },
+      ],
+      viewerRequest: {
+        container: readyContainer,
+        unitId: "unit_1",
+        unitKind: "sheet",
+        scope: "trunk",
+        editable: false,
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <UniverArtifactHeader
+        target={fileTarget({ name: "工资表.univer", value: "artifacts/工资表.univer" })}
+        fileIcon={null}
+        isRemoteWorkspace={false}
+        snapshot={readySnapshot}
+        contentSurface={contentSurface}
+        currentView={{ scope: "trunk", unitId: "unit_1", trunkEditIntent: "auto" }}
+        sessionWorktreeId="wt_1"
+        onContentViewChange={noop}
+        onDownload={noop}
+        onReveal={noop}
+        onClose={noop}
+      />,
+    );
+
+    expect(html).toContain("待处理");
+    expect(html).toContain("查看待处理");
+    expect(html).toContain("univer-artifact-header-status-actions");
+    expect(html).not.toContain("aria-label=\"合入当前版本\"");
+    expect(html).not.toContain("aria-label=\"丢弃修改\"");
+    expect(html).not.toContain("univer-artifact-header-bridge-actions");
+  });
+
+  test("Univer header does not show workflow overflow", () => {
     const contentSurface: CoworkContentSurface = {
       status: "ready",
       container: readySnapshot.container,
@@ -764,6 +976,16 @@ describe("artifact headers", () => {
     expect(html).toContain("可编辑");
     expect(html).not.toContain("打开工作流控件");
     expect(html).not.toContain("状态");
+  });
+
+  test("Univer header avoids Base UI group-label primitives in dropdowns", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain("DropdownMenuLabel");
+    expect(source).toContain("data-testid=\"univer-surface-selector-group-label\"");
   });
 
   test("Univer header renders one concise primary status by priority", () => {
@@ -913,19 +1135,33 @@ describe("artifact headers", () => {
     const viewerSource = source.slice(start, end);
 
     expect(viewerSource).toContain("univer-artifact-native-viewer");
+    expect(viewerSource).toContain("content = <PreviewLoading />");
+    expect(viewerSource).toContain('snapshot?.loadState === "error"');
+    expect(viewerSource).not.toContain("content = <PreviewUnavailable />");
     expect(viewerSource).not.toMatch(/if \(isLoading\) \{\s*return \(/);
     expect(viewerSource).not.toMatch(/if \(isError \|\| !surface\) \{\s*return \(/);
     expect(viewerSource).not.toMatch(/if \(!viewerRequest \|\| !viewerDataSource\) \{\s*return \(/);
   });
 
-  test("Univer artifact workspace refreshes when a session route gains a worktree", () => {
+  test("Univer artifact workspace refreshes when the native surface opens", () => {
     const source = readFileSync(
       new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
       "utf8",
     );
 
-    expect(source).toContain("if (!target.worktreeId?.trim()) return;");
     expect(source).toContain("void controller.refresh();");
     expect(source).toContain("[controller, target.value, target.worktreeId]");
+    expect(source).not.toContain("if (!target.worktreeId?.trim()) return;");
   });
+
+  test("Univer artifact workspace updates the sidebar worktree status store", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("useUniverWorktreeStatusStore");
+    expect(source).toContain("updateTargetSnapshot(workspaceId, target.value, snapshot)");
+  });
+
 });
