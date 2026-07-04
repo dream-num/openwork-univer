@@ -12,6 +12,7 @@ export type PrimaryUniverTarget = {
 };
 
 export type UniverSessionKind = "task" | "overview";
+export type UniverLifecycleOrigin = "generalDirectMention";
 export type SessionUniverWorktreeTerminalState = "merged" | "discarded";
 export type SessionUniverWorktreeIssue = {
   kind: "multiple";
@@ -29,6 +30,7 @@ export type SessionUniverMetadata = {
   sessionUniverWorktreeTerminalState?: SessionUniverWorktreeTerminalState | null;
   univerSourceSessionId?: string | null;
   univerSessionKind?: UniverSessionKind | null;
+  univerLifecycleOrigin?: UniverLifecycleOrigin | null;
 };
 
 export type SessionUniverMetadataState = {
@@ -130,6 +132,13 @@ function normalizeSessionKind(value: unknown): UniverSessionKind | null | undefi
   throw new ApiError(400, "invalid_payload", "univerSessionKind must be task, overview, or null");
 }
 
+function normalizeLifecycleOrigin(value: unknown): UniverLifecycleOrigin | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value === "generalDirectMention") return value;
+  throw new ApiError(400, "invalid_payload", "univerLifecycleOrigin must be generalDirectMention or null");
+}
+
 function normalizeWorktreeTerminalState(value: unknown): SessionUniverWorktreeTerminalState | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -182,6 +191,7 @@ function normalizeSessionUniverMetadata(value: unknown): SessionUniverMetadata |
   const sessionUniverWorktreeTerminalState = normalizeWorktreeTerminalState(value.sessionUniverWorktreeTerminalState);
   const univerSourceSessionId = normalizeOptionalString(value.univerSourceSessionId, "univerSourceSessionId", 256);
   const univerSessionKind = normalizeSessionKind(value.univerSessionKind);
+  const univerLifecycleOrigin = normalizeLifecycleOrigin(value.univerLifecycleOrigin);
 
   const metadata: SessionUniverMetadata = {};
   if (primaryUniverTarget !== undefined) metadata.primaryUniverTarget = primaryUniverTarget;
@@ -190,6 +200,7 @@ function normalizeSessionUniverMetadata(value: unknown): SessionUniverMetadata |
   if (sessionUniverWorktreeTerminalState !== undefined) metadata.sessionUniverWorktreeTerminalState = sessionUniverWorktreeTerminalState;
   if (univerSourceSessionId !== undefined) metadata.univerSourceSessionId = univerSourceSessionId;
   if (univerSessionKind !== undefined) metadata.univerSessionKind = univerSessionKind;
+  if (univerLifecycleOrigin !== undefined) metadata.univerLifecycleOrigin = univerLifecycleOrigin;
   return hasSessionUniverMetadata(metadata) ? metadata : null;
 }
 
@@ -223,7 +234,8 @@ function hasSessionUniverMetadata(metadata: SessionUniverMetadata): boolean {
       metadata.sessionUniverWorktreeIssue ??
       metadata.sessionUniverWorktreeTerminalState ??
       metadata.univerSourceSessionId ??
-      metadata.univerSessionKind,
+      metadata.univerSessionKind ??
+      metadata.univerLifecycleOrigin,
   );
 }
 
@@ -278,6 +290,9 @@ function mergeMetadataPatch(
   if (patch.univerSessionKind !== undefined) {
     next.univerSessionKind = patch.univerSessionKind;
   }
+  if (patch.univerLifecycleOrigin !== undefined) {
+    next.univerLifecycleOrigin = patch.univerLifecycleOrigin;
+  }
 
   if (next.primaryUniverTarget === null) delete next.primaryUniverTarget;
   if (next.sessionUniverWorktreeId === null) delete next.sessionUniverWorktreeId;
@@ -285,6 +300,7 @@ function mergeMetadataPatch(
   if (next.sessionUniverWorktreeTerminalState === null) delete next.sessionUniverWorktreeTerminalState;
   if (next.univerSourceSessionId === null) delete next.univerSourceSessionId;
   if (next.univerSessionKind === null) delete next.univerSessionKind;
+  if (next.univerLifecycleOrigin === null) delete next.univerLifecycleOrigin;
   return hasSessionUniverMetadata(next) ? next : null;
 }
 

@@ -985,12 +985,10 @@ export default {
             await openWorktreeSelector(ctx);
             await clickWorktreeMenuItem(
               ctx,
-              `Array.from(document.querySelectorAll('[role="menuitem"]'))
+              `Array.from(document.querySelectorAll('[data-testid="univer-surface-selector-item"][data-surface-relation="currentVersion"]'))
                 .find((candidate) => {
-                  const groupText = candidate.closest('[role="group"]')?.textContent || "";
                   const itemText = candidate.textContent || "";
-                  return groupText.includes("当前版本")
-                    && itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)});
+                  return itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)});
                 })`,
               "当前版本 unit option",
             );
@@ -1009,16 +1007,15 @@ export default {
             await openWorktreeSelector(ctx);
             await clickWorktreeMenuItem(
               ctx,
-              `Array.from(document.querySelectorAll('[role="menuitem"]'))
+              `Array.from(document.querySelectorAll('[data-testid="univer-surface-selector-item"][data-surface-worktree-id=${JSON.stringify(readyWorktreeId)}]'))
                 .find((candidate) => {
-                  const groupText = candidate.closest('[role="group"]')?.textContent || "";
                   const itemText = candidate.textContent || "";
-                  return groupText.includes(${JSON.stringify(READY_WORKTREE_DISPLAY_NAME)})
-                    && groupText.includes(${JSON.stringify(readyWorktreeId)})
-                    && itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
-                    && !groupText.includes("预览合入后")
-                    && !groupText.includes("合入后")
-                    && !groupText.includes("合并预览");
+                  return itemText.includes(${JSON.stringify(UNIT_DISPLAY_NAME)})
+                    && itemText.includes(${JSON.stringify(READY_WORKTREE_DISPLAY_NAME)})
+                    && itemText.includes(${JSON.stringify(readyWorktreeId)})
+                    && !itemText.includes("预览合入后")
+                    && !itemText.includes("合入后")
+                    && !itemText.includes("合并预览");
                 })`,
               "worktree unit option",
             );

@@ -988,6 +988,22 @@ describe("artifact headers", () => {
     expect(source).toContain("data-testid=\"univer-surface-selector-group-label\"");
   });
 
+  test("Univer surface selector keeps dropdown rows compact", () => {
+    const source = readFileSync(
+      new URL("../src/react-app/domains/session/artifacts/artifact-panel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('<DropdownMenuContent align="start" className="w-80">');
+    expect(source).toContain("function UniverSurfaceSelectorItem");
+    expect(source).toContain("function surfaceSelectorItemSubtitle");
+    expect(source).toContain('className="min-h-10 gap-2 px-2.5 py-1.5"');
+    expect(source).toContain('data-testid="univer-surface-selector-item"');
+    expect(source).toContain("data-surface-relation={worktree.relation}");
+    expect(source).toContain("data-surface-worktree-id={worktreeId}");
+    expect(source).not.toContain('className="px-3 py-2.5 text-xs text-muted-foreground"');
+  });
+
   test("Univer header renders one concise primary status by priority", () => {
     const renderStatusSurface = (contentSurface: CoworkContentSurface) => renderToStaticMarkup(
       <UniverArtifactHeader

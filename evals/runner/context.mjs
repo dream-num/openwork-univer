@@ -247,7 +247,11 @@ export class EvalContext {
     const validations = [
       { label: "PNG exists and is non-empty", passed: buffer.length > 0, detail: `${buffer.length} bytes` },
       { label: "PNG dimensions are sane", passed: Boolean(dimensions?.width && dimensions?.height), detail: dimensions ? `${dimensions.width}x${dimensions.height}` : "unknown" },
-      { label: "Frame is not a duplicate of the previous capture", passed: this.lastScreenshotHash !== hash, detail: hash.slice(0, 12) },
+      {
+        label: "Frame is not a duplicate of the previous capture",
+        passed: options.allowDuplicate === true || this.lastScreenshotHash !== hash,
+        detail: options.allowDuplicate === true ? `duplicate allowed: ${hash.slice(0, 12)}` : hash.slice(0, 12),
+      },
     ];
     for (const text of options.requireText ?? []) {
       validations.push({ label: `Required visible text: ${text}`, passed: typeof bodyText === "string" && bodyText.includes(text) });

@@ -6,6 +6,7 @@ export function buildUniverSessionSystemContext(
   const target = session?.primaryUniverTarget ?? null;
   if (!target?.path) return null;
   const worktreeId = session?.sessionUniverWorktreeId ?? null;
+  const generalOriginFirstStage = session?.univerLifecycleOrigin === "generalDirectMention";
 
   const lines = [
     "Univer Session Context:",
@@ -14,7 +15,12 @@ export function buildUniverSessionSystemContext(
     worktreeId
       ? `- Session Univer Worktree: ${worktreeId}`
       : "- Session Univer Worktree: none yet",
-    "- Do not switch or infer another Primary Univerfile in this session.",
+    generalOriginFirstStage
+      ? "- This session started the current run as a General Session and is using this Primary Univerfile as first-stage context."
+      : "- Do not switch or infer another Primary Univerfile in this session.",
+    generalOriginFirstStage
+      ? "- If the user's task explicitly requires creating a new Primary Univerfile, use `univer new`; OpenWork will route that new Univerfile into a separate session."
+      : "- Do not create a different Primary Univerfile from this bound session; ask the user to start a General Session when work needs another .univer file.",
     "- For read-only or analysis work, inspect the Primary Univerfile trunk/current state.",
     "- For modifying work, create or reuse only the session-owned Session Univer Worktree for this Primary Univerfile.",
     "- Do not merge or discard a Session Univer Worktree unless the user explicitly asks for that action; finish modifying work by marking the worktree ready for user review.",

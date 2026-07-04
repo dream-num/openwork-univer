@@ -118,6 +118,34 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return readSessionUniverMetadataState(config, workspace.id);
   }
 
+  async function readWorkspaceSessionInfo(workspace: WorkspaceInfo, sessionId: string) {
+    try {
+      const opencode = createWorkspaceOpencodeClient(config, workspace);
+      return buildSession(
+        unwrapOpencodeResult(
+          await opencode.session.get({ sessionID: sessionId }),
+          `/session/${encodeURIComponent(sessionId)}`,
+        ),
+      );
+    } catch (error) {
+      remapSessionReadError(error);
+    }
+  }
+
+  function findExistingLifecycleHandoffSession(
+    state: SessionUniverMetadataState,
+    sourceSessionId: string,
+    targetPath: string,
+  ): string | null {
+    for (const [sessionId, metadata] of Object.entries(state.sessions)) {
+      if (metadata.univerSessionKind !== "task") continue;
+      if (metadata.univerSourceSessionId !== sourceSessionId) continue;
+      if (metadata.primaryUniverTarget?.path !== targetPath) continue;
+      return sessionId;
+    }
+    return null;
+  }
+
   async function readWorkspaceSession(workspace: WorkspaceInfo, sessionId: string) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
@@ -196,6 +224,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", `${field} is required`);
     }
     return value.trim();
+  }
+
+  function requireUniverLifecycleEvent(body: Record<string, unknown>): "directMention" | "univerNew" {
+    const event = body.event;
+    if (event === "directMention" || event === "univerNew") return event;
+    throw new ApiError(400, "invalid_payload", "event must be directMention or univerNew");
   }
 
   addRoute(routes, "GET", "/workspace/:id/sessions", "client", async (ctx) => {
@@ -369,6 +403,109 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const patch = normalizeSessionUniverMetadataPatch(body);
     const result = await updateSessionUniverMetadata(config, workspace.id, sessionId, patch);
     return jsonResponse({ metadata: result.metadata, state: result.state, updatedAt: result.updatedAt });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/univer-lifecycle", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = (ctx.params.sessionId ?? "").trim();
+    if (!sessionId) {
+      throw new ApiError(400, "invalid_payload", "sessionId is required");
+    }
+    const body = await readJsonBody(ctx.request);
+    const event = requireUniverLifecycleEvent(body);
+    const patchInput: Record<string, unknown> = {
+      primaryUniverTarget: body.primaryUniverTarget,
+      univerSessionKind: "task",
+    };
+    if (event === "directMention") {
+      patchInput.univerLifecycleOrigin = "generalDirectMention";
+    }
+    const patch = normalizeSessionUniverMetadataPatch(patchInput);
+    if (!patch.primaryUniverTarget) {
+      throw new ApiError(400, "invalid_payload", "primaryUniverTarget is required");
+    }
+
+    const current = await readWorkspaceSessionUniverMetadataState(workspace);
+    const currentMetadata = current.state.sessions[sessionId] ?? null;
+    if (currentMetadata?.primaryUniverTarget?.path) {
+      const shouldCreateHandoff =
+        event === "univerNew" &&
+        currentMetadata.univerLifecycleOrigin === "generalDirectMention" &&
+        currentMetadata.primaryUniverTarget.path !== patch.primaryUniverTarget.path;
+      if (shouldCreateHandoff) {
+        const existingSessionId = findExistingLifecycleHandoffSession(
+          current.state,
+          sessionId,
+          patch.primaryUniverTarget.path,
+        );
+        const createdSessionInfo = existingSessionId
+          ? await readWorkspaceSessionInfo(workspace, existingSessionId)
+          : buildSession(
+            unwrapOpencodeResult(
+              await createWorkspaceOpencodeClient(config, workspace).session.create({
+                directory: workspace.path?.trim() || undefined,
+                title: patch.primaryUniverTarget.name,
+              }),
+              "/session",
+            ),
+          );
+        const createdMetadata = existingSessionId
+          ? current.state.sessions[existingSessionId] ?? null
+          : (await updateSessionUniverMetadata(config, workspace.id, createdSessionInfo.id, {
+            primaryUniverTarget: patch.primaryUniverTarget,
+            univerSessionKind: "task",
+            univerSourceSessionId: sessionId,
+          })).metadata;
+        if (!createdMetadata) {
+          throw new ApiError(500, "univer_lifecycle_handoff_failed", "Unable to create Univer handoff session metadata");
+        }
+        const sourceCleared = await updateSessionUniverMetadata(config, workspace.id, sessionId, {
+          univerLifecycleOrigin: null,
+        });
+        return jsonResponse({
+          action: "createdSession",
+          event,
+          metadata: createdMetadata,
+          sourceMetadata: sourceCleared.metadata,
+          createdSession: mergeSessionUniverMetadata(createdSessionInfo, sourceCleared.state),
+          state: sourceCleared.state,
+          updatedAt: sourceCleared.updatedAt,
+        });
+      }
+
+      if (event === "univerNew" && currentMetadata.univerLifecycleOrigin === "generalDirectMention") {
+        const sourceCleared = await updateSessionUniverMetadata(config, workspace.id, sessionId, {
+          univerLifecycleOrigin: null,
+        });
+        return jsonResponse({
+          action: "unchanged",
+          event,
+          metadata: sourceCleared.metadata,
+          sourceMetadata: sourceCleared.metadata,
+          state: sourceCleared.state,
+          updatedAt: sourceCleared.updatedAt,
+        });
+      }
+
+      return jsonResponse({
+        action: "unchanged",
+        event,
+        metadata: currentMetadata,
+        state: current.state,
+        updatedAt: current.updatedAt,
+      });
+    }
+
+    const result = await updateSessionUniverMetadata(config, workspace.id, sessionId, patch);
+    return jsonResponse({
+      action: "promoted",
+      event,
+      metadata: result.metadata,
+      state: result.state,
+      updatedAt: result.updatedAt,
+    });
   });
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/messages", "client", async (ctx) => {

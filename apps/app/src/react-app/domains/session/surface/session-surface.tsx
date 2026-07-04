@@ -108,6 +108,7 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
+  onBeforeSendDraft?: (draft: ComposerDraft, sessionId: string) => Promise<ComposerDraft | null> | ComposerDraft | null;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => void;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
@@ -749,15 +750,27 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // up the new message — so this is safe to call while the agent is busy.
   const sendDraft = useCallback(async (nextDraft: ComposerDraft, draftAttachments: ComposerAttachment[]) => {
     setError(null);
+    let draftToSend = nextDraft;
+    try {
+      const preparedDraft = await props.onBeforeSendDraft?.(nextDraft, props.sessionId);
+      if (preparedDraft === null) return false;
+      if (preparedDraft) draftToSend = preparedDraft;
+    } catch (nextError) {
+      const parsed = parseSessionError(nextError);
+      setError(parsed);
+      useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, parsed.message);
+      throw nextError;
+    }
     // Record the prompt for Up/Down recall in the composer (#2012).
-    appendComposerHistory(props.sessionId, nextDraft.text);
+    appendComposerHistory(props.sessionId, draftToSend.text);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
     setSending(true);
     setAwaitingAssistantBaseline(renderedMessages.length);
     try {
-      await props.onSendDraft(nextDraft, props.sessionId);
+      await props.onSendDraft(draftToSend, props.sessionId);
       draftAttachments.forEach(revokeAttachmentPreview);
       setSending(false);
+      return true;
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
       captureAnalyticsEvent("task_send_failed", {});
@@ -768,7 +781,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
       throw nextError;
     }
-  }, [appendComposerHistory, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
+  }, [appendComposerHistory, props.onBeforeSendDraft, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
 
   const clearComposer = useCallback(() => {
     clearComposerSession(props.sessionId);
@@ -783,8 +796,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const nextDraft = buildDraft(text, attachments);
     const sentAttachments = attachments;
     try {
-      await sendDraft(nextDraft, sentAttachments);
-      clearComposer();
+      const sent = await sendDraft(nextDraft, sentAttachments);
+      if (sent) clearComposer();
     } catch {
       setComposerDraft(props.sessionId, "");
     }
@@ -868,7 +881,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     clearQueuedDrafts(props.sessionId);
     void (async () => {
       try {
-        await sendDraft(merged, merged.attachments);
+        const sent = await sendDraft(merged, merged.attachments);
+        if (!sent) prependQueuedDrafts(props.sessionId, drained);
       } catch {
         // Restore the queue so the user can retry / edit on failure.
         prependQueuedDrafts(props.sessionId, drained);

@@ -28,6 +28,22 @@ _Avoid_: Target hub, folder, session group, file tree node, worktree navigator w
 An OpenWork session that is not bound to a Primary Univerfile and remains workspace-scoped for general agent work, including older sessions without durable Univerfile metadata.
 _Avoid_: Unassigned session, orphan session, default target session.
 
+**General-to-Univer Task Promotion**:
+The one-time transition where a General Session becomes a Univer Task Session by binding to a Primary Univerfile. It may happen when the user explicitly references one `.univer` file through the composer `@` mention, or when a `univer new` command creates the session's first Primary Univerfile. Weak signals such as ordinary text mentions, search results, artifact preview, or workspace file browsing do not promote a General Session.
+_Avoid_: Worktree binding, inferred artifact binding, active preview binding.
+
+**Session Navigation Section**:
+A stable top-level sidebar section for a class of sessions or Univerfile rows. General Sessions, Univerfiles, and Unavailable Univerfiles remain visible as sections even when empty, so promotion, file discovery, and unavailable-history states do not make the navigation structure jump.
+_Avoid_: Conditional group, transient bucket, hidden empty state.
+
+**Session Navigation Tree**:
+The workspace sidebar hierarchy that shows one workspace header, then stable Session Navigation Sections, then their rows and nested task rows. It is a session/workstream navigation model, not a raw filesystem tree, unit tree, or Univer worktree navigator.
+_Avoid_: Workspace file tree, unit navigator, worktree tree, flat session list.
+
+**General-Only Univerfile Creation Promotion**:
+The lifecycle rule for `univer new` in an unbound General Session. If the current session is still a General Session when `univer new` succeeds, the successful creation promotes the current session to the newly created Primary Univerfile. If the current session is already bound to a Primary Univerfile, `univer new` does not switch, rebind, redirect, or create a replacement session from that session's lifecycle signal.
+_Avoid_: Switching Primary Univerfile, creating a second primary file in the same session, hidden rebinding, bound-session auto-redirects.
+
 **Univer Session Context**:
 The minimal implicit context OpenWork sends to the agent for a session bound to a Primary Univerfile: Univerfile identity, path, and session-scope rules. Read and analysis tasks inspect the Univerfile trunk through Univer CLI; modifying tasks create or reuse the session's Session Univer Worktree.
 _Avoid_: Full file tree dump, unit inventory cache, worktree state snapshot.

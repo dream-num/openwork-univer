@@ -581,6 +581,7 @@ export type AppSidebarProps = {
   onCreateTaskForUniverTarget?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
   onOpenUniverTargetOverview?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
   onOpenDeleteUnavailableUniverTarget?: (workspaceId: string, name: string, path: string, sessionIds: string[]) => void;
+  onOpenClearUnavailableUniverTargets?: (workspaceId: string, sessionIds: string[], targetCount: number) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
@@ -627,12 +628,14 @@ type UniverTargetHub = {
 };
 
 const EMPTY_WORKTREE_STATUSES: Record<string, UniverTargetWorktreeStatus> = {};
-const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md pe-16 ps-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
-const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
-const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 max-w-[8.5rem] flex-[0_1_auto] items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none";
+const SESSION_NAV_TREE_CLASS = "mt-1 flex flex-col gap-1";
+const SESSION_NAV_SECTION_BODY_CLASS = "relative ml-3 border-l border-muted-foreground/25 pl-2";
+const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border border-transparent pe-16 ps-2 text-left text-sm transition-colors hover:border-sidebar-border/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:border-sidebar-ring focus-visible:ring-2 focus-visible:ring-sidebar-ring/30";
+const UNIVER_FILE_ICON_WRAP_CLASS = "flex size-5 shrink-0 items-center justify-center rounded border border-sidebar-border/70 bg-sidebar-accent/35 text-muted-foreground";
+const UNIVER_FILE_ICON_CLASS = "size-3.5 shrink-0";
 const UNIVER_FILE_ACTIONS_CLASS = "absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5";
-const SESSION_DEPTH_1_CLASS = "ps-8";
-const SESSION_DEPTH_DEEP_CLASS = "ps-11";
+const SESSION_DEPTH_1_CLASS = "ps-9";
+const SESSION_DEPTH_DEEP_CLASS = "ps-12";
 
 function sessionDepthClass(depth: number): string {
   if (depth <= 0) return "";
@@ -657,17 +660,6 @@ function isReviewActionState(state: UniverSessionReviewState): boolean {
 
 function isIssueActionState(state: UniverSessionReviewState): boolean {
   return state.kind === "missing" || state.kind === "multiple" || state.kind === "ownershipConflict";
-}
-
-function countPhrase(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function buildUniverFileTaskSummary(hub: UniverTargetHub): string | null {
-  const parts: string[] = [];
-  if (hub.reviewSessionCount > 0) parts.push(countPhrase(hub.reviewSessionCount, "review", "reviews"));
-  if (hub.issueSessionCount > 0) parts.push(countPhrase(hub.issueSessionCount, "issue", "issues"));
-  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 type WorktreeOwnershipConflict = {
@@ -840,7 +832,7 @@ export function buildUniverTargetHubs(
   return {
     hubs,
     generalSessions,
-    hasUniverSurface: hubs.length > 0,
+    hasUniverSurface: true,
   };
 }
 
@@ -953,6 +945,7 @@ export function AppSidebar(props: AppSidebarProps) {
     onCreateTaskForUniverTarget: props.onCreateTaskForUniverTarget,
     onOpenUniverTargetOverview: props.onOpenUniverTargetOverview,
     onOpenDeleteUnavailableUniverTarget: props.onOpenDeleteUnavailableUniverTarget,
+    onOpenClearUnavailableUniverTargets: props.onOpenClearUnavailableUniverTargets,
     onOpenRenameSession: props.onOpenRenameSession,
     onOpenDeleteSession: props.onOpenDeleteSession,
     onArchiveSession: props.onArchiveSession,
@@ -1114,8 +1107,9 @@ function WorkspaceHeader({
   return (
     <SidebarMenuButton
       {...props}
+      data-sidebar="workspace-header-button"
       className={cn(
-        "group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
+        "rounded-lg border border-transparent bg-transparent !px-[4px] shadow-none hover:border-sidebar-border/70 hover:bg-sidebar-accent/45 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring/35 group-hover/workspace-header:border-sidebar-border/70 group-hover/workspace-header:bg-sidebar-accent/45 group-hover/workspace-header:text-sidebar-accent-foreground mac:hover:bg-sidebar-accent/45 mac:active:bg-sidebar-accent/55 dark:mac:hover:bg-sidebar-accent/45 dark:mac:active:bg-sidebar-accent/55",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
@@ -1231,6 +1225,11 @@ function WorkspaceSidebarGroup({
     () => univerNavigation.hubs.filter((hub) => !hub.target.discovered),
     [univerNavigation.hubs],
   );
+  const unavailableUniverSessionIds = React.useMemo(
+    () => unavailableUniverHubs.flatMap(sessionIdsForUniverTargetHub),
+    [unavailableUniverHubs],
+  );
+  const canClearUnavailableUniverTargets = unavailableUniverSessionIds.length > 0 && Boolean(ctx.onOpenClearUnavailableUniverTargets);
   const sessionRows = flattenSessionRows(
     group.sessions,
     wsGroups.length > 0 ? Number.MAX_SAFE_INTEGER : previewCount,
@@ -1274,7 +1273,7 @@ function WorkspaceSidebarGroup({
                 isLoading={group.status === "loading" || isConnecting}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               />
-              <div data-workspace-actions className="group/workspace-actions absolute right-9 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              <div data-workspace-actions className="group/workspace-actions absolute right-7 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1298,7 +1297,7 @@ function WorkspaceSidebarGroup({
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-2 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
+                className="absolute right-1 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
                 onClick={(e) => {
@@ -1337,7 +1336,7 @@ function WorkspaceSidebarGroup({
                 ) : activeSessions.length > 0 || archivedSessions.length > 0 || univerNavigation.hasUniverSurface ? (
                   <>
                     {univerNavigation.hasUniverSurface ? (
-                      <>
+                      <div data-sidebar="session-nav-tree" className={SESSION_NAV_TREE_CLASS}>
                         <GeneralSessionsSection
                           sessions={univerNavigation.generalSessions}
                           workspaceId={workspace.id}
@@ -1353,11 +1352,19 @@ function WorkspaceSidebarGroup({
                           defaultExpanded={false}
                           hubDefaultExpanded={false}
                           hubs={unavailableUniverHubs}
-                          label="Unavailable"
+                          label="Unavailable Univerfiles"
+                          clearLabel="Clear unavailable Univerfiles"
+                          onClear={canClearUnavailableUniverTargets ? () => {
+                            ctx.onOpenClearUnavailableUniverTargets?.(
+                              workspace.id,
+                              unavailableUniverSessionIds,
+                              unavailableUniverHubs.length,
+                            );
+                          } : undefined}
                           workspaceId={workspace.id}
                           forcedExpandedSessionIds={forcedExpandedSessionIds}
                         />
-                      </>
+                      </div>
                     ) : wsGroups.length > 0 ? (
                       <GroupedSessionList
                         sessionRows={sessionRows}
@@ -1512,26 +1519,24 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
     pinnedIds,
     [],
   );
-  const taskSummaryLabel = buildUniverFileTaskSummary(hub);
-  const taskSummaryTitle = taskSummaryLabel ? `${taskSummaryLabel} for ${hub.target.name}` : null;
   const showPersistentCreateAction = hub.target.discovered && rows.length === 0 && doneRows.length === 0;
   const topSession = rows[0]?.session ?? hub.overviewSession;
-  const hubSessionIds = [
-    ...(hub.overviewSession ? [hub.overviewSession.id] : []),
-    ...hub.sessions.map((session) => session.id),
-    ...hub.doneSessions.map((session) => session.id),
-  ];
+  const hubSessionIds = sessionIdsForUniverTargetHub(hub);
   const canDeleteUnavailableTarget = !hub.target.discovered && hubSessionIds.length > 0 && Boolean(ctx.onOpenDeleteUnavailableUniverTarget);
 
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/univer-target">
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/univer-target" data-sidebar="univerfile-tree-row">
       <SidebarMenuSubItem>
-        <div className="group/univer-target-row relative">
+        <div className="group/univer-target-row relative" data-sidebar="univerfile-row-item">
           <button
             type="button"
+            data-sidebar="univerfile-row"
+            data-discovered={hub.target.discovered ? "true" : "false"}
+            aria-selected={selectedInside}
             className={cn(
               UNIVER_FILE_ROW_CLASS,
-              selectedInside && "bg-sidebar-accent text-sidebar-accent-foreground",
+              !hub.target.discovered && "opacity-75",
+              selectedInside && "border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_var(--sidebar-ring)]",
             )}
             title={hub.target.path}
             onClick={() => {
@@ -1544,18 +1549,10 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
               }
             }}
           >
-            <FileSpreadsheet className={UNIVER_FILE_ICON_CLASS} />
+            <span className={UNIVER_FILE_ICON_WRAP_CLASS} aria-hidden="true">
+              <FileSpreadsheet className={UNIVER_FILE_ICON_CLASS} />
+            </span>
             <span className="min-w-[4rem] flex-1 truncate">{hub.target.name}</span>
-            {taskSummaryLabel ? (
-              <span
-                className={cn(UNIVER_FILE_PENDING_CLASS, "bg-amber-3 text-amber-11")}
-                title={taskSummaryTitle ?? undefined}
-                aria-label={taskSummaryTitle ?? undefined}
-              >
-                <AlertCircle className="size-3" aria-hidden="true" />
-                <span className="min-w-0 truncate">{taskSummaryLabel}</span>
-              </span>
-            ) : null}
           </button>
           <div className={UNIVER_FILE_ACTIONS_CLASS}>
             {hub.target.discovered ? (
@@ -1610,7 +1607,7 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
           </div>
         </div>
       </SidebarMenuSubItem>
-      <CollapsibleContent>
+      <CollapsibleContent data-sidebar="univerfile-task-list" className="pb-0.5">
         {rows.length > 0 ? (
           rows.map((row) => (
             <SessionMenuItem
@@ -1655,11 +1652,21 @@ function UniverTargetHubSection({ defaultExpanded = true, forcedExpandedSessionI
   );
 }
 
-function UniverfilesSection({ defaultExpanded = true, forcedExpandedSessionIds, hubDefaultExpanded = true, hubs, label, workspaceId }: {
+function sessionIdsForUniverTargetHub(hub: UniverTargetHub): string[] {
+  return [
+    ...(hub.overviewSession ? [hub.overviewSession.id] : []),
+    ...hub.sessions.map((session) => session.id),
+    ...hub.doneSessions.map((session) => session.id),
+  ];
+}
+
+function UniverfilesSection({ clearLabel, defaultExpanded = true, forcedExpandedSessionIds, hubDefaultExpanded = true, hubs, label, onClear, workspaceId }: {
+  clearLabel?: string;
   defaultExpanded?: boolean;
   hubDefaultExpanded?: boolean;
   hubs: UniverTargetHub[];
   label: string;
+  onClear?: () => void;
   workspaceId: string;
   forcedExpandedSessionIds: Set<string>;
 }) {
@@ -1677,17 +1684,24 @@ function UniverfilesSection({ defaultExpanded = true, forcedExpandedSessionIds, 
     if (selectedInside) setExpanded(true);
   }, [selectedInside]);
 
-  if (hubs.length === 0) return null;
-
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/univerfiles-section">
+    <Collapsible
+      open={expanded}
+      onOpenChange={setExpanded}
+      className="group/univerfiles-section"
+      data-sidebar="session-nav-section"
+      data-section={label}
+      data-empty={hubs.length === 0 ? "true" : undefined}
+    >
       <SessionGroupSeparator
         label={label}
         count={hubs.length}
         expanded={expanded}
         onToggle={() => setExpanded((value) => !value)}
+        onRemove={onClear}
+        removeLabel={clearLabel}
       />
-      <CollapsibleContent className="pb-1">
+      <CollapsibleContent data-sidebar="session-nav-section-body" className={cn(SESSION_NAV_SECTION_BODY_CLASS, "pb-1")}>
         {hubs.map((hub) => (
           <UniverTargetHubSection
             key={hub.target.path}
@@ -1722,17 +1736,22 @@ function GeneralSessionsSection({ sessions, workspaceId, forcedExpandedSessionId
     orderIds,
   );
 
-  if (sessions.length === 0) return null;
-
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded} className="group/general-sessions">
+    <Collapsible
+      open={expanded}
+      onOpenChange={setExpanded}
+      className="group/general-sessions"
+      data-sidebar="session-nav-section"
+      data-section="General Sessions"
+      data-empty={sessions.length === 0 ? "true" : undefined}
+    >
       <SessionGroupSeparator
         label="General Sessions"
         count={sessions.length}
         expanded={expanded}
         onToggle={() => setExpanded((value) => !value)}
       />
-      <CollapsibleContent>
+      <CollapsibleContent data-sidebar="session-nav-section-body" className={SESSION_NAV_SECTION_BODY_CLASS}>
         {rows.map((row) => (
           <SessionMenuItem
             key={row.session.id}
@@ -1752,23 +1771,29 @@ function GeneralSessionsSection({ sessions, workspaceId, forcedExpandedSessionId
 const SESSION_DRAG_TYPE = "application/x-openwork-session-id";
 const UNGROUPED_GROUP_ID = "__openwork_ungrouped";
 
-function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown, variant = "section" }: {
+function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown, removeLabel, variant = "section" }: {
   label: string;
   count: number;
   expanded: boolean;
   onToggle: () => void;
   onRemove?: () => void;
   onTitlePointerDown?: React.PointerEventHandler<HTMLSpanElement>;
+  removeLabel?: string;
   variant?: "section" | "nested";
 }) {
   const nested = variant === "nested";
+  const actionLabel = removeLabel ?? t("session_management.remove_group");
   return (
     <button
       type="button"
+      data-sidebar="session-group-separator"
+      data-empty={count === 0 ? "true" : undefined}
       onClick={onToggle}
       className={cn(
-        "group/separator flex w-full items-center gap-1.5 rounded text-left transition-colors hover:bg-sidebar-accent/50",
-        nested ? "h-7 px-2 ps-8 text-xs" : "px-2 pb-1 pt-2.5 first:pt-1",
+        "group/separator flex w-full items-center gap-1.5 rounded-sm text-left ring-sidebar-ring transition-colors focus-visible:ring-2",
+        nested
+          ? "h-7 px-2 ps-8 text-xs hover:bg-sidebar-accent/40"
+          : "h-6 px-2 pt-1 text-[11px] hover:bg-transparent data-[empty=true]:opacity-65",
       )}
       aria-expanded={expanded}
     >
@@ -1787,6 +1812,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
         <span
           role="button"
           tabIndex={0}
+          data-sidebar="session-group-separator-action"
           onClick={(event) => {
             event.stopPropagation();
             onRemove();
@@ -1798,7 +1824,8 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
             onRemove();
           }}
           className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/separator:opacity-100"
-          aria-label={t("session_management.remove_group")}
+          aria-label={actionLabel}
+          title={actionLabel}
         >
           <Trash2 className="size-3" />
         </span>

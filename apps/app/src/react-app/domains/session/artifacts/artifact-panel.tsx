@@ -1414,43 +1414,27 @@ function UniverSurfaceSelector({
         {content}
         <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-96">
+      <DropdownMenuContent align="start" className="w-80">
         {viewModel.worktreeOptions.map((worktree, index) => (
           <Fragment key={worktree.id}>
             {index > 0 && viewModel.worktreeOptions[index - 1]?.groupLabel !== worktree.groupLabel ? <DropdownMenuSeparator /> : null}
             {index === 0 || viewModel.worktreeOptions[index - 1]?.groupLabel !== worktree.groupLabel ? (
               <div
-                className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-normal text-muted-foreground"
+                className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-normal text-muted-foreground"
                 data-testid="univer-surface-selector-group-label"
               >
                 {worktree.groupLabel}
               </div>
             ) : null}
             <DropdownMenuGroup>
-              <div className="px-3 py-2.5 text-xs text-muted-foreground">
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{worktree.label}</span>
-                  {worktree.description ? (
-                    <span className="truncate text-[10px] font-normal text-muted-foreground">
-                      {worktree.description}
-                    </span>
-                  ) : null}
-                </span>
-              </div>
               {worktree.unitOptions.map((option) => (
-                <DropdownMenuItem
+                <UniverSurfaceSelectorItem
                   key={`${worktree.id}:${option.unitId}`}
-                  onClick={() => onContentViewChange?.(option.view)}
-                  aria-pressed={worktree.selected && option.selected}
-                  title={option.label}
-                >
-                  {unitIcon(option.kind)}
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {option.status ? <UniverUnitStatusBadge status={option.status} /> : null}
-                  {worktree.selected && option.selected ? (
-                    <Check className="size-3.5 shrink-0" />
-                  ) : null}
-                </DropdownMenuItem>
+                  worktree={worktree}
+                  option={option}
+                  selected={worktree.selected && option.selected}
+                  onSelect={() => onContentViewChange?.(option.view)}
+                />
               ))}
             </DropdownMenuGroup>
           </Fragment>
@@ -1458,6 +1442,59 @@ function UniverSurfaceSelector({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function UniverSurfaceSelectorItem({
+  worktree,
+  option,
+  selected,
+  onSelect,
+}: {
+  worktree: UniverArtifactHeaderWorktreeOption;
+  option: UniverArtifactHeaderUnitOption;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const subtitle = surfaceSelectorItemSubtitle(worktree);
+  const title = subtitle ? `${option.label} · ${subtitle}` : option.label;
+  const worktreeId = worktree.view.scope === "trunk" ? undefined : worktree.view.worktreeId;
+  return (
+    <DropdownMenuItem
+      className="min-h-10 gap-2 px-2.5 py-1.5"
+      data-testid="univer-surface-selector-item"
+      data-surface-option-id={worktree.id}
+      data-surface-relation={worktree.relation}
+      data-surface-worktree-id={worktreeId}
+      onClick={onSelect}
+      aria-pressed={selected}
+      title={title}
+    >
+      {unitIcon(option.kind)}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[13px] leading-4">{option.label}</span>
+        {subtitle ? (
+          <span className="truncate text-[11px] font-normal leading-4 text-muted-foreground">
+            {subtitle}
+          </span>
+        ) : null}
+      </span>
+      {option.status ? <UniverUnitStatusBadge status={option.status} /> : null}
+      {selected ? <Check className="size-3.5 shrink-0" /> : null}
+    </DropdownMenuItem>
+  );
+}
+
+function surfaceSelectorItemSubtitle(
+  worktree: UniverArtifactHeaderWorktreeOption,
+): string | undefined {
+  const parts: string[] = [];
+  if (worktree.relation !== "currentVersion") {
+    parts.push(worktree.label);
+  }
+  if (worktree.description) {
+    parts.push(worktree.description);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 function BreadcrumbDivider() {

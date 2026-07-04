@@ -8,10 +8,21 @@ import {
 } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type {
   AgentPartInput,
   FilePartInput,
   ProviderListResponse,
+  SessionStatus,
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
@@ -21,11 +32,13 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import { buildUniverSessionSystemContext, combineSystemContexts } from "@/react-app/domains/session/univer-session-context";
-import { UNIVER_SESSION_METADATA_UPDATED_EVENT } from "@/react-app/domains/session/univer-session-events";
+import { notifyUniverSessionMetadataUpdated, UNIVER_SESSION_METADATA_UPDATED_EVENT } from "@/react-app/domains/session/univer-session-events";
 import { seedUniverTaskTitleFromPrompt } from "@/react-app/domains/session/univer-task-title";
 import {
   buildOpenworkWorkspaceBaseUrl,
   createOpenworkServerClient,
+  type OpenworkSession,
+  type OpenworkSessionUniverMetadata,
   type OpenworkUniverTargetSummary,
   readOpenworkServerSettings,
   type OpenworkServerClient,
@@ -166,6 +179,12 @@ import { useSessionControlActions } from "@/react-app/domains/session/control/se
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
+import {
+  directComposerUniverMentions,
+  isGeneralUniverLifecycleSession,
+  isUniverNewLifecycleTarget,
+  type UniverLifecyclePrimaryTarget,
+} from "@/react-app/domains/session/univer-session-lifecycle";
 import { SettingsSurface } from "./settings-route";
 import {
   ensureProviderListQuery,
@@ -319,6 +338,11 @@ function normalizeUniverTargetPath(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
+type UniverPrimaryChoiceRequest = {
+  targets: UniverLifecyclePrimaryTarget[];
+  resolve: (target: UniverLifecyclePrimaryTarget | null) => void;
+};
+
 export function SessionRoute() {
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -405,9 +429,13 @@ export function SessionRoute() {
     return window.localStorage.getItem("openwork.developerMode") === "1";
   });
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
+  const generalOriginLifecycleBaselineTargetIdsRef = useRef(new Map<string, Set<string>>());
+  const activeGeneralOriginLifecycleSessionIdsRef = useRef(new Set<string>());
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
+  const [univerPrimaryChoiceRequest, setUniverPrimaryChoiceRequest] = useState<UniverPrimaryChoiceRequest | null>(null);
+  const [univerPrimaryChoicePath, setUniverPrimaryChoicePath] = useState("");
   // Exclude the built-in OpenCode Zen provider from the "user" count so the
   // onboarding CTA ("Connect a model") only considers user-added providers.
   const userProviderConnectedIds = useMemo(
@@ -825,6 +853,114 @@ export function SessionRoute() {
     navigate(target, { state: { workspaceId, sessionId } });
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
+  const requestUniverPrimaryChoice = useCallback((targets: UniverLifecyclePrimaryTarget[]) => (
+    new Promise<UniverLifecyclePrimaryTarget | null>((resolve) => {
+      setUniverPrimaryChoicePath(targets[0]?.path ?? "");
+      setUniverPrimaryChoiceRequest({ targets, resolve });
+    })
+  ), []);
+
+  const cancelUniverPrimaryChoice = useCallback(() => {
+    setUniverPrimaryChoiceRequest((current) => {
+      current?.resolve(null);
+      return null;
+    });
+    setUniverPrimaryChoicePath("");
+  }, []);
+
+  const confirmUniverPrimaryChoice = useCallback(() => {
+    setUniverPrimaryChoiceRequest((current) => {
+      if (!current) return null;
+      const selected = current.targets.find((target) => target.path === univerPrimaryChoicePath) ?? null;
+      current.resolve(selected);
+      return null;
+    });
+    setUniverPrimaryChoicePath("");
+  }, [univerPrimaryChoicePath]);
+
+  const applySessionUniverMetadataLocally = useCallback((
+    workspaceId: string,
+    sessionId: string,
+    metadata: OpenworkSessionUniverMetadata | null,
+  ) => {
+    if (!metadata) return;
+    const nextSessions = (sessionsByWorkspaceIdRef.current[workspaceId] ?? []).map((session) => (
+      session.id === sessionId
+        ? {
+            ...session,
+            primaryUniverTarget: metadata.primaryUniverTarget ?? null,
+            sessionUniverWorktreeId: metadata.sessionUniverWorktreeId ?? null,
+            sessionUniverWorktreeIssue: metadata.sessionUniverWorktreeIssue ?? null,
+            sessionUniverWorktreeTerminalState: metadata.sessionUniverWorktreeTerminalState ?? null,
+            univerSourceSessionId: metadata.univerSourceSessionId ?? null,
+            univerSessionKind: metadata.univerSessionKind ?? null,
+            univerLifecycleOrigin: metadata.univerLifecycleOrigin ?? null,
+          }
+        : session
+    ));
+    const next = { ...sessionsByWorkspaceIdRef.current, [workspaceId]: nextSessions };
+    sessionsByWorkspaceIdRef.current = next;
+    setSessionsByWorkspaceId(next);
+  }, [sessionsByWorkspaceIdRef, setSessionsByWorkspaceId]);
+
+  const applyCreatedUniverLifecycleSessionLocally = useCallback((
+    workspaceId: string,
+    session: OpenworkSession,
+  ) => {
+    writeActiveWorkspaceId(workspaceId || null);
+    writeLastSessionFor(workspaceId, session.id);
+    rememberPendingCreatedSession(workspaceId, session.id);
+    generalOriginLifecycleBaselineTargetIdsRef.current.delete(session.univerSourceSessionId ?? "");
+    activeGeneralOriginLifecycleSessionIdsRef.current.delete(session.univerSourceSessionId ?? "");
+    const existing = sessionsByWorkspaceIdRef.current[workspaceId] ?? [];
+    const nextSessions = [
+      session,
+      ...existing.filter((entry) => entry.id !== session.id),
+    ];
+    const next = { ...sessionsByWorkspaceIdRef.current, [workspaceId]: nextSessions };
+    sessionsByWorkspaceIdRef.current = next;
+    setSessionsByWorkspaceId(next);
+    navigateToWorkspaceSession(workspaceId, session.id);
+    void refreshRouteState();
+  }, [navigateToWorkspaceSession, rememberPendingCreatedSession, refreshRouteState, sessionsByWorkspaceIdRef, setSessionsByWorkspaceId]);
+
+  const isFreshUniverLifecycleTarget = useCallback((sessionId: string, targetId: string) => {
+    return !generalOriginLifecycleBaselineTargetIdsRef.current.get(sessionId)?.has(targetId);
+  }, []);
+
+  const handleRuntimeSessionStatus = useCallback((update: { sessionId: string; status: SessionStatus }) => {
+    if (update.status.type !== "idle") return;
+    const workspaceId = selectedWorkspaceId;
+    const endpoint = selectedWorkspaceEndpoint;
+    if (!workspaceId || !endpoint) return;
+    if (!activeGeneralOriginLifecycleSessionIdsRef.current.has(update.sessionId)) return;
+
+    window.setTimeout(() => {
+      if (!activeGeneralOriginLifecycleSessionIdsRef.current.has(update.sessionId)) return;
+      const sourceSession = (sessionsByWorkspaceIdRef.current[workspaceId] ?? [])
+        .find((session) => session.id === update.sessionId);
+      if (sourceSession?.univerLifecycleOrigin !== "generalDirectMention") {
+        activeGeneralOriginLifecycleSessionIdsRef.current.delete(update.sessionId);
+        generalOriginLifecycleBaselineTargetIdsRef.current.delete(update.sessionId);
+        return;
+      }
+
+      void endpoint.client.updateSessionUniverMetadata(endpoint.workspaceId, update.sessionId, {
+        univerLifecycleOrigin: null,
+      })
+        .then((result) => {
+          applySessionUniverMetadataLocally(workspaceId, update.sessionId, result.metadata);
+        })
+        .catch((error: unknown) => {
+          console.warn("Failed to clear General-origin Univer lifecycle marker", error);
+        })
+        .finally(() => {
+          activeGeneralOriginLifecycleSessionIdsRef.current.delete(update.sessionId);
+          generalOriginLifecycleBaselineTargetIdsRef.current.delete(update.sessionId);
+        });
+    }, 1500);
+  }, [applySessionUniverMetadataLocally, selectedWorkspaceEndpoint, selectedWorkspaceId, sessionsByWorkspaceIdRef]);
+
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
       return null;
@@ -880,6 +1016,42 @@ export function SessionRoute() {
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      },
+      onBeforeSendDraft: async (draft: ComposerDraft, sessionId: string) => {
+        const targetSessionId = sessionId.trim() || selectedSessionId;
+        if (!targetSessionId || draft.mode === "shell" || draft.command) return draft;
+        const workspaceSessions = sessionsByWorkspaceId[selectedWorkspaceId] ?? [];
+        const sourceSession = workspaceSessions.find((session) => session.id === targetSessionId);
+        if (!isGeneralUniverLifecycleSession(sourceSession)) return draft;
+
+        const mentionedTargets = directComposerUniverMentions(draft);
+        if (mentionedTargets.length === 0) return draft;
+        const primaryTarget = mentionedTargets.length === 1
+          ? mentionedTargets[0]
+          : await requestUniverPrimaryChoice(mentionedTargets);
+        if (!primaryTarget) return null;
+        if (!selectedWorkspaceEndpoint) {
+          throw new Error("OpenWork workspace endpoint is unavailable.");
+        }
+        const existingUniverNewTargetIds = new Set(
+          paletteAccessibleTargets
+            .filter(isUniverNewLifecycleTarget)
+            .map((target) => target.id),
+        );
+
+        const result = await selectedWorkspaceEndpoint.client.applySessionUniverLifecycle(
+          selectedWorkspaceEndpoint.workspaceId,
+          targetSessionId,
+          { event: "directMention", primaryUniverTarget: primaryTarget },
+        );
+        generalOriginLifecycleBaselineTargetIdsRef.current.set(targetSessionId, existingUniverNewTargetIds);
+        activeGeneralOriginLifecycleSessionIdsRef.current.add(targetSessionId);
+        applySessionUniverMetadataLocally(selectedWorkspaceId, targetSessionId, result.metadata);
+        if (result.action === "promoted") {
+          notifyUniverSessionMetadataUpdated();
+          void refreshRouteState();
+        }
+        return draft;
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
         let targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1079,6 +1251,7 @@ export function SessionRoute() {
     };
   }, [
     client,
+    applySessionUniverMetadataLocally,
     modelPicker.compactOpen,
     handleOpenSettings,
     hasUsableModel,
@@ -1095,9 +1268,11 @@ export function SessionRoute() {
     navigateToWorkspaceSession,
     opencodeBaseUrl,
     opencodeClient,
+    paletteAccessibleTargets,
     providerConnectedIds,
     refreshRouteState,
     rememberPendingCreatedSession,
+    requestUniverPrimaryChoice,
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
@@ -1509,6 +1684,8 @@ export function SessionRoute() {
     createTaskInWorkspace: handleCreateTaskInWorkspace,
     openModelPicker: openModelPickerForControl,
     refreshRouteState,
+    onSessionUniverMetadataChanged: applySessionUniverMetadataLocally,
+    onSessionUniverLifecycleSessionCreated: applyCreatedUniverLifecycleSessionLocally,
   });
 
   const commandPaletteControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -1752,7 +1929,7 @@ export function SessionRoute() {
   );
 
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
-    if (!folder) return;
+    if (!folder) return { ok: false, error: "Workspace folder is required." };
     setCreateWorkspaceBusy(true);
     setCreateWorkspaceError(null);
     try {
@@ -1810,8 +1987,11 @@ export function SessionRoute() {
         navigateToWorkspaceSession(targetWorkspaceId, session?.id ?? null, { replace: true });
         if (session?.id) focusPromptSoon();
       }
+      return { ok: true };
     } catch (error) {
-      setCreateWorkspaceError(describeWorkspaceCreateError(error));
+      const message = describeWorkspaceCreateError(error);
+      setCreateWorkspaceError(message);
+      return { ok: false, error: message };
     } finally {
       setCreateWorkspaceBusy(false);
     }
@@ -1822,16 +2002,43 @@ export function SessionRoute() {
     label: "Create a local workspace",
     description: "Create a workspace at the given folder path without showing the file picker dialog.",
     sideEffect: "mutation",
+    disabled: !client,
     requiresArgs: true,
     args: [{ name: "path", type: "string", required: true, description: "Absolute folder path for the new workspace." }],
     execute: async (args) => {
       const folder = (args as { path?: string } | undefined)?.path?.trim();
       if (!folder) return { ok: false, error: "path is required" };
-      await handleCreateWorkspace("starter", folder);
-      return { path: folder };
+      const result = await handleCreateWorkspace("starter", folder);
+      return result.ok ? { ok: true, path: folder } : result;
     },
-  }), [handleCreateWorkspace]);
+  }), [client, handleCreateWorkspace]);
   useControlAction(createWorkspaceControlAction);
+
+  const activateWorkspaceControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "workspace.activate",
+    label: "Activate a workspace",
+    description: "Switch to an existing workspace by id.",
+    sideEffect: "navigation",
+    disabled: !client,
+    requiresArgs: true,
+    args: [{ name: "id", type: "string", required: true, description: "Workspace id to activate." }],
+    execute: async (args) => {
+      const workspaceId = typeof args === "object" && args !== null && "id" in args
+        ? String(args.id ?? "").trim()
+        : "";
+      if (!workspaceId) return { ok: false, error: "id is required" };
+      if (!client) return { ok: false, error: "OpenWork server is not connected" };
+      const result = await client.activateWorkspace(workspaceId, { persist: true });
+      await workspaceSetSelected(workspaceId).catch(() => undefined);
+      await workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
+      setLegacySelectedWorkspaceId(workspaceId);
+      writeActiveWorkspaceId(workspaceId);
+      await refreshRouteState();
+      navigateToWorkspaceSession(workspaceId, null, { replace: true });
+      return { ok: true, id: workspaceId, activeId: result.activeId };
+    },
+  }), [client, navigateToWorkspaceSession, refreshRouteState]);
+  useControlAction(activateWorkspaceControlAction);
 
   const handleCreateRemoteWorkspace = useCallback(async (input: {
     openworkHostUrl?: string | null;
@@ -1890,13 +2097,14 @@ export function SessionRoute() {
         // prefix) so the React Query cache keys session-sync writes match
         // the keys SessionSurface reads from. Otherwise events arrive but
         // the UI never sees them and gets stuck on "thinking".
-        workspaceId={selectedWorkspaceEndpoint.workspaceId}
-        sessionId={selectedSessionId}
-        activeSessionIds={activeSelectedWorkspaceSessionIds}
-        opencodeBaseUrl={opencodeBaseUrl}
-        openworkToken={selectedWorkspaceServerToken}
-        onSessionUpdated={handleRuntimeSessionUpdated}
-      />
+	        workspaceId={selectedWorkspaceEndpoint.workspaceId}
+	        sessionId={selectedSessionId}
+	        activeSessionIds={activeSelectedWorkspaceSessionIds}
+	        opencodeBaseUrl={opencodeBaseUrl}
+	        openworkToken={selectedWorkspaceServerToken}
+	        onSessionUpdated={handleRuntimeSessionUpdated}
+	        onSessionStatus={handleRuntimeSessionStatus}
+	      />
     ) : null}
     <SessionPage
       selectedSessionId={selectedSessionId}
@@ -1916,8 +2124,11 @@ export function SessionRoute() {
       openworkServerStatus={client ? "connected" : "disconnected"}
       openworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
-      openworkServerToken={selectedWorkspaceServerToken}
-      developerMode={developerMode}
+	      openworkServerToken={selectedWorkspaceServerToken}
+	      onSessionUniverMetadataChanged={applySessionUniverMetadataLocally}
+	      onSessionUniverLifecycleSessionCreated={applyCreatedUniverLifecycleSessionLocally}
+	      isFreshUniverLifecycleTarget={isFreshUniverLifecycleTarget}
+	      developerMode={developerMode}
       headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
@@ -2183,6 +2394,45 @@ export function SessionRoute() {
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
+    <Dialog
+      open={univerPrimaryChoiceRequest !== null}
+      onOpenChange={(open) => {
+        if (!open) cancelUniverPrimaryChoice();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Choose the Univerfile for this task</DialogTitle>
+          <DialogDescription>
+            This General Session mentions more than one Univerfile. Pick the one that should become the task's Primary Univerfile.
+          </DialogDescription>
+        </DialogHeader>
+        <RadioGroup
+          value={univerPrimaryChoicePath}
+          onValueChange={setUniverPrimaryChoicePath}
+          className="gap-2"
+        >
+          {univerPrimaryChoiceRequest?.targets.map((target) => (
+            <label
+              key={target.path}
+              className="flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm hover:bg-muted"
+            >
+              <RadioGroupItem value={target.path} />
+              <span className="min-w-0 flex-1 truncate">{target.name}</span>
+              <span className="min-w-0 max-w-[12rem] truncate text-xs text-muted-foreground">{target.path}</span>
+            </label>
+          ))}
+        </RadioGroup>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={cancelUniverPrimaryChoice}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={confirmUniverPrimaryChoice} disabled={!univerPrimaryChoicePath}>
+            Continue
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <OpenWorkModelsStartupDialog
       open={openWorkModelsPromo.open}
       isSignedIn={denAuth.isSignedIn}

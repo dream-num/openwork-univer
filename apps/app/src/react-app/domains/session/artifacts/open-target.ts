@@ -26,6 +26,7 @@ export type OpenTarget = {
   worktreeId?: string;
   sessionWorktreeId?: string;
   unitId?: string;
+  lifecycleEvent?: "univerNew";
   exists?: boolean;
   size?: number;
   updatedAt?: number;
@@ -56,9 +57,11 @@ const WRITE_TOOL_NAMES = new Set([
 const FILE_METADATA_KEYS = ["path", "file", "filePath", "filepath", "univerfile", "univerfilePath", "targetPath"];
 const WORKTREE_METADATA_KEYS = ["worktreeId", "worktree"];
 const UNIT_METADATA_KEYS = ["unitId", "unit", "localUnitId"];
+const COMMAND_METADATA_KEYS = ["command", "cmd", "script"];
 const PATCH_FILE_PATTERN = /^\*\*\* (?:Add File|Update File):\s*(.+)$/gmi;
 const PATCH_MOVE_TO_PATTERN = /^\*\*\* Move to:\s*(.+)$/gmi;
 const URI_PATTERN = /^(?:https?|wss?|file):\/\//i;
+const UNIVER_NEW_COMMAND_PATTERN = /(?:^|[\s;&|])(?:bunx\s+|pnpm\s+(?:exec\s+|dlx\s+)?|npx\s+)?univer(?:-cli)?\s+new(?:$|\s)/iu;
 
 type DeriveOpenTargetsOptions = {
   includeFileMentions?: boolean;
@@ -128,7 +131,7 @@ function textWithoutRedundantMarkdownLinkLabels(text: string) {
   });
 }
 
-function targetFromFile(path: string, confidence: number, reason: string, metadata: Pick<OpenTarget, "worktreeId" | "unitId"> = {}): OpenTarget | null {
+function targetFromFile(path: string, confidence: number, reason: string, metadata: Pick<OpenTarget, "worktreeId" | "unitId" | "lifecycleEvent"> = {}): OpenTarget | null {
   const normalized = normalizePath(path).replace(/[.,;:]+$/, "");
   if (!normalized || normalized.length > 500 || !normalized.includes(".")) return null;
   return {
@@ -141,6 +144,7 @@ function targetFromFile(path: string, confidence: number, reason: string, metada
     reason,
     ...(metadata.worktreeId ? { worktreeId: metadata.worktreeId } : {}),
     ...(metadata.unitId ? { unitId: metadata.unitId } : {}),
+    ...(metadata.lifecycleEvent ? { lifecycleEvent: metadata.lifecycleEvent } : {}),
   };
 }
 
@@ -180,15 +184,21 @@ function addTarget(map: Map<string, OpenTarget>, target: OpenTarget | null) {
       ...target,
       worktreeId: target.worktreeId ?? existing.worktreeId,
       unitId: target.unitId ?? existing.unitId,
+      lifecycleEvent: target.lifecycleEvent ?? existing.lifecycleEvent,
     });
     return;
   }
 
-  if ((target.worktreeId && !existing.worktreeId) || (target.unitId && !existing.unitId)) {
+  if (
+    (target.worktreeId && !existing.worktreeId) ||
+    (target.unitId && !existing.unitId) ||
+    (target.lifecycleEvent && !existing.lifecycleEvent)
+  ) {
     map.set(target.id, {
       ...existing,
       worktreeId: existing.worktreeId ?? target.worktreeId,
       unitId: existing.unitId ?? target.unitId,
+      lifecycleEvent: existing.lifecycleEvent ?? target.lifecycleEvent,
     });
   }
 }
@@ -373,6 +383,76 @@ function collectUniverWorktreeMetadataTargets(value: unknown, confidence: number
   return Array.from(targets.values());
 }
 
+function commandTexts(value: unknown, depth = 0): string[] {
+  if (depth > 3) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((entry) => commandTexts(entry, depth + 1));
+  if (!isObject(value)) return [];
+
+  const values: string[] = [];
+  for (const key of COMMAND_METADATA_KEYS) {
+    const field = value[key];
+    if (typeof field === "string") values.push(field);
+    if (Array.isArray(field)) values.push(...field.flatMap((entry) => commandTexts(entry, depth + 1)));
+  }
+  const args = value.args;
+  if (Array.isArray(args)) values.push(...args.flatMap((entry) => commandTexts(entry, depth + 1)));
+  return values;
+}
+
+function hasUniverNewCommand(value: unknown) {
+  return commandTexts(value).some((text) => UNIVER_NEW_COMMAND_PATTERN.test(text));
+}
+
+function addUniverNewCommandTargets(map: Map<string, OpenTarget>, value: unknown) {
+  for (const command of commandTexts(value)) {
+    if (!UNIVER_NEW_COMMAND_PATTERN.test(command)) continue;
+    FILE_PATTERN.lastIndex = 0;
+    for (const match of command.matchAll(FILE_PATTERN)) {
+      if (!match[1]) continue;
+      const target = targetFromFile(match[1], 96, "univer new", { lifecycleEvent: "univerNew" });
+      if (target?.preview === "univer") addTarget(map, target);
+    }
+  }
+}
+
+function collectUniverNewMetadataTargets(value: unknown) {
+  const targets = new Map<string, OpenTarget>();
+  const visit = (entry: unknown, depth: number) => {
+    if (depth > 4) return;
+    if (typeof entry === "string") {
+      for (const parsed of parseJsonCandidates(entry)) {
+        visit(parsed, depth + 1);
+      }
+      return;
+    }
+    if (Array.isArray(entry)) {
+      for (const item of entry) visit(item, depth + 1);
+      return;
+    }
+    if (!isObject(entry)) return;
+
+    for (const file of collectFileMetadataValues(entry)) {
+      const target = targetFromFile(file, 96, "univer new", { lifecycleEvent: "univerNew" });
+      if (target?.preview === "univer") addTarget(targets, target);
+    }
+    visit(entry.args, depth + 1);
+    visit(entry.result, depth + 1);
+    visit(entry.output, depth + 1);
+  };
+  visit(value, 0);
+  return Array.from(targets.values());
+}
+
+function collectUniverNewTargets(input: unknown, output: unknown) {
+  if (!hasUniverNewCommand(input)) return [];
+  const targets = new Map<string, OpenTarget>();
+  addUniverNewCommandTargets(targets, input);
+  addFileTargets(targets, collectUniverNewMetadataTargets(input));
+  addFileTargets(targets, collectUniverNewMetadataTargets(output));
+  return Array.from(targets.values());
+}
+
 function collectPatchFileValues(value: unknown) {
   if (!isObject(value)) return [];
   const patchText = value.patchText ?? value.patch ?? value.diff;
@@ -430,6 +510,8 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
       const discoveryTool = isDiscoveryTool(part.toolName);
       const writeTool = isWriteTool(part.toolName);
       const artifactMetadataTool = isArtifactMetadataTool(part.toolName);
+
+      addFileTargets(targets, collectUniverNewTargets(part.input, part.output));
 
       addFileTargets(
         targets,

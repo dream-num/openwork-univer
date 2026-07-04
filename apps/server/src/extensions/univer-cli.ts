@@ -820,7 +820,19 @@ function mergeCommandFailures(first: CommandResult, second: CommandResult): Comm
   };
 }
 
-async function startUniverDaemon(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
+const univerDaemonStarts = new Map<string, Promise<CommandResult>>();
+
+function daemonStartKey(command: string, env: NodeJS.ProcessEnv): string {
+  return [
+    command,
+    env.HOME ?? "",
+    env.UNIVER_HOME ?? "",
+    env.XDG_CONFIG_HOME ?? "",
+    env.XDG_DATA_HOME ?? "",
+  ].join("\0");
+}
+
+async function startUniverDaemonOnce(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
   const firstStart = await runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
   if (firstStart.ok || !isDaemonBuildMismatch(firstStart)) {
     return firstStart;
@@ -832,6 +844,22 @@ async function startUniverDaemon(command: string, cwd: string, env: NodeJS.Proce
   }
 
   return runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
+}
+
+async function startUniverDaemon(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
+  const key = daemonStartKey(command, env);
+  const existing = univerDaemonStarts.get(key);
+  if (existing) return existing;
+
+  const starting = startUniverDaemonOnce(command, cwd, env);
+  univerDaemonStarts.set(key, starting);
+  try {
+    return await starting;
+  } finally {
+    if (univerDaemonStarts.get(key) === starting) {
+      univerDaemonStarts.delete(key);
+    }
+  }
 }
 
 function probeFromCommand(command: string, args: string[], result: CommandResult, requireJson: boolean): ProbeResult {

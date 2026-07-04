@@ -8,7 +8,13 @@ import { useCoworkSnapshot } from "@univer/cowork/react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
-import { type OpenworkServerClient, type OpenworkServerStatus, type OpenworkSessionUniverMetadataPatch } from "../../../../app/lib/openwork-server";
+import {
+  type OpenworkServerClient,
+  type OpenworkServerStatus,
+  type OpenworkSession,
+  type OpenworkSessionUniverMetadata,
+  type OpenworkSessionUniverMetadataPatch,
+} from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
 import { openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -59,6 +65,7 @@ import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
 import { isUniverTarget, targetFromPrimaryUniverfile, useUniverCoworkSession, type UniverTarget } from "../artifacts/univer-cowork-session";
 import { notifyUniverSessionMetadataUpdated } from "../univer-session-events";
+import { resolveSessionUniverNewLifecycle } from "../univer-session-lifecycle";
 import { resolveSessionUniverWorktreePersistence } from "../univer-session-worktree-adapter";
 import { normalizeUniverTargetPath, useUniverWorktreeStatusStore } from "../univer-worktree-status-store";
 import type { OpenTargetOptions } from "@/lib/target-provider";
@@ -91,12 +98,20 @@ export type OpenSessionTab = {
   sessionId: string;
 };
 
-type UnavailableUniverTargetDeleteRequest = {
-  workspaceId: string;
-  name: string;
-  path: string;
-  sessionIds: string[];
-};
+type UnavailableUniverTargetDeleteRequest =
+  | {
+      kind: "single";
+      workspaceId: string;
+      name: string;
+      path: string;
+      sessionIds: string[];
+    }
+  | {
+      kind: "section";
+      workspaceId: string;
+      targetCount: number;
+      sessionIds: string[];
+    };
 
 type StatusBarOverrides = Pick<
   StatusBarProps,
@@ -351,6 +366,9 @@ export type SessionPageProps = {
   openworkServerClient: OpenworkServerClient | null;
   environmentClient?: OpenworkServerClient | null;
   openworkServerToken?: string | null;
+  onSessionUniverMetadataChanged?: (workspaceId: string, sessionId: string, metadata: OpenworkSessionUniverMetadata | null) => void;
+  onSessionUniverLifecycleSessionCreated?: (workspaceId: string, session: OpenworkSession) => void;
+  isFreshUniverLifecycleTarget?: (sessionId: string, targetId: string) => boolean;
   developerMode: boolean;
   headerStatus: string;
   busyHint: string | null;
@@ -560,6 +578,7 @@ export function SessionPage(props: SessionPageProps) {
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
   const pendingUniverWorktreePersistenceRef = useRef(new Set<string>());
+  const pendingUniverLifecyclePromotionRef = useRef(new Set<string>());
   const previousSelectedSessionIdRef = useRef(props.selectedSessionId);
   const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
   const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
@@ -645,6 +664,58 @@ export function SessionPage(props: SessionPageProps) {
   const toolbarUniverTarget = boundUniverTarget ?? activeUniverArtifactTarget;
   useEffect(() => {
     if (!props.openworkServerClient || !props.runtimeWorkspaceId || !props.selectedSessionId) return;
+    const openworkServerClient = props.openworkServerClient;
+    const runtimeWorkspaceId = props.runtimeWorkspaceId;
+    const selectedSessionId = props.selectedSessionId;
+    const selectedWorkspaceId = props.selectedWorkspaceId;
+    const freshTargets = transcriptTargets.filter((target) =>
+      props.isFreshUniverLifecycleTarget?.(selectedSessionId, target.id) ?? true
+    );
+    const resolution = resolveSessionUniverNewLifecycle(selectedSidebarSession, freshTargets);
+    if (!resolution) return;
+    const primaryTarget = resolution.primaryTarget;
+    const key = `${selectedSessionId}:${resolution.action}:${primaryTarget.path}`;
+    if (pendingUniverLifecyclePromotionRef.current.has(key)) return;
+    pendingUniverLifecyclePromotionRef.current.add(key);
+
+    void openworkServerClient.applySessionUniverLifecycle(runtimeWorkspaceId, selectedSessionId, {
+      event: "univerNew",
+      primaryUniverTarget: primaryTarget,
+    })
+      .then((result) => {
+        if (result.sourceMetadata) {
+          props.onSessionUniverMetadataChanged?.(selectedWorkspaceId, selectedSessionId, result.sourceMetadata);
+        } else {
+          props.onSessionUniverMetadataChanged?.(selectedWorkspaceId, selectedSessionId, result.metadata);
+        }
+        if (result.action === "createdSession" && result.createdSession) {
+          props.onSessionUniverLifecycleSessionCreated?.(selectedWorkspaceId, result.createdSession);
+        }
+        if (result.action === "promoted" || result.action === "createdSession") notifyUniverSessionMetadataUpdated();
+      })
+      .catch((error: unknown) => {
+        console.warn("Failed to apply Univer session lifecycle from univer new", error);
+      })
+      .finally(() => {
+        pendingUniverLifecyclePromotionRef.current.delete(key);
+      });
+  }, [
+    props.openworkServerClient,
+    props.isFreshUniverLifecycleTarget,
+    props.onSessionUniverLifecycleSessionCreated,
+    props.onSessionUniverMetadataChanged,
+    props.runtimeWorkspaceId,
+    props.selectedSessionId,
+    props.selectedWorkspaceId,
+    selectedSidebarSession,
+    transcriptTargets,
+  ]);
+  useEffect(() => {
+    if (!props.openworkServerClient || !props.runtimeWorkspaceId || !props.selectedSessionId) return;
+    const openworkServerClient = props.openworkServerClient;
+    const runtimeWorkspaceId = props.runtimeWorkspaceId;
+    const selectedSessionId = props.selectedSessionId;
+    const selectedWorkspaceId = props.selectedWorkspaceId;
     const candidate = resolveSessionUniverWorktreePersistence(selectedSidebarSession, transcriptTargets);
     if (!candidate) return;
 
@@ -652,7 +723,7 @@ export function SessionPage(props: SessionPageProps) {
     if ("sessionUniverWorktreeId" in candidate) {
       const existingOwner = existingWorktreeOwnerForCandidate(
         selectedWorkspaceSessionGroup?.sessions ?? [],
-        props.selectedSessionId,
+        selectedSessionId,
         candidate.primaryUniverTarget.path,
         candidate.sessionUniverWorktreeId,
       );
@@ -676,12 +747,15 @@ export function SessionPage(props: SessionPageProps) {
         ? `${nextPatch.sessionUniverWorktreeIssue.worktreeId}:${nextPatch.sessionUniverWorktreeIssue.ownerSessionId}`
         : "";
     const worktreeId = nextPatch.sessionUniverWorktreeId ?? issueKey;
-    const key = `${props.selectedSessionId}:${worktreeId}`;
+    const key = `${selectedSessionId}:${worktreeId}`;
     if (pendingUniverWorktreePersistenceRef.current.has(key)) return;
     pendingUniverWorktreePersistenceRef.current.add(key);
 
-    void props.openworkServerClient.updateSessionUniverMetadata(props.runtimeWorkspaceId, props.selectedSessionId, nextPatch)
-      .then(() => notifyUniverSessionMetadataUpdated())
+    void openworkServerClient.updateSessionUniverMetadata(runtimeWorkspaceId, selectedSessionId, nextPatch)
+      .then((result) => {
+        props.onSessionUniverMetadataChanged?.(selectedWorkspaceId, selectedSessionId, result.metadata);
+        notifyUniverSessionMetadataUpdated();
+      })
       .catch((error: unknown) => {
         console.warn("Failed to persist Univer worktree ownership", error);
       })
@@ -690,8 +764,10 @@ export function SessionPage(props: SessionPageProps) {
       });
   }, [
     props.openworkServerClient,
+    props.onSessionUniverMetadataChanged,
     props.runtimeWorkspaceId,
     props.selectedSessionId,
+    props.selectedWorkspaceId,
     selectedSidebarSession,
     selectedWorkspaceSessionGroup?.sessions,
     transcriptTargets,
@@ -1388,11 +1464,15 @@ export function SessionPage(props: SessionPageProps) {
     }
   };
   const deleteModalTitle = unavailableUniverTargetDelete
-    ? "Remove unavailable Univerfile?"
+    ? unavailableUniverTargetDelete.kind === "section"
+      ? "Clear unavailable Univerfiles?"
+      : "Remove unavailable Univerfile?"
     : t("session.delete_session_title");
   const deleteModalMessage = unavailableUniverTargetDelete ? (
     <span>
-      This removes the unavailable sidebar entry for {unavailableUniverTargetDelete.name} and permanently deletes {unavailableUniverTargetDelete.sessionIds.length} bound {unavailableUniverTargetDelete.sessionIds.length === 1 ? "session" : "sessions"}. The .univer file is already unavailable and will not be touched.
+      {unavailableUniverTargetDelete.kind === "section"
+        ? `This clears ${unavailableUniverTargetDelete.targetCount} unavailable sidebar ${unavailableUniverTargetDelete.targetCount === 1 ? "entry" : "entries"} and permanently deletes ${unavailableUniverTargetDelete.sessionIds.length} bound ${unavailableUniverTargetDelete.sessionIds.length === 1 ? "session" : "sessions"}. The .univer files are already unavailable and will not be touched.`
+        : `This removes the unavailable sidebar entry for ${unavailableUniverTargetDelete.name} and permanently deletes ${unavailableUniverTargetDelete.sessionIds.length} bound ${unavailableUniverTargetDelete.sessionIds.length === 1 ? "session" : "sessions"}. The .univer file is already unavailable and will not be touched.`}
     </span>
   ) : (
     sessionActionTitle.trim()
@@ -1437,7 +1517,12 @@ export function SessionPage(props: SessionPageProps) {
           onOpenUniverTargetOverview={props.sidebar.onOpenUniverTargetOverview}
           onOpenDeleteUnavailableUniverTarget={props.onDeleteSessions ? (workspaceId, name, path, sessionIds) => {
             setSessionActionId(null);
-            setUnavailableUniverTargetDelete({ workspaceId, name, path, sessionIds });
+            setUnavailableUniverTargetDelete({ kind: "single", workspaceId, name, path, sessionIds });
+            setDeleteOpen(true);
+          } : undefined}
+          onOpenClearUnavailableUniverTargets={props.onDeleteSessions ? (workspaceId, sessionIds, targetCount) => {
+            setSessionActionId(null);
+            setUnavailableUniverTargetDelete({ kind: "section", workspaceId, targetCount, sessionIds });
             setDeleteOpen(true);
           } : undefined}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}

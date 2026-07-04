@@ -345,7 +345,36 @@ describe("sidebar Univer target grouping", () => {
     expect(result.generalSessions.map((session) => session.id)).toEqual(["ses_general"]);
   });
 
-  test("renders General Sessions before current and unavailable Univerfiles", async () => {
+  test("keeps the Univer navigation surface available when sections are empty", () => {
+    const result = buildUniverTargetHubs([], []);
+
+    expect(result.hasUniverSurface).toBe(true);
+    expect(result.hubs).toHaveLength(0);
+    expect(result.generalSessions).toHaveLength(0);
+  });
+
+  test("renders empty Univer navigation section headers instead of dropping them", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+    const univerfilesStart = source.indexOf("function UniverfilesSection");
+    const generalStart = source.indexOf("function GeneralSessionsSection");
+    const dragStart = source.indexOf("const SESSION_DRAG_TYPE", generalStart);
+    const univerfilesSource = source.slice(univerfilesStart, generalStart);
+    const generalSource = source.slice(generalStart, dragStart);
+
+    expect(univerfilesStart).toBeGreaterThan(0);
+    expect(generalStart).toBeGreaterThan(univerfilesStart);
+    expect(dragStart).toBeGreaterThan(generalStart);
+    expect(univerfilesSource).toContain("count={hubs.length}");
+    expect(univerfilesSource).not.toContain("if (hubs.length === 0) return null");
+    expect(generalSource).toContain("count={sessions.length}");
+    expect(generalSource).not.toContain("if (sessions.length === 0) return null");
+    expect(source).toContain('data-sidebar="session-nav-section"');
+    expect(source).toContain('data-sidebar="session-nav-section-body"');
+    expect(source).toContain('data-empty={hubs.length === 0 ? "true" : undefined}');
+    expect(source).toContain('data-empty={sessions.length === 0 ? "true" : undefined}');
+  });
+
+  test("renders a contiguous Session Navigation Tree with current Univerfiles before unavailable Univerfiles", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
     const branchStart = source.indexOf("univerNavigation.hasUniverSurface ? (");
     const branchEnd = source.indexOf(") : wsGroups.length > 0", branchStart);
@@ -353,8 +382,9 @@ describe("sidebar Univer target grouping", () => {
 
     expect(branchStart).toBeGreaterThan(0);
     expect(branchEnd).toBeGreaterThan(branchStart);
+    expect(branch).toContain('data-sidebar="session-nav-tree"');
     expect(branch.indexOf("GeneralSessionsSection")).toBeLessThan(branch.indexOf("label=\"Univerfiles\""));
-    expect(branch.indexOf("label=\"Univerfiles\"")).toBeLessThan(branch.indexOf("label=\"Unavailable\""));
+    expect(branch.indexOf("label=\"Univerfiles\"")).toBeLessThan(branch.indexOf("label=\"Unavailable Univerfiles\""));
     expect(branch).toContain("defaultExpanded={false}");
     expect(branch).toContain("hubDefaultExpanded={false}");
   });
@@ -368,23 +398,45 @@ describe("sidebar Univer target grouping", () => {
   test("keeps Univerfile child session indentation compact", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
 
-    expect(source).toContain('const SESSION_DEPTH_1_CLASS = "ps-8"');
-    expect(source).toContain('const SESSION_DEPTH_DEEP_CLASS = "ps-11"');
-    expect(source).toContain('nested ? "h-7 px-2 ps-8 text-xs"');
+    expect(source).toContain('const SESSION_NAV_TREE_CLASS = "mt-1 flex flex-col gap-1"');
+    expect(source).toContain('const SESSION_NAV_SECTION_BODY_CLASS = "relative ml-3 border-l border-muted-foreground/25 pl-2"');
+    expect(source).toContain('const SESSION_DEPTH_1_CLASS = "ps-9"');
+    expect(source).toContain('const SESSION_DEPTH_DEEP_CLASS = "ps-12"');
+    expect(source).toContain('? "h-7 px-2 ps-8 text-xs hover:bg-sidebar-accent/40"');
   });
 
-  test("keeps Univerfile row aggregate status explicit", async () => {
+  test("keeps Univerfile row free of aggregate status chip", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
 
     expect(source).not.toContain("unitCountLabel");
     expect(source).not.toContain("unitCountTitle");
-    expect(source).toContain('const UNIVER_FILE_PENDING_CLASS = "inline-flex h-5 min-w-0 max-w-[8.5rem] flex-[0_1_auto] items-center justify-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none"');
-    expect(source).toContain('const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md pe-16 ps-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"');
+    expect(source).not.toContain("UNIVER_FILE_PENDING_CLASS");
+    expect(source).not.toContain("taskSummaryLabel");
+    expect(source).not.toContain("buildUniverFileTaskSummary");
+    expect(source).toContain('const UNIVER_FILE_ROW_CLASS = "flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border border-transparent pe-16 ps-2 text-left text-sm transition-colors hover:border-sidebar-border/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:border-sidebar-ring focus-visible:ring-2 focus-visible:ring-sidebar-ring/30"');
+    expect(source).toContain('const UNIVER_FILE_ICON_WRAP_CLASS = "flex size-5 shrink-0 items-center justify-center rounded border border-sidebar-border/70 bg-sidebar-accent/35 text-muted-foreground"');
+    expect(source).toContain('data-sidebar="univerfile-row"');
+    expect(source).toContain('aria-selected={selectedInside}');
+    expect(source).toContain('data-discovered={hub.target.discovered ? "true" : "false"}');
+    expect(source).toContain("<span className={UNIVER_FILE_ICON_WRAP_CLASS} aria-hidden=\"true\">");
     expect(source).toContain('<span className="min-w-[4rem] flex-1 truncate">{hub.target.name}</span>');
-    expect(source).toContain('<span className="min-w-0 truncate">{taskSummaryLabel}</span>');
-    expect(source).toContain('countPhrase(hub.reviewSessionCount, "review", "reviews")');
-    expect(source).toContain('countPhrase(hub.issueSessionCount, "issue", "issues")');
-    expect(source).toContain("buildUniverFileTaskSummary(hub)");
+  });
+
+  test("keeps workspace, section, expanded, selected, and focus states visually separate", async () => {
+    const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+
+    expect(source).toContain('data-sidebar="workspace-header-button"');
+    expect(source).toContain("border border-transparent bg-transparent !px-[4px]");
+    expect(source).toContain("hover:border-sidebar-border/70 hover:bg-sidebar-accent/45");
+    expect(source).toContain("group-hover/workspace-header:bg-sidebar-accent/45");
+    expect(source).toContain('data-workspace-actions className="group/workspace-actions absolute right-7');
+    expect(source).toContain('className="absolute right-1 top-1/2 size-6');
+    expect(source).toContain('data-sidebar="session-group-separator"');
+    expect(source).toContain('data-empty={count === 0 ? "true" : undefined}');
+    expect(source).toContain("focus-visible:ring-2");
+    expect(source).toContain("expanded && \"rotate-90\"");
+    expect(source).not.toContain("expanded && \"bg-sidebar-accent");
+    expect(source).toContain("selectedInside && \"border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground");
   });
 
   test("keeps Univer review chips in the right-side session row slot", async () => {
@@ -399,10 +451,20 @@ describe("sidebar Univer target grouping", () => {
 
   test("offers file-level cleanup for unavailable Univerfiles only", async () => {
     const source = await Bun.file(new URL("../src/react-app/domains/session/sidebar/app-sidebar.tsx", import.meta.url)).text();
+    const pageSource = await Bun.file(new URL("../src/react-app/domains/session/chat/session-page.tsx", import.meta.url)).text();
 
     expect(source).toContain("const canDeleteUnavailableTarget = !hub.target.discovered");
     expect(source).toContain("Remove unavailable Univerfile");
     expect(source).toContain("ctx.onOpenDeleteUnavailableUniverTarget?.(workspaceId, hub.target.name, hub.target.path, hubSessionIds)");
+    expect(source).toContain("Clear unavailable Univerfiles");
+    expect(source).toContain("onOpenClearUnavailableUniverTargets");
+    expect(source).toContain("unavailableUniverHubs.flatMap(sessionIdsForUniverTargetHub)");
+    expect(source).toContain("removeLabel={clearLabel}");
+    expect(source).toContain('data-sidebar="session-group-separator"');
+    expect(source).toContain('data-sidebar="session-group-separator-action"');
+    expect(pageSource).toContain('kind: "section"');
+    expect(pageSource).toContain("Clear unavailable Univerfiles?");
+    expect(pageSource).toContain("This clears");
   });
 
   test("pauses sidebar Univer status probes while a Univer artifact is open", async () => {

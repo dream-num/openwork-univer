@@ -83,6 +83,12 @@ if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then
     echo "Daemon build mismatch. Expected new-build, got old-build. Run \`univer daemon stop\` and retry." >&2
     exit 1
   fi
+  count_file="$0.start-count"
+  count="$(cat "$count_file" 2>/dev/null || echo 0)"
+  echo $((count + 1)) > "$count_file"
+  if [ -f "$0.slow-start" ]; then
+    sleep 1
+  fi
   echo "univer daemon: started"
   exit 0
 fi
@@ -527,6 +533,36 @@ describe("Univer CLI extension", () => {
     if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
     expect(result.result.origin).toBe("http://127.0.0.1:5180");
     expect(result.result.univerfile.endsWith("/reports/budget.univer")).toBe(true);
+  });
+
+  test("serializes concurrent Univer daemon starts for the same runtime", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    await mkdir(join(root, "reports"), { recursive: true });
+    await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
+    const executablePath = await writeFakeUniver(root);
+    await writeFile(`${executablePath}.slow-start`, "slow\n", "utf8");
+
+    const callOpenSurface = () =>
+      callUniverCliExtensionAction(
+        serverConfig(root),
+        "open_surface",
+        {
+          workspaceId: "ws_1",
+          path: "reports/budget.univer",
+          executablePath,
+        },
+        { workspaceId: "ws_1" },
+      );
+
+    const [first, second] = await Promise.all([callOpenSurface(), callOpenSurface()]);
+
+    if (!first || first.action !== "open_surface") throw new Error("Expected first Univer open_surface result");
+    if (!second || second.action !== "open_surface") throw new Error("Expected second Univer open_surface result");
+    expect(first.result.origin).toBe("http://127.0.0.1:5180");
+    expect(second.result.origin).toBe("http://127.0.0.1:5180");
+    const startCountText = await readFile(`${executablePath}.start-count`, "utf8");
+    expect(Number.parseInt(startCountText, 10)).toBe(1);
   });
 
   test("injects the managed Univer bin directory into managed runtime env", async () => {

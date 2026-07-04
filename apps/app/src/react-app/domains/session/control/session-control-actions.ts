@@ -2,7 +2,12 @@
 import { useCallback, useMemo } from "react";
 
 import type { createClient } from "../../../../app/lib/opencode";
-import type { OpenworkServerClient, OpenworkWorkspaceInfo } from "../../../../app/lib/openwork-server";
+import type {
+  OpenworkServerClient,
+  OpenworkSession,
+  OpenworkSessionUniverMetadata,
+  OpenworkWorkspaceInfo,
+} from "../../../../app/lib/openwork-server";
 import { setSessionArchived } from "../../../../app/lib/opencode-session";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
@@ -14,7 +19,9 @@ type SessionLike = {
   primaryUniverTarget?: { path: string; name: string } | null;
   sessionUniverWorktreeId?: string | null;
   sessionUniverWorktreeTerminalState?: "merged" | "discarded" | null;
+  univerSourceSessionId?: string | null;
   univerSessionKind?: "task" | "overview" | null;
+  univerLifecycleOrigin?: "generalDirectMention" | null;
   time?: {
     updated?: number;
     created?: number;
@@ -39,6 +46,8 @@ type UseSessionControlActionsInput = {
   createTaskInWorkspace: (workspaceId: string) => Promise<unknown> | unknown;
   openModelPicker: () => void;
   refreshRouteState: () => Promise<unknown> | unknown;
+  onSessionUniverMetadataChanged?: (workspaceId: string, sessionId: string, metadata: OpenworkSessionUniverMetadata | null) => void;
+  onSessionUniverLifecycleSessionCreated?: (workspaceId: string, session: OpenworkSession) => void;
 };
 
 function workspaceLabel(workspace: SessionControlWorkspace) {
@@ -77,6 +86,8 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     openModelPicker,
     openworkClient,
     opencodeClient,
+    onSessionUniverMetadataChanged,
+    onSessionUniverLifecycleSessionCreated,
     refreshRouteState,
     selectedSessionId,
     selectedWorkspaceId,
@@ -122,16 +133,17 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
         }
         const name = path.split("/").filter(Boolean).pop() ?? path;
         const worktreeId = stringArg(args, "worktreeId");
-        await openworkClient.updateSessionUniverMetadata(selectedWorkspaceId, selectedSessionId, {
+        const result = await openworkClient.updateSessionUniverMetadata(selectedWorkspaceId, selectedSessionId, {
           primaryUniverTarget: { path, name },
           univerSessionKind: "task",
           ...(worktreeId ? { sessionUniverWorktreeId: worktreeId } : {}),
         });
+        onSessionUniverMetadataChanged?.(selectedWorkspaceId, selectedSessionId, result.metadata);
         await refreshRouteState();
         return { ok: true, sessionId: selectedSessionId, primaryUniverTarget: { path, name } };
       },
     };
-  }, [openworkClient, refreshRouteState, selectedSessionId, selectedWorkspaceId]);
+  }, [onSessionUniverMetadataChanged, openworkClient, refreshRouteState, selectedSessionId, selectedWorkspaceId]);
   useControlAction(bindPrimaryUniverTargetControlAction);
 
   const currentUniverMetadataControlAction = useMemo<OpenworkControlAction | null>(() => {
@@ -159,12 +171,57 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
           primaryUniverTarget: session.primaryUniverTarget ?? null,
           sessionUniverWorktreeId: session.sessionUniverWorktreeId ?? null,
           sessionUniverWorktreeTerminalState: session.sessionUniverWorktreeTerminalState ?? null,
+          univerSourceSessionId: session.univerSourceSessionId ?? null,
           univerSessionKind: session.univerSessionKind ?? null,
+          univerLifecycleOrigin: session.univerLifecycleOrigin ?? null,
         };
       },
     };
   }, [selectedSessionId, selectedWorkspaceId, sessionsByWorkspaceId]);
   useControlAction(currentUniverMetadataControlAction);
+
+  const applyUniverLifecycleControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.session.apply_univer_lifecycle",
+      label: "Apply selected session Univer lifecycle event",
+      description: "Eval-only helper that applies General Session Univer lifecycle promotion through the server API.",
+      sideEffect: "mutation",
+      disabled: !openworkClient || !selectedWorkspaceId || !selectedSessionId,
+      args: [
+        { name: "event", type: "string", required: true, description: "directMention or univerNew." },
+        { name: "path", type: "string", required: true, description: "Workspace-relative .univer path." },
+      ],
+      execute: async (args) => {
+        if (!openworkClient || !selectedWorkspaceId || !selectedSessionId) {
+          return { ok: false, error: "No selected workspace/session is available." };
+        }
+        const event = stringArg(args, "event");
+        if (event !== "directMention" && event !== "univerNew") {
+          return { ok: false, error: "event must be directMention or univerNew." };
+        }
+        const path = stringArg(args, "path");
+        if (!path.endsWith(".univer")) {
+          return { ok: false, error: "A workspace-relative .univer path is required." };
+        }
+        const name = path.split("/").filter(Boolean).pop() ?? path;
+        const result = await openworkClient.applySessionUniverLifecycle(selectedWorkspaceId, selectedSessionId, {
+          event,
+          primaryUniverTarget: { path, name },
+        });
+        onSessionUniverMetadataChanged?.(selectedWorkspaceId, selectedSessionId, result.sourceMetadata ?? result.metadata);
+        if (result.action === "createdSession" && result.createdSession?.id) {
+          onSessionUniverLifecycleSessionCreated?.(selectedWorkspaceId, result.createdSession);
+          navigateToSession(result.createdSession.id);
+        } else {
+          await refreshRouteState();
+        }
+        return { ok: true, sessionId: selectedSessionId, lifecycle: result };
+      },
+    };
+  }, [navigateToSession, onSessionUniverLifecycleSessionCreated, onSessionUniverMetadataChanged, openworkClient, refreshRouteState, selectedSessionId, selectedWorkspaceId]);
+  useControlAction(applyUniverLifecycleControlAction);
 
   const listSessionsControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.list_sessions",

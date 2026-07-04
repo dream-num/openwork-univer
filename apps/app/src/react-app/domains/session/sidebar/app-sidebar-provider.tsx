@@ -18,6 +18,7 @@ export type SidebarContextValue = {
   onCreateTaskForUniverTarget?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
   onOpenUniverTargetOverview?: (workspaceId: string, target: WorkspaceSessionGroup["univerTargets"][number]) => void;
   onOpenDeleteUnavailableUniverTarget?: (workspaceId: string, name: string, path: string, sessionIds: string[]) => void;
+  onOpenClearUnavailableUniverTargets?: (workspaceId: string, sessionIds: string[], targetCount: number) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;

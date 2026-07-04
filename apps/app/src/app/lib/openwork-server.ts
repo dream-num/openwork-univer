@@ -115,6 +115,7 @@ export type OpenworkPrimaryUniverTarget = {
 };
 
 export type OpenworkUniverSessionKind = "task" | "overview";
+export type OpenworkUniverLifecycleOrigin = "generalDirectMention";
 export type OpenworkSessionUniverWorktreeTerminalState = "merged" | "discarded";
 
 export type OpenworkSessionUniverMetadata = {
@@ -131,6 +132,7 @@ export type OpenworkSessionUniverMetadata = {
   sessionUniverWorktreeTerminalState?: OpenworkSessionUniverWorktreeTerminalState | null;
   univerSourceSessionId?: string | null;
   univerSessionKind?: OpenworkUniverSessionKind | null;
+  univerLifecycleOrigin?: OpenworkUniverLifecycleOrigin | null;
 };
 
 export type OpenworkSession = Session & OpenworkSessionUniverMetadata;
@@ -141,6 +143,18 @@ export type OpenworkSessionUniverMetadataState = {
 
 export type OpenworkSessionUniverMetadataPatch = OpenworkSessionUniverMetadata & {
   allowWorktreeReassociation?: boolean;
+};
+
+export type OpenworkUniverSessionLifecycleEvent = "directMention" | "univerNew";
+
+export type OpenworkUniverSessionLifecycleResult = {
+  action: "promoted" | "unchanged" | "createdSession";
+  event: OpenworkUniverSessionLifecycleEvent;
+  metadata: OpenworkSessionUniverMetadata | null;
+  sourceMetadata?: OpenworkSessionUniverMetadata | null;
+  createdSession?: OpenworkSession | null;
+  state: OpenworkSessionUniverMetadataState;
+  updatedAt: number | null;
 };
 
 export type OpenworkUniverTargetSummary = {
@@ -1104,6 +1118,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     capabilities: 6_000,
     listWorkspaces: 8_000,
     activateWorkspace: 10_000,
+    createWorkspace: 60_000,
     deleteWorkspace: 10_000,
     deleteSession: 12_000,
     sessionRead: 12_000,
@@ -1145,7 +1160,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "POST",
         body: payload,
-        timeoutMs: timeouts.activateWorkspace,
+        timeoutMs: timeouts.createWorkspace,
       }),
     createRemoteWorkspace: (payload: {
       baseUrl: string;
@@ -1165,7 +1180,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         hostToken,
         method: "POST",
         body: payload,
-        timeoutMs: timeouts.activateWorkspace,
+        timeoutMs: timeouts.createWorkspace,
       }),
     updateWorkspaceDisplayName: (workspaceId: string, displayName: string | null) =>
       requestJson<WorkspaceList>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/display-name`, {
@@ -1232,6 +1247,16 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/univer-metadata`,
         { token, hostToken, method: "PATCH", body: patch, timeoutMs: timeouts.config },
+      ),
+    applySessionUniverLifecycle: (
+      workspaceId: string,
+      sessionId: string,
+      input: { event: OpenworkUniverSessionLifecycleEvent; primaryUniverTarget: OpenworkPrimaryUniverTarget },
+    ) =>
+      requestJson<OpenworkUniverSessionLifecycleResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/univer-lifecycle`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: timeouts.config },
       ),
     getSessionGroups: (workspaceId: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(

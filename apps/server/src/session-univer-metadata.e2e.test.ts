@@ -281,6 +281,103 @@ describe("session Univer metadata API", () => {
     expect(conflictIssue.state.sessions.ses_6).not.toHaveProperty("sessionUniverWorktreeId");
   });
 
+  test("promotes only General Sessions through the lifecycle API", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startOpenworkServer(root);
+
+    const promoted = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_general/univer-lifecycle`, {
+      method: "POST",
+      headers: auth(token),
+      body: JSON.stringify({
+        event: "univerNew",
+        primaryUniverTarget: { path: "./reports/new.univer" },
+      }),
+    }));
+    expect(promoted).toMatchObject({
+      action: "promoted",
+      event: "univerNew",
+      metadata: {
+        primaryUniverTarget: { path: "reports/new.univer", name: "new.univer" },
+        univerSessionKind: "task",
+      },
+    });
+
+    const directMention = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_mention/univer-lifecycle`, {
+      method: "POST",
+      headers: auth(token),
+      body: JSON.stringify({
+        event: "directMention",
+        primaryUniverTarget: { path: "./reports/a.univer" },
+      }),
+    }));
+    expect(directMention).toMatchObject({
+      action: "promoted",
+      event: "directMention",
+      metadata: {
+        primaryUniverTarget: { path: "reports/a.univer", name: "a.univer" },
+        univerLifecycleOrigin: "generalDirectMention",
+        univerSessionKind: "task",
+      },
+    });
+
+    const sameTargetCreation = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_mention/univer-lifecycle`, {
+      method: "POST",
+      headers: auth(token),
+      body: JSON.stringify({
+        event: "univerNew",
+        primaryUniverTarget: { path: "reports/a.univer" },
+      }),
+    }));
+    expect(sameTargetCreation).toMatchObject({
+      action: "unchanged",
+      event: "univerNew",
+      metadata: {
+        primaryUniverTarget: { path: "reports/a.univer", name: "a.univer" },
+        univerSessionKind: "task",
+      },
+    });
+    expect(sameTargetCreation.metadata).not.toHaveProperty("univerLifecycleOrigin");
+
+    const bound = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_bound/univer-metadata`, {
+      method: "PATCH",
+      headers: auth(token),
+      body: JSON.stringify({
+        primaryUniverTarget: { path: "reports/a.univer" },
+        sessionUniverWorktreeId: "wt_a",
+        univerSessionKind: "task",
+      }),
+    }));
+    expect(bound).toMatchObject({
+      metadata: {
+        primaryUniverTarget: { path: "reports/a.univer", name: "a.univer" },
+        sessionUniverWorktreeId: "wt_a",
+      },
+    });
+
+    const unchanged = await json(await fetch(`${base}/workspace/ws_1/sessions/ses_bound/univer-lifecycle`, {
+      method: "POST",
+      headers: auth(token),
+      body: JSON.stringify({
+        event: "univerNew",
+        primaryUniverTarget: { path: "reports/b.univer" },
+      }),
+    }));
+    expect(unchanged).toMatchObject({
+      action: "unchanged",
+      event: "univerNew",
+      metadata: {
+        primaryUniverTarget: { path: "reports/a.univer", name: "a.univer" },
+        sessionUniverWorktreeId: "wt_a",
+        univerSessionKind: "task",
+      },
+    });
+    expect(unchanged.state.sessions.ses_bound).toMatchObject({
+      primaryUniverTarget: { path: "reports/a.univer", name: "a.univer" },
+      sessionUniverWorktreeId: "wt_a",
+    });
+    expect(unchanged.state.sessions.ses_bound.primaryUniverTarget.path).not.toBe("reports/b.univer");
+  });
+
   test("keeps one Target Overview Session per Primary Univer Target", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startOpenworkServer(root);
