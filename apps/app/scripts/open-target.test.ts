@@ -123,6 +123,30 @@ describe("deriveOpenTargets", () => {
     expect(univer ? isCollectibleArtifactTarget({ ...univer, exists: true }) : false).toBe(true);
   });
 
+  it("does not expose Univer collab viewer handoff URLs as browser targets", () => {
+    const viewerUrl = "http://127.0.0.1:5180";
+    const fileUrl = `${viewerUrl}/?file=/Users/morris/work/reports/budget.univer&worktree=wt_review&unit=unit_sheet`;
+    const targets = deriveOpenTargets([
+      toolMessage(
+        "msg_tool",
+        "bash",
+        { command: "univer open reports/budget.univer --json" },
+        {
+          ok: true,
+          origin: viewerUrl,
+          url: fileUrl,
+          viewerUrl,
+          univerfile: "/Users/morris/work/reports/budget.univer",
+          worktreeId: "wt_review",
+          unitId: "unit_sheet",
+        },
+      ),
+    ]);
+
+    expect(targets.map((target) => target.value)).not.toContain(viewerUrl);
+    expect(targets.map((target) => target.value)).not.toContain(fileUrl);
+  });
+
   it("extracts Chinese-named artifacts from Chinese assistant summaries", () => {
     const targets = deriveOpenTargets([
       message(

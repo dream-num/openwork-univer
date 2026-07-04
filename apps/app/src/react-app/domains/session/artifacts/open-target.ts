@@ -67,6 +67,11 @@ type DeriveOpenTargetsOptions = {
   includeFileMentions?: boolean;
 };
 
+type ScanTextOptions = {
+  includeFiles: boolean;
+  ignoredUrls?: ReadonlySet<string>;
+};
+
 function normalizePath(path: string) {
   return path
     .trim()
@@ -203,6 +208,18 @@ function addTarget(map: Map<string, OpenTarget>, target: OpenTarget | null) {
   }
 }
 
+function addUrlTarget(
+  map: Map<string, OpenTarget>,
+  url: string,
+  confidence: number,
+  reason: string,
+  ignoredUrls?: ReadonlySet<string>,
+) {
+  const target = targetFromUrl(url, confidence, reason);
+  if (!target || ignoredUrls?.has(target.value)) return;
+  addTarget(map, target);
+}
+
 function isArtifactTarget(target: OpenTarget) {
   return target.kind === "url" || target.kind === "file";
 }
@@ -228,7 +245,7 @@ function scanText(
   text: string,
   confidence: number,
   reason: string,
-  options: { includeFiles: boolean },
+  options: ScanTextOptions,
 ) {
   if (!text) {
     return;
@@ -241,7 +258,7 @@ function scanText(
     const href = match[2];
     if (!href) continue;
     if (/^(?:https?|wss?):\/\//i.test(href)) {
-      addTarget(map, targetFromUrl(href, confidence, reason));
+      addUrlTarget(map, href, confidence, reason, options.ignoredUrls);
     } else if (options.includeFiles) {
       addTarget(map, targetFromFile(href, confidence, reason));
     }
@@ -254,13 +271,13 @@ function scanText(
   URL_PATTERN.lastIndex = 0;
 
   for (const match of scanValue.matchAll(URL_PATTERN)) {
-    if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
+    if (match[0]) addUrlTarget(map, match[0], confidence, reason, options.ignoredUrls);
   }
 
   SOCKET_PATTERN.lastIndex = 0;
 
   for (const match of scanValue.matchAll(SOCKET_PATTERN)) {
-    if (match[0]) addTarget(map, targetFromUrl(match[0], confidence, reason));
+    if (match[0]) addUrlTarget(map, match[0], confidence, reason, options.ignoredUrls);
   }
 
   if (!options.includeFiles) return;
@@ -341,6 +358,50 @@ function parseJsonCandidates(value: string): unknown[] {
     parseCandidate(line);
   }
   return candidates;
+}
+
+function addIgnoredUrl(urls: Set<string>, value: unknown) {
+  if (typeof value !== "string") return;
+  const target = targetFromUrl(value, 0, "ignored univer viewer url");
+  if (target) urls.add(target.value);
+}
+
+function collectUniverOpenSurfaceUrls(value: unknown) {
+  const urls = new Set<string>();
+  const visit = (entry: unknown, depth: number) => {
+    if (depth > 4) return;
+
+    if (typeof entry === "string") {
+      for (const parsed of parseJsonCandidates(entry)) {
+        visit(parsed, depth + 1);
+      }
+      return;
+    }
+
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+
+    if (!isObject(entry)) return;
+
+    const univerfile = firstStringField(entry, ["univerfile", "univerfilePath"]);
+    const hasViewerEndpoint = firstStringField(entry, ["origin", "viewerUrl"]) !== "";
+    if (extname(univerfile) === ".univer" && hasViewerEndpoint) {
+      addIgnoredUrl(urls, entry.origin);
+      addIgnoredUrl(urls, entry.url);
+      addIgnoredUrl(urls, entry.viewerUrl);
+    }
+
+    visit(entry.args, depth + 1);
+    visit(entry.result, depth + 1);
+    visit(entry.output, depth + 1);
+  };
+
+  visit(value, 0);
+  return urls;
 }
 
 function collectUniverWorktreeMetadataTargets(value: unknown, confidence: number, reason: string) {
@@ -510,6 +571,8 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
       const discoveryTool = isDiscoveryTool(part.toolName);
       const writeTool = isWriteTool(part.toolName);
       const artifactMetadataTool = isArtifactMetadataTool(part.toolName);
+      const toolOutputScanValue = part.output ?? part.input ?? "";
+      const ignoredToolUrls = collectUniverOpenSurfaceUrls(toolOutputScanValue);
 
       addFileTargets(targets, collectUniverNewTargets(part.input, part.output));
 
@@ -527,7 +590,7 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
         );
         addFileValues(targets, collectPatchFileValues(part.input), 95, "patch metadata");
         if (typeof part.output === "string") {
-          scanText(targets, part.output, 90, "write tool output", { includeFiles: true });
+          scanText(targets, part.output, 90, "write tool output", { includeFiles: true, ignoredUrls: ignoredToolUrls });
         }
       }
 
@@ -539,7 +602,10 @@ export function deriveOpenTargets(messages: UIMessage[], options: DeriveOpenTarg
       }
 
       if (!discoveryTool) {
-        scanText(targets, JSON.stringify(part.output ?? part.input ?? ""), 75, "tool output", { includeFiles: false });
+        scanText(targets, JSON.stringify(toolOutputScanValue), 75, "tool output", {
+          includeFiles: false,
+          ignoredUrls: ignoredToolUrls,
+        });
       }
     }
   }
