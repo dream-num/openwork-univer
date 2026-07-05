@@ -420,6 +420,7 @@ jobs:
             --config electron-builder.yml \
             ${{ matrix.electron_args }} \
             --publish never
+          node apps/desktop/scripts/electron-notarize-artifacts.cjs
 
       - name: Package Electron (Linux)
         if: matrix.os_type == 'linux'

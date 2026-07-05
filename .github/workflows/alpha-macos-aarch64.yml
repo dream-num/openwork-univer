@@ -168,6 +168,7 @@ jobs:
             --mac \
             --arm64 \
             --publish never
+          node apps/desktop/scripts/electron-notarize-artifacts.cjs
 
       - name: Create immutable alpha prerelease
         if: env.MACOS_NOTARIZE == 'true'

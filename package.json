@@ -32,6 +32,7 @@
     "build": "node scripts/build.mjs",
     "build:ui": "pnpm --filter @openwork/app build",
     "build:web": "pnpm --filter @openwork-ee/den-web build",
+    "package:electron:notarized": "pnpm --filter @openwork/desktop package:electron:notarized",
     "preview": "pnpm --filter @openwork/app preview",
     "typecheck": "pnpm --filter @openwork/app typecheck",
     "test:health": "pnpm --filter @openwork/app test:health",

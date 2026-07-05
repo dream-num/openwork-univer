@@ -53,6 +53,10 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
+  # Built-in electron-builder notarization is disabled intentionally.
+  # scripts/electron-after-sign.cjs notarizes/staples the .app, and
+  # scripts/electron-notarize-artifacts.cjs notarizes/staples the final .dmg
+  # after Electron Builder has written it.
   notarize: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
