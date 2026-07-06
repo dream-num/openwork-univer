@@ -1,11 +1,17 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { access, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
+  checkUniverCoworkBundleHealth,
+  ensureUniverDaemonRunning,
+  parseUniverOpenHandoff,
   resolveUniverCoworkBundle,
+  writeUniverExecutableShim,
+  writeUniverExecutableShimSync,
+  UniverOpenHandoffError,
   type UniverCoworkBundle,
   type UniverCoworkBundleHealth,
 } from "@univer/cowork/node";
@@ -397,6 +403,16 @@ function univerCliRoot(config: ServerConfig): string {
   return join(runtimeStorageDir(config), "extensions", UNIVER_CLI_EXTENSION_ID);
 }
 
+function workspaceDaemonHome(config: ServerConfig, workspace: WorkspaceInfo): string {
+  const key = createHash("sha256")
+    .update(workspace.id)
+    .update("\0")
+    .update(workspace.path)
+    .digest("base64url")
+    .slice(0, 24);
+  return join(univerCliRoot(config), "daemon", key);
+}
+
 export function univerCliManagedBinDir(config: ServerConfig): string {
   return join(univerCliRoot(config), "bin");
 }
@@ -425,10 +441,6 @@ function tryResolveBundledCoworkBundle(): UniverCoworkBundle | null {
   }
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 function bundledNodeRuntimeExecutable(): string {
   const override = process.env[OPENWORK_UNIVER_NODE_RUNTIME_ENV]?.trim();
   if (override) return override;
@@ -442,26 +454,23 @@ function bundledNodeRuntimeUsesElectron(): boolean {
     || (typeof process.versions.electron === "string" && process.versions.electron.length > 0);
 }
 
-function shimContent(targetBinPath: string): string {
+function executableShimOptions(shimPath: string, targetBinPath: string) {
   const runtimeExecutable = bundledNodeRuntimeExecutable();
-  if (!runtimeExecutable) {
-    return process.platform === "win32"
-      ? `@echo off\r\n"${targetBinPath}" %*\r\n`
-      : `#!/bin/sh\nexec ${shellQuote(targetBinPath)} "$@"\n`;
-  }
-  return process.platform === "win32"
-    ? `@echo off\r\n${bundledNodeRuntimeUsesElectron() ? "set ELECTRON_RUN_AS_NODE=1\r\n" : ""}"${runtimeExecutable}" "${targetBinPath}" %*\r\n`
-    : `#!/bin/sh\n${bundledNodeRuntimeUsesElectron() ? "export ELECTRON_RUN_AS_NODE=1\n" : ""}exec ${shellQuote(runtimeExecutable)} ${shellQuote(targetBinPath)} "$@"\n`;
+  return {
+    shimPath,
+    targetBinPath,
+    ...(runtimeExecutable ? {
+      nodeRuntimeExecutable: runtimeExecutable,
+      electronRunAsNode: bundledNodeRuntimeUsesElectron(),
+    } : {}),
+  };
 }
 
 function ensureBundledExecutableShimSync(config: ServerConfig, bundle: UniverCoworkBundle): string | null {
   if (config.readOnly) return null;
   const binPath = bundledExecutableShimPath(config);
   try {
-    mkdirSync(dirname(binPath), { recursive: true });
-    writeFileSync(binPath, shimContent(bundle.univerExecutablePath), "utf8");
-    chmodSync(binPath, 0o755);
-    return binPath;
+    return writeUniverExecutableShimSync(executableShimOptions(binPath, bundle.univerExecutablePath));
   } catch {
     return null;
   }
@@ -472,10 +481,7 @@ async function ensureBundledExecutableShim(config: ServerConfig, bundle: UniverC
     throw new ApiError(403, "read_only", "OpenWork is running read-only; the bundled Univer runtime shim cannot be repaired.");
   }
   const binPath = bundledExecutableShimPath(config);
-  await mkdir(dirname(binPath), { recursive: true });
-  await writeFile(binPath, shimContent(bundle.univerExecutablePath), "utf8");
-  await chmod(binPath, 0o755).catch(() => undefined);
-  return binPath;
+  return writeUniverExecutableShim(executableShimOptions(binPath, bundle.univerExecutablePath));
 }
 
 export function univerCliManagedRuntimeEnv(config: ServerConfig): Record<string, string> {
@@ -555,94 +561,6 @@ async function inspectBundledSkillPackage(bundle: UniverCoworkBundle | null): Pr
       inspectTools,
     },
   };
-}
-
-async function executableAccessIssue(path: string): Promise<string | undefined> {
-  try {
-    await access(path, constants.X_OK);
-    return undefined;
-  } catch {
-    return `Univer executable is missing or not executable at ${path}.`;
-  }
-}
-
-async function bundledSkillRootIssue(path: string): Promise<string | undefined> {
-  const required = [
-    join(path, "SKILL.md"),
-    join(path, "references", "evidence-tools.md"),
-    join(path, "inspect-tools", "tools.manifest.json"),
-  ];
-  for (const file of required) {
-    try {
-      await access(file, constants.R_OK);
-    } catch {
-      return `Bundled univer-cli skill is incomplete; missing ${file}.`;
-    }
-  }
-  return undefined;
-}
-
-async function readBundledSkillMetadataRevision(path: string): Promise<string | null> {
-  const raw = await readFile(path, "utf8").catch(() => "");
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-    const revision = parsed.skillsRevision;
-    return typeof revision === "string" && revision.trim() ? revision.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-async function readUniverCommandVersion(command: string, cwd: string): Promise<string | null> {
-  const result = await runCommand(command, ["--version"], cwd);
-  if (!result.ok) return null;
-  return parseVersionText(result.stdout);
-}
-
-async function bundledPackageIntegrityIssue(bundle: UniverCoworkBundle): Promise<string | undefined> {
-  const executableIssue = await executableAccessIssue(bundle.univerExecutablePath);
-  if (executableIssue !== undefined) return executableIssue;
-
-  const skillIssue = await bundledSkillRootIssue(bundle.skillsRoot);
-  if (skillIssue !== undefined) return skillIssue;
-
-  const skillMetadataRevision = await readBundledSkillMetadataRevision(bundle.skillMetadataPath);
-  if (skillMetadataRevision !== bundle.manifest.skillsRevision) {
-    return `Packaged skill revision ${skillMetadataRevision ?? "<unknown>"} does not match manifest revision ${bundle.manifest.skillsRevision}.`;
-  }
-
-  return undefined;
-}
-
-async function checkOpenWorkUniverCoworkBundleHealth(
-  config: ServerConfig,
-  bundle: UniverCoworkBundle
-): Promise<UniverCoworkBundleHealth> {
-  const packageIssue = await bundledPackageIntegrityIssue(bundle);
-  if (packageIssue !== undefined) {
-    return { status: "fatal", reason: packageIssue, bundle };
-  }
-
-  const runtimeExecutablePath = config.readOnly
-    ? bundle.univerExecutablePath
-    : ensureBundledExecutableShimSync(config, bundle) ?? bundledExecutableShimPath(config);
-  const runtimeIssue = await executableAccessIssue(runtimeExecutablePath);
-  if (runtimeIssue !== undefined) {
-    return { status: "repairable", bundle, reason: runtimeIssue };
-  }
-
-  const commandVersion = await readUniverCommandVersion(runtimeExecutablePath, bundle.packageRoot);
-  if (commandVersion !== bundle.manifest.univerCliVersion) {
-    return {
-      status: "fatal",
-      reason: `Packaged univer version ${commandVersion ?? "<unknown>"} does not match manifest version ${bundle.manifest.univerCliVersion}.`,
-      bundle,
-    };
-  }
-
-  return { status: "healthy", bundle };
 }
 
 async function writeSkillInstallMetadata(path: string): Promise<void> {
@@ -803,63 +721,6 @@ async function runCommand(command: string, args: string[], cwd: string, timeoutM
       });
     });
   });
-}
-
-function isDaemonBuildMismatch(result: CommandResult): boolean {
-  return /Daemon build mismatch/i.test(`${result.stdout}\n${result.stderr}`);
-}
-
-function mergeCommandFailures(first: CommandResult, second: CommandResult): CommandResult {
-  return {
-    ok: false,
-    stdout: [first.stdout, second.stdout].filter(Boolean).join("\n"),
-    stderr: [first.stderr, second.stderr].filter(Boolean).join("\n"),
-    exitCode: second.exitCode,
-    signal: second.signal,
-    error: second.error ?? first.error,
-  };
-}
-
-const univerDaemonStarts = new Map<string, Promise<CommandResult>>();
-
-function daemonStartKey(command: string, env: NodeJS.ProcessEnv): string {
-  return [
-    command,
-    env.HOME ?? "",
-    env.UNIVER_HOME ?? "",
-    env.XDG_CONFIG_HOME ?? "",
-    env.XDG_DATA_HOME ?? "",
-  ].join("\0");
-}
-
-async function startUniverDaemonOnce(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
-  const firstStart = await runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
-  if (firstStart.ok || !isDaemonBuildMismatch(firstStart)) {
-    return firstStart;
-  }
-
-  const stopped = await runCommand(command, ["daemon", "stop"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
-  if (!stopped.ok) {
-    return mergeCommandFailures(firstStart, stopped);
-  }
-
-  return runCommand(command, ["daemon", "start"], cwd, OPEN_SURFACE_TIMEOUT_MS, env);
-}
-
-async function startUniverDaemon(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<CommandResult> {
-  const key = daemonStartKey(command, env);
-  const existing = univerDaemonStarts.get(key);
-  if (existing) return existing;
-
-  const starting = startUniverDaemonOnce(command, cwd, env);
-  univerDaemonStarts.set(key, starting);
-  try {
-    return await starting;
-  } finally {
-    if (univerDaemonStarts.get(key) === starting) {
-      univerDaemonStarts.delete(key);
-    }
-  }
 }
 
 function probeFromCommand(command: string, args: string[], result: CommandResult, requireJson: boolean): ProbeResult {
@@ -1044,7 +905,15 @@ async function readBundleHealth(config: ServerConfig): Promise<UniverCoworkBundl
   try {
     const bundle = tryResolveBundledCoworkBundle();
     if (!bundle) return null;
-    return await checkOpenWorkUniverCoworkBundleHealth(config, bundle);
+    const runtimeExecutablePath = config.readOnly
+      ? bundle.univerExecutablePath
+      : ensureBundledExecutableShimSync(config, bundle) ?? bundledExecutableShimPath(config);
+    return await checkUniverCoworkBundleHealth({
+      packageRoot: bundle.packageRoot,
+      runtimeExecutablePath,
+      versionProbeExecutablePath: runtimeExecutablePath,
+      versionProbeCwd: bundle.packageRoot,
+    });
   } catch {
     return null;
   }
@@ -1120,10 +989,7 @@ async function installUniverSkillPackage(workspaceRoot: string): Promise<Install
 
 async function writeExecutableShim(config: ServerConfig, targetBinPath: string): Promise<string> {
   const binPath = univerCliManagedExecutablePath(config);
-  await mkdir(dirname(binPath), { recursive: true });
-  await writeFile(binPath, shimContent(targetBinPath), "utf8");
-  await chmod(binPath, 0o755).catch(() => undefined);
-  return binPath;
+  return writeUniverExecutableShim(executableShimOptions(binPath, targetBinPath));
 }
 
 async function installManagedExecutable(config: ServerConfig): Promise<InstallResult["executable"]> {
@@ -1246,62 +1112,39 @@ function surfaceCommandEnv(config: ServerConfig, workspace: WorkspaceInfo): Node
   return {
     ...process.env,
     ...univerCliManagedRuntimeEnv(config),
+    UNIVER_HOME: workspaceDaemonHome(config, workspace),
     UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspace.path,
   };
 }
 
-function isLoopbackHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function readRequiredSurfaceString(value: Record<string, unknown>, key: string): string {
-  const field = value[key];
-  if (typeof field !== "string" || !field.trim()) {
-    throw new ApiError(502, "univer_open_invalid_response", `univer open response is missing ${key}.`, { response: value });
-  }
-  return field;
-}
-
-function readOptionalSurfaceString(value: Record<string, unknown>, key: string): string | undefined {
-  const field = value[key];
-  return typeof field === "string" && field.trim() ? field : undefined;
-}
-
 function parseOpenSurface(stdout: string, workspace: WorkspaceInfo, target: { absolutePath: string; relativePath: string }): UniverOpenSurface {
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(stdout.trim());
+    const handoff = parseUniverOpenHandoff(stdout, { expectedUniverfile: target.absolutePath });
+    return {
+      origin: handoff.origin,
+      univerfile: handoff.univerfile,
+      workspaceId: workspace.id,
+      path: target.relativePath,
+      ...(handoff.worktreeId ? { worktreeId: handoff.worktreeId } : {}),
+      ...(handoff.unitId ? { unitId: handoff.unitId } : {}),
+    };
   } catch (error) {
-    throw new ApiError(502, "univer_open_invalid_response", "univer open did not return JSON.", {
+    if (error instanceof UniverOpenHandoffError) {
+      const code = error.code === "untrustedOrigin" ? "univer_open_untrusted_url" : "univer_open_invalid_response";
+      const message = error.code === "untrustedOrigin"
+        ? "univer open returned a non-local gateway origin."
+        : "univer open returned an invalid response.";
+      throw new ApiError(502, code, message, {
+        error: error.message,
+        handoffCode: error.code,
+        stdout,
+      });
+    }
+    throw new ApiError(502, "univer_open_invalid_response", "univer open returned an invalid response.", {
       error: error instanceof Error ? error.message : String(error),
       stdout,
     });
   }
-  if (!isRecord(parsed)) {
-    throw new ApiError(502, "univer_open_invalid_response", "univer open returned an invalid response.", { response: parsed });
-  }
-
-  const origin = readRequiredSurfaceString(parsed, "origin");
-  const univerfile = readRequiredSurfaceString(parsed, "univerfile");
-  if (resolve(univerfile) !== target.absolutePath) {
-    throw new ApiError(502, "univer_open_invalid_response", "univer open returned a different .univer path.", { univerfile });
-  }
-  if (!isLoopbackHttpUrl(origin)) {
-    throw new ApiError(502, "univer_open_untrusted_url", "univer open returned a non-local gateway origin.", { origin });
-  }
-  return {
-    origin,
-    univerfile,
-    workspaceId: workspace.id,
-    path: target.relativePath,
-    worktreeId: readOptionalSurfaceString(parsed, "worktreeId"),
-    unitId: readOptionalSurfaceString(parsed, "unitId"),
-  };
 }
 
 async function openUniverSurface(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>): Promise<SurfaceActionResult> {
@@ -1315,8 +1158,14 @@ async function openUniverSurface(config: ServerConfig, args: Record<string, unkn
   }
 
   const target = await resolveUniverfilePath(workspace, args);
-  const env = surfaceCommandEnv(config, workspace);
-  const daemon = await startUniverDaemon(setup.executable.path, workspace.path, env);
+  const localWorkspace = { ...workspace, path: await realpathIfPresent(workspace.path) };
+  const env = surfaceCommandEnv(config, localWorkspace);
+  const daemon = await ensureUniverDaemonRunning({
+    command: setup.executable.path,
+    cwd: localWorkspace.path,
+    env,
+    timeoutMs: OPEN_SURFACE_TIMEOUT_MS,
+  });
   if (!daemon.ok) {
     throw new ApiError(502, "univer_daemon_start_failed", "Failed to start the Univer daemon.", {
       stdout: daemon.stdout,
@@ -1331,7 +1180,7 @@ async function openUniverSurface(config: ServerConfig, args: Record<string, unkn
   const openArgs = ["open", target.absolutePath, "--json"];
   if (worktreeId) openArgs.push("--worktree", worktreeId);
   if (unitId) openArgs.push("--unit", unitId);
-  const opened = await runCommand(setup.executable.path, openArgs, workspace.path, OPEN_SURFACE_TIMEOUT_MS, env);
+  const opened = await runCommand(setup.executable.path, openArgs, localWorkspace.path, OPEN_SURFACE_TIMEOUT_MS, env);
   if (!opened.ok) {
     throw new ApiError(502, "univer_open_failed", "Failed to open the Univer collab surface.", {
       stdout: opened.stdout,

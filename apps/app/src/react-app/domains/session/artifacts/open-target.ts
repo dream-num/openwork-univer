@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { collectUniverOpenHandoffUrls } from "@univer/cowork";
 
 type OpenTargetKind = "url" | "file";
 export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "univer" | "image" | "pdf" | "html" | "text" | "external";
@@ -368,39 +369,9 @@ function addIgnoredUrl(urls: Set<string>, value: unknown) {
 
 function collectUniverOpenSurfaceUrls(value: unknown) {
   const urls = new Set<string>();
-  const visit = (entry: unknown, depth: number) => {
-    if (depth > 4) return;
-
-    if (typeof entry === "string") {
-      for (const parsed of parseJsonCandidates(entry)) {
-        visit(parsed, depth + 1);
-      }
-      return;
-    }
-
-    if (Array.isArray(entry)) {
-      for (const item of entry) {
-        visit(item, depth + 1);
-      }
-      return;
-    }
-
-    if (!isObject(entry)) return;
-
-    const univerfile = firstStringField(entry, ["univerfile", "univerfilePath"]);
-    const hasViewerEndpoint = firstStringField(entry, ["origin", "viewerUrl"]) !== "";
-    if (extname(univerfile) === ".univer" && hasViewerEndpoint) {
-      addIgnoredUrl(urls, entry.origin);
-      addIgnoredUrl(urls, entry.url);
-      addIgnoredUrl(urls, entry.viewerUrl);
-    }
-
-    visit(entry.args, depth + 1);
-    visit(entry.result, depth + 1);
-    visit(entry.output, depth + 1);
-  };
-
-  visit(value, 0);
+  for (const url of collectUniverOpenHandoffUrls(value)) {
+    addIgnoredUrl(urls, url);
+  }
   return urls;
 }
 
