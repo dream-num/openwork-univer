@@ -177,6 +177,14 @@ _Avoid_: External-browser default, static screenshot preview.
 A reusable `@univer/cowork` content component extracted from `collab-client` embedded mode that renders a `CoworkContentViewerRequest` directly inside the host app using the same Univer collaboration-client and merge-preview behavior as the gateway-served page.
 _Avoid_: Rebuilt OpenWork editor, iframe wrapper, standalone collab-client shell.
 
+**Cowork Host Contract**:
+A host-facing `@univer/cowork` interface that exposes reusable Univer runtime facts such as visible Univerfile discovery, `univer open` handoff parsing, bundle health, and daemon startup behavior without OpenWork session, sidebar, artifact, or settings policy.
+_Avoid_: OpenWork integration, sidebar model, artifact model, generic command wrapper.
+
+**Univer Open Handoff**:
+The structured JSON result from `univer open --json` that identifies a local gateway origin, a Univerfile path, and optional worktree/unit route fields for a host to open a Univer Surface.
+_Avoid_: Viewer URL, browser fallback URL, OpenWork artifact target.
+
 **Univer CLI Adapter**:
 The OpenWork module responsible for invoking the `univer` executable and translating its results into OpenWork extension actions and artifacts.
 _Avoid_: Reimplemented workbook engine, generic shell wrapper.

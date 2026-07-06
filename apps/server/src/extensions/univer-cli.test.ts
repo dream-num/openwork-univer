@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -76,6 +76,8 @@ if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4
   exit 0
 fi
 if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then
+  echo "$UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT" > "$0.allowed-root"
+  echo "$UNIVER_HOME" > "$0.univer-home"
   marker="$0.mismatch-once"
   if [ -f "$marker" ]; then
     rm -f "$marker"
@@ -97,6 +99,8 @@ if [ "$1" = "daemon" ] && [ "$2" = "stop" ]; then
   exit 0
 fi
 if [ "$1" = "open" ]; then
+  echo "$UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT" > "$0.allowed-root"
+  echo "$UNIVER_HOME" > "$0.univer-home"
   source="$2"
   worktree=""
   unit=""
@@ -509,6 +513,32 @@ describe("Univer CLI extension", () => {
       worktreeId: "wt_1",
       unitId: "unit_1",
     });
+  });
+
+  test("opens a realpathed workspace .univer file through the embedded collab surface action", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    await mkdir(join(root, "reports"), { recursive: true });
+    await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
+    const executablePath = await writeFakeUniver(root);
+
+    const result = await callUniverCliExtensionAction(
+      serverConfig(root),
+      "open_surface",
+      {
+        workspaceId: "ws_1",
+        path: "reports/budget.univer",
+        executablePath,
+      },
+      { workspaceId: "ws_1" },
+    );
+
+    if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
+    expect(result.result.path).toBe("reports/budget.univer");
+    const allowedRoot = (await readFile(`${executablePath}.allowed-root`, "utf8")).trim();
+    expect(allowedRoot).toBe(await realpath(root));
+    const univerHome = (await readFile(`${executablePath}.univer-home`, "utf8")).trim();
+    expect(univerHome.startsWith(join(root, "extensions", "univer-cli", "daemon"))).toBe(true);
   });
 
   test("restarts the Univer daemon when a stale build is already running", async () => {
