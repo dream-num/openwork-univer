@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { useCoworkSnapshot } from "@univer/cowork/react";
-import type { CoworkController } from "@univer/cowork";
+import { useCoworkSnapshot } from "@univerjs-pro/cowork/react";
+import type { CoworkController } from "@univerjs-pro/cowork";
 import { FolderTree, GitPullRequest, Table2 } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";

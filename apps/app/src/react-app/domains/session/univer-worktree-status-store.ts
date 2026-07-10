@@ -1,4 +1,4 @@
-import type { ActiveWorktree, CoworkSnapshot, ReviewableWorktree } from "@univer/cowork";
+import type { ActiveWorktree, CoworkSnapshot, ReviewableWorktree } from "@univerjs-pro/cowork";
 import { create } from "zustand";
 
 export type UniverLiveWorktreeState = "working" | "ready" | "conflict";

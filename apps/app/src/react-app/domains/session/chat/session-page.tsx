@@ -3,8 +3,8 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { AlertTriangle, Columns2, FileSpreadsheet, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
-import type { CoworkController } from "@univer/cowork";
-import { useCoworkSnapshot } from "@univer/cowork/react";
+import type { CoworkController } from "@univerjs-pro/cowork";
+import { useCoworkSnapshot } from "@univerjs-pro/cowork/react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
