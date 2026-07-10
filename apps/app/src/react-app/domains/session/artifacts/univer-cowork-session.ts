@@ -1,8 +1,8 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { createCoworkController, type CoworkContentViewState, type CoworkController, type CoworkReviewUnit, type CoworkSelection, type CoworkSnapshot, type ReviewableWorktree } from "@univer/cowork";
-import { createGatewayCoworkDataSource } from "@univer/cowork/gateway";
-import type { CoworkContentViewerDataSource } from "@univer/cowork/viewer";
+import { createCoworkController, type CoworkContentViewState, type CoworkController, type CoworkReviewUnit, type CoworkSelection, type CoworkSnapshot, type ReviewableWorktree } from "@univerjs-pro/cowork";
+import { createGatewayCoworkDataSource } from "@univerjs-pro/cowork/gateway";
+import type { CoworkContentViewerDataSource } from "@univerjs-pro/cowork/viewer";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { OpenTarget } from "./open-target";

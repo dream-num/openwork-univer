@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { collectUniverOpenHandoffUrls } from "@univer/cowork";
+import { collectUniverOpenHandoffUrls } from "@univerjs-pro/cowork";
 
 type OpenTargetKind = "url" | "file";
 export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "univer" | "image" | "pdf" | "html" | "text" | "external";

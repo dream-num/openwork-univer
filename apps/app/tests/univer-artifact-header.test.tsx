@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { CoworkContentSurface, CoworkSnapshot } from "@univer/cowork";
+import type { CoworkContentSurface, CoworkSnapshot } from "@univerjs-pro/cowork";
 
 import {
   ArtifactPanelHeader,
