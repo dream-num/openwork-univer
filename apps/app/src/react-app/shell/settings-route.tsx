@@ -167,11 +167,7 @@ import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-
 
 const UNIVER_CLI_EXTENSION_ID = "univer-cli";
 
-type UniverCliSetupAction = "setup_status" | "setup_install" | "setup_repair" | "setup_update";
-type UniverCliSetupOptions = {
-  checkForUpdates?: boolean;
-  autoUpdate?: boolean;
-};
+type UniverCliSetupAction = "setup_status" | "setup_install" | "setup_repair";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -304,7 +300,6 @@ function reconcileSelectedWorkspaceId(
 const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
-const SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY = "openwork.univerCli.autoUpdate";
 const SETTINGS_UNIVER_CLI_READY_KEY_PREFIX = "openwork.univerCli.ready.";
 
 function parseSettingsPath(pathname: string): {
@@ -533,10 +528,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     readStoredUniverCliReady(selectedWorkspaceId),
   );
   const [univerCliVersionInfo, setUniverCliVersionInfo] = useState<UniverCliVersionInfo | null>(null);
-  const [univerCliAutoUpdate, setUniverCliAutoUpdate] = useState(() =>
-    readStoredBoolean(SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY, false),
-  );
-  const univerCliAutoUpdateAttemptRef = useRef("");
   const univerCliSetupPrefetchRef = useRef("");
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
@@ -1105,7 +1096,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   }, [openworkClient]);
 
-  const runUniverCliSetupAction = useCallback(async (action: UniverCliSetupAction, options: UniverCliSetupOptions = {}) => {
+  const runUniverCliSetupAction = useCallback(async (action: UniverCliSetupAction) => {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
     const workspaceId = runtimeWorkspaceId?.trim() ?? "";
     if (!client || !workspaceId) {
@@ -1118,8 +1109,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setUniverCliError(null);
     try {
       const args: Record<string, unknown> = { workspaceId };
-      if (options.checkForUpdates) args.checkForUpdates = true;
-      if (options.autoUpdate) args.autoUpdate = true;
       const response = await client.callExtensionAction({
         extensionId: UNIVER_CLI_EXTENSION_ID,
         action,
@@ -1141,32 +1130,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [openworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
 
   useEffect(() => {
-    writeStoredBoolean(SETTINGS_UNIVER_CLI_AUTO_UPDATE_KEY, univerCliAutoUpdate);
-  }, [univerCliAutoUpdate]);
-
-  useEffect(() => {
     const workspaceId = runtimeWorkspaceId?.trim() || selectedWorkspaceId.trim();
     setUniverCliReady(readStoredUniverCliReady(workspaceId));
     setUniverCliStatus(null);
     setUniverCliError(null);
     setUniverCliVersionInfo(null);
     univerCliSetupPrefetchRef.current = "";
-    univerCliAutoUpdateAttemptRef.current = "";
   }, [runtimeWorkspaceId, selectedWorkspaceId]);
-
-  useEffect(() => {
-    const workspaceId = runtimeWorkspaceId?.trim() ?? "";
-    if (!univerCliAutoUpdate || univerCliBusy || !workspaceId) return;
-    const attemptKey = `${workspaceId}:${selectedWorkspaceRoot}`;
-    if (univerCliAutoUpdateAttemptRef.current === attemptKey) return;
-    univerCliAutoUpdateAttemptRef.current = attemptKey;
-    void runUniverCliSetupAction("setup_status", { checkForUpdates: true, autoUpdate: true });
-  }, [runtimeWorkspaceId, runUniverCliSetupAction, selectedWorkspaceRoot, univerCliAutoUpdate, univerCliBusy]);
 
   useEffect(() => {
     const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
     const workspaceId = runtimeWorkspaceId?.trim() ?? "";
-    if (!client || !workspaceId || univerCliBusy || univerCliAutoUpdate) return;
+    if (!client || !workspaceId || univerCliBusy) return;
     const checkKey = `${workspaceId}:${selectedWorkspaceRoot}`;
     if (univerCliSetupPrefetchRef.current === checkKey) return;
     univerCliSetupPrefetchRef.current = checkKey;
@@ -1177,7 +1152,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     runtimeWorkspaceId,
     selectedWorkspaceEndpoint,
     selectedWorkspaceRoot,
-    univerCliAutoUpdate,
     univerCliBusy,
   ]);
 
@@ -1826,16 +1800,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       ready: univerCliReady,
       checking: univerCliReady !== true && (univerCliBusy || univerCliReady === null),
       versionInfo: univerCliVersionInfo,
-      autoUpdate: univerCliAutoUpdate,
       onCheck: () => runUniverCliSetupAction("setup_status"),
-      onCheckUpdates: () => runUniverCliSetupAction("setup_status", { checkForUpdates: true }),
-      onInstall: () => runUniverCliSetupAction("setup_install"),
-      onUpdate: () => runUniverCliSetupAction("setup_update", { checkForUpdates: true }),
       onRepair: () => runUniverCliSetupAction("setup_repair"),
-      onAutoUpdateChange: (enabled) => {
-        setUniverCliAutoUpdate(enabled);
-        if (enabled) void runUniverCliSetupAction("setup_status", { checkForUpdates: true, autoUpdate: true });
-      },
     },
     localProvider: {
       busy: localProviderBusy,

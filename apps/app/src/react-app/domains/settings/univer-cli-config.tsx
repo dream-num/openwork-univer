@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { CheckCircle2, Download, Loader2, PackageCheck, RefreshCw, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, PackageCheck, RefreshCw, Wrench, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { registerExtensionRuntime, type ExtensionConfigContext, type UniverCliVersionInfo } from "./extension-registry";
 
 export type UniverCliConfigProps = {
@@ -22,13 +21,8 @@ export type UniverCliConfigProps = {
   ready: boolean | null;
   checking: boolean;
   versionInfo: UniverCliVersionInfo | null;
-  autoUpdate: boolean;
   onCheck: () => void | Promise<void>;
-  onCheckUpdates: () => void | Promise<void>;
-  onInstall: () => void | Promise<void>;
-  onUpdate: () => void | Promise<void>;
   onRepair: () => void | Promise<void>;
-  onAutoUpdateChange: (enabled: boolean) => void | Promise<void>;
 };
 
 const univerCliConfigFactory = (ctx: ExtensionConfigContext) => (
@@ -39,13 +33,8 @@ const univerCliConfigFactory = (ctx: ExtensionConfigContext) => (
     ready={ctx.univerCli.ready}
     checking={ctx.univerCli.checking}
     versionInfo={ctx.univerCli.versionInfo}
-    autoUpdate={ctx.univerCli.autoUpdate}
     onCheck={ctx.univerCli.onCheck}
-    onCheckUpdates={ctx.univerCli.onCheckUpdates}
-    onInstall={ctx.univerCli.onInstall}
-    onUpdate={ctx.univerCli.onUpdate}
     onRepair={ctx.univerCli.onRepair}
-    onAutoUpdateChange={ctx.univerCli.onAutoUpdateChange}
   />
 );
 
@@ -58,23 +47,13 @@ registerExtensionRuntime({
 
 function sourceLabel(source: string) {
   if (source === "bundled") return "Built into OpenWork";
-  if (source === "managed") return "Managed npm";
-  if (source === "override") return "Development override";
-  if (source === "system") return "System PATH";
+  if (source === "override") return "Development Univer Executable Override";
   if (source === "unresolved") return "Unresolved";
   return source;
 }
 
 function displayValue(value: string | null) {
   return value && value.trim() ? value : "Not detected";
-}
-
-function updateStatus(info: UniverCliVersionInfo | null) {
-  if (!info) return "Not checked";
-  if (info.registryStatus === "failed") return info.registryDetail ?? "Registry check failed";
-  if (info.updateAvailable === true) return `Update available: ${info.latestVersion}`;
-  if (info.updateAvailable === false) return "Up to date";
-  return info.latestVersion ? `Latest: ${info.latestVersion}` : "Not checked";
 }
 
 function VersionRow({ label, value }: { label: string; value: string }) {
@@ -88,14 +67,12 @@ function VersionRow({ label, value }: { label: string; value: string }) {
 
 export function UniverCliConfig(props: UniverCliConfigProps) {
   const info = props.versionInfo;
-  const isBundled = info?.source === "bundled";
-  const canUpdateManaged = info?.source === "managed";
   return (
     <Card variant="outline" size="sm">
       <CardHeader>
-        <CardTitle>Univer built-in bundle</CardTitle>
+        <CardTitle>Offline-Ready Univer Distribution</CardTitle>
         <CardDescription>
-          OpenWork includes the matched Univer CLI runtime, cowork UI, and skills for native .univer work.
+          Cowork, Univer SDK, CLI, native bindings, and the canonical skill update together with OpenWork.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -131,36 +108,15 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
           <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm font-medium">Version</div>
-              <Badge variant={info.updateAvailable ? "secondary" : "outline"}>
-                {updateStatus(info)}
-              </Badge>
+              <Badge variant="outline">Atomic with OpenWork</Badge>
             </div>
             <div className="space-y-2">
               <VersionRow label="Source" value={sourceLabel(info.source)} />
               <VersionRow label="Command" value={displayValue(info.commandVersion)} />
-              <VersionRow label={isBundled ? "Bundle" : "Package"} value={displayValue(info.packageVersion)} />
-              {!isBundled ? <VersionRow label="Latest" value={displayValue(info.latestVersion)} /> : null}
+              <VersionRow label="CLI package" value={displayValue(info.packageVersion)} />
               <VersionRow label="Executable" value={displayValue(info.path)} />
-              {!isBundled ? <VersionRow label="Install root" value={info.installRoot} /> : null}
+              {info.source === "override" ? <VersionRow label="Distribution" value="OpenWork compatibility set plus executable override" /> : null}
             </div>
-          </div>
-        ) : null}
-
-        {!isBundled ? (
-          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Auto-update managed CLI</div>
-              <div className="text-xs leading-5 text-muted-foreground">
-                Check npm registry and update managed installs when this page opens.
-              </div>
-            </div>
-            <Switch
-              aria-label="Auto-update managed CLI"
-              checked={props.autoUpdate}
-              disabled={props.busy}
-              onCheckedChange={(checked) => void props.onAutoUpdateChange(checked === true)}
-              size="sm"
-            />
           </div>
         ) : null}
       </CardContent>
@@ -172,19 +128,9 @@ export function UniverCliConfig(props: UniverCliConfigProps) {
           </Button>
           <Button variant="outline" onClick={() => void props.onRepair()} disabled={props.busy}>
             {props.busy ? <Loader2 className="size-4 animate-spin" /> : <Wrench size={14} />}
-            {isBundled ? "Repair bundle" : "Repair"}
+            Repair distribution
           </Button>
         </div>
-        {!isBundled ? <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void props.onCheckUpdates()} disabled={props.busy}>
-            {props.busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={14} />}
-            Check update
-          </Button>
-          <Button variant="outline" onClick={() => void props.onUpdate()} disabled={props.busy || !canUpdateManaged}>
-            {props.busy ? <Loader2 className="size-4 animate-spin" /> : <Download size={14} />}
-            Update
-          </Button>
-        </div> : null}
       </CardFooter>
     </Card>
   );

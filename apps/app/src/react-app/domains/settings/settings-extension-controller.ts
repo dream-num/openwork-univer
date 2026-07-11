@@ -49,13 +49,8 @@ type SettingsExtensionControllerInput = {
     ready: boolean | null;
     checking: boolean;
     versionInfo: UniverCliVersionInfo | null;
-    autoUpdate: boolean;
     onCheck: () => void | Promise<void>;
-    onCheckUpdates: () => void | Promise<void>;
-    onInstall: () => void | Promise<void>;
-    onUpdate: () => void | Promise<void>;
     onRepair: () => void | Promise<void>;
-    onAutoUpdateChange: (enabled: boolean) => void | Promise<void>;
   };
   localProvider: {
     busy: boolean;

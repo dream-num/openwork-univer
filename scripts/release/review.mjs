@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -102,8 +102,29 @@ const formulaBindingFileName = () => {
   return null;
 };
 
-const nodeModulePath = (root, packageName) =>
-  resolve(root, "node_modules", ...packageName.split("/"));
+const docTypstNativePackageName = () => {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "@univerjs-pro/doc-typst-native-binding-darwin-arm64";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64"
+      ? "@univerjs-pro/doc-typst-native-binding-linux-arm64-gnu"
+      : "@univerjs-pro/doc-typst-native-binding-linux-x64-gnu";
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "@univerjs-pro/doc-typst-native-binding-win32-x64-msvc";
+  }
+  return null;
+};
+
+const docTypstBindingFileName = () => {
+  if (process.platform === "darwin" && process.arch === "arm64") return "doc-typst.darwin-arm64.node";
+  if (process.platform === "linux") {
+    return process.arch === "arm64" ? "doc-typst.linux-arm64-gnu.node" : "doc-typst.linux-x64-gnu.node";
+  }
+  if (process.platform === "win32" && process.arch === "x64") return "doc-typst.win32-x64-msvc.node";
+  return null;
+};
 
 addCheck(
   "App/desktop versions match",
@@ -166,9 +187,7 @@ if (!openworkServerRange) {
 
 const desktopRuntimeDeps = desktopPkg.dependencies ?? {};
 const embeddedServerDeps = serverPkg.dependencies ?? {};
-const stagedEmbeddedServerDeps = new Set([
-  "@univer/cowork",
-]);
+const stagedEmbeddedServerDeps = new Set();
 const missingEmbeddedServerDeps = Object.keys(embeddedServerDeps)
   .filter((name) => !desktopRuntimeDeps[name] && !stagedEmbeddedServerDeps.has(name))
   .sort();
@@ -180,59 +199,81 @@ addCheck(
     : "all server dependencies declared or staged",
 );
 
-const stagedUniverCliRoot = resolve(
-  root,
-  "apps",
-  "desktop",
-  "server",
-  "vendor",
-  "univer-cowork",
-  "resources",
-  "univer-cli",
-);
+const stagedUniverDistributionRoot = resolve(root, "apps", "desktop", "univer-distribution");
+const stagedUniverCliRoot = resolve(stagedUniverDistributionRoot, "runtime", "node_modules", "univer-cli");
 if (existsSync(stagedUniverCliRoot)) {
+  const compatibility = readJson(resolve(stagedUniverDistributionRoot, "compatibility.json"));
+  const provenance = readJson(resolve(stagedUniverDistributionRoot, "provenance.json"));
+  const realUniverCliRoot = realpathSync(stagedUniverCliRoot);
+  const dependencyRoot = (packageName) =>
+    resolve(dirname(realUniverCliRoot), ...packageName.split("/"));
+  const dependencySibling = (packageRoot, packageName) => {
+    const realPackageRoot = realpathSync(packageRoot);
+    const packageNameValue = String(readJson(resolve(realPackageRoot, "package.json")).name ?? "");
+    const nodeModulesRoot = packageNameValue.startsWith("@")
+      ? dirname(dirname(realPackageRoot))
+      : dirname(realPackageRoot);
+    return resolve(nodeModulesRoot, ...packageName.split("/"));
+  };
   const nativeLibsqlPackage = libsqlNativePackageName();
   const nativeUexcliPackage = uexcliNativePackageName();
   const nativeFormulaBindingFile = formulaBindingFileName();
+  const nativeDocTypstPackage = docTypstNativePackageName();
+  const nativeDocTypstFile = docTypstBindingFileName();
+  const libsqlRoot = dependencyRoot("libsql");
+  const uexcliRoot = dependencyRoot("@univerjs-pro/uexcli");
+  const formulaBindingRoot = dependencyRoot("@univerjs-pro/engine-formula-rust-binding");
+  const docTypstRoot = dependencyRoot("@univerjs-pro/doc-typst-native-binding");
   const requiredUniverCliRuntimePaths = [
+    resolve(stagedUniverDistributionRoot, "compatibility.json"),
+    resolve(stagedUniverDistributionRoot, "provenance.json"),
+    resolve(stagedUniverDistributionRoot, "skill", "univer-cli", "SKILL.md"),
+    resolve(stagedUniverDistributionRoot, "skill", "univer-cli", "references", "evidence-tools.md"),
+    resolve(stagedUniverDistributionRoot, "skill", "univer-cli", "inspect-tools", "tools.manifest.json"),
     resolve(stagedUniverCliRoot, "package.json"),
-    resolve(stagedUniverCliRoot, "dist", "bin", "univer.js"),
-    resolve(stagedUniverCliRoot, "dist", "internal", "daemon.js"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "libsql"), "index.js"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "@neon-rs/load"), "dist", "index.js"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "detect-libc"), "lib", "detect-libc.js"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/uexcli"), "package.json"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/uexcli"), "bin", "cli.js"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), "package.json"),
-    resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), "index.js"),
+    resolve(stagedUniverCliRoot, "bin", "univer.js"),
+    resolve(stagedUniverCliRoot, "internal", "daemon.js"),
+    resolve(libsqlRoot, "index.js"),
+    resolve(uexcliRoot, "package.json"),
+    resolve(uexcliRoot, "bin", "cli.js"),
+    resolve(formulaBindingRoot, "package.json"),
+    resolve(formulaBindingRoot, "index.js"),
+    resolve(docTypstRoot, "package.json"),
+    resolve(docTypstRoot, "index.js"),
     ...(nativeLibsqlPackage
-      ? [resolve(nodeModulePath(stagedUniverCliRoot, nativeLibsqlPackage), "index.node")]
+      ? [resolve(dependencySibling(libsqlRoot, nativeLibsqlPackage), "index.node")]
       : []),
     ...(nativeUexcliPackage
       ? [
-          resolve(nodeModulePath(stagedUniverCliRoot, nativeUexcliPackage), "package.json"),
+          resolve(dependencySibling(uexcliRoot, nativeUexcliPackage), "package.json"),
           ...uexcliNativeBinaryNames().map((name) =>
-            resolve(nodeModulePath(stagedUniverCliRoot, nativeUexcliPackage), name),
+            resolve(dependencySibling(uexcliRoot, nativeUexcliPackage), name),
           ),
         ]
       : []),
     ...(nativeFormulaBindingFile
-      ? [resolve(nodeModulePath(stagedUniverCliRoot, "@univerjs-pro/engine-formula-rust-binding"), nativeFormulaBindingFile)]
+      ? [resolve(formulaBindingRoot, nativeFormulaBindingFile)]
+      : []),
+    ...(nativeDocTypstPackage && nativeDocTypstFile
+      ? [resolve(dependencySibling(docTypstRoot, nativeDocTypstPackage), nativeDocTypstFile)]
       : []),
   ];
   const missingUniverCliRuntimePaths = requiredUniverCliRuntimePaths
     .filter((path) => !existsSync(path))
     .map((path) => path.replace(`${root}/`, ""));
   addCheck(
-    "Staged Univer CLI includes daemon, formula, and exchange runtime dependencies",
-    missingUniverCliRuntimePaths.length === 0,
+    "Offline Univer Distribution includes CLI, skill, and native closure",
+    missingUniverCliRuntimePaths.length === 0
+      && compatibility.identity === provenance.compatibilityIdentity
+      && compatibility.cli?.version === provenance.cliVersion
+      && compatibility.source?.commit === provenance.sourceCommit,
     missingUniverCliRuntimePaths.length
       ? missingUniverCliRuntimePaths.join(", ")
-      : "daemon, formula, and exchange runtime dependencies staged",
+      : `${compatibility.identity}; CLI, skill, libsql, UEX, formula, and Doc Typst present`,
   );
 } else {
   addWarning(
-    "Staged Univer CLI bundle missing (run pnpm --filter @openwork/desktop build:electron).",
+    "Offline Univer Distribution missing (run pnpm prepare:univer-distribution).",
   );
 }
 

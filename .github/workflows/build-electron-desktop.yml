@@ -54,6 +54,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package Electron desktop (unpacked)
+        env:
+          UNIVER_CLI_SOURCE_TOKEN: ${{ secrets.UNIVER_CLI_SOURCE_TOKEN }}
         run: pnpm --filter @openwork/desktop package:electron:dir
 
       - name: Upload Electron artifacts
@@ -102,6 +104,7 @@ jobs:
 
       - name: Package Electron desktop (signed + notarized, no publish)
         env:
+          UNIVER_CLI_SOURCE_TOKEN: ${{ secrets.UNIVER_CLI_SOURCE_TOKEN }}
           CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
           MACOS_NOTARIZE: true

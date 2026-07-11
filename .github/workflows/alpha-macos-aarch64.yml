@@ -150,6 +150,7 @@ jobs:
         shell: bash
         env:
           TARGET: aarch64-apple-darwin
+          UNIVER_CLI_SOURCE_TOKEN: ${{ secrets.UNIVER_CLI_SOURCE_TOKEN }}
         run: pnpm --filter @openwork/desktop build:electron
 
       - name: Package Electron alpha (macOS, signed + notarized)

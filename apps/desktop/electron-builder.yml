@@ -15,7 +15,6 @@ files:
   - "!server/dist/bin/**"
   - "!server/dist/**/*.test.js"
   - "!server/dist/**/*.test.js.map"
-  - "!server/vendor/univer-cowork/**"
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
@@ -31,8 +30,8 @@ extraResources:
       - "**/*.md"
       - "**/*.mdx"
       - "docs.json"
-  - from: server/vendor/univer-cowork
-    to: univer-cowork
+  - from: univer-distribution
+    to: univer-distribution
 asar: true
 asarUnpack:
   - node_modules/.pnpm/@lydell+node-pty*/**
@@ -68,13 +67,10 @@ mac:
       filter:
         - opencode
         - opencode-aarch64-apple-darwin
-        - opencode-x86_64-apple-darwin
         - openwork-orchestrator
         - openwork-orchestrator-aarch64-apple-darwin
-        - openwork-orchestrator-x86_64-apple-darwin
         - versions.json
         - versions.json-aarch64-apple-darwin
-        - versions.json-x86_64-apple-darwin
     - from: resources/helpers
       to: helpers
       filter:

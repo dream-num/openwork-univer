@@ -47,7 +47,6 @@ before enabling any user-facing migration prompt.
    <https://github.com/different-ai/openwork/releases/tag/electron-preview-latest>
 3. Ask testers to download the matching platform artifact:
    - macOS Apple Silicon: `openwork-mac-arm64-*.dmg` or `.zip`
-   - macOS Intel: `openwork-mac-x64-*.dmg` or `.zip`
    - Windows: `openwork-win-x64-*.exe`
    - Linux: `openwork-linux-x64-*.AppImage` or `.tar.gz`
 

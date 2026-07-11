@@ -32,6 +32,8 @@
     "build": "node scripts/build.mjs",
     "build:ui": "pnpm --filter @openwork/app build",
     "build:web": "pnpm --filter @openwork-ee/den-web build",
+    "prepare:univer-distribution": "node scripts/prepare-univer-distribution.mjs",
+    "validate:univer-compatibility": "node scripts/validate-univer-compatibility.mjs",
     "package:electron:notarized": "pnpm --filter @openwork/desktop package:electron:notarized",
     "preview": "pnpm --filter @openwork/app preview",
     "typecheck": "pnpm --filter @openwork/app typecheck",
@@ -60,6 +62,7 @@
     "release:ship:watch": "node scripts/release/ship.mjs --watch"
   },
   "devDependencies": {
+    "tar": "7.5.11",
     "turbo": "^2.5.5"
   },
   "packageManager": "pnpm@11.4.0"

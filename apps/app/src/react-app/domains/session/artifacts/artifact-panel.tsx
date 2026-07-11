@@ -37,15 +37,15 @@ import {
   type CoworkContentViewState,
   type CoworkController,
   type CoworkSnapshot,
-} from "@univer/cowork";
-import { useCoworkSnapshot } from "@univer/cowork/react";
+} from "@univerjs-pro/cowork";
+import { useCoworkSnapshot } from "@univerjs-pro/cowork/react";
 import {
   CoworkContentViewer,
   type CoworkContentViewerDataSource,
   type CoworkContentViewerStatus,
   type CoworkViewerError,
-} from "@univer/cowork/viewer/react";
-import "@univer/cowork/viewer/styles.css";
+} from "@univerjs-pro/cowork/viewer/react";
+import "@univerjs-pro/cowork/viewer/styles.css";
 
 import type { SidebarSessionItem } from "@/app/types";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
@@ -2317,6 +2317,7 @@ function UniverContentViewerSurface({
     <div
       className="relative min-h-0 flex-1 overflow-hidden bg-background"
       data-testid="univer-artifact-native-viewer"
+      data-viewer-status={viewerStatus}
     >
       {content}
     </div>

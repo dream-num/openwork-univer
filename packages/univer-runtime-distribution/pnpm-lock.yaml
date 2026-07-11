@@ -1,0 +1,470 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      univer-cli:
+        specifier: 0.3.1
+        version: 0.3.1
+
+packages:
+
+  '@libsql/darwin-arm64@0.5.29':
+    resolution: {integrity: sha512-K+2RIB1OGFPYQbfay48GakLhqf3ArcbHqPFu7EZiaUcRgFcdw8RoltsMyvbj5ix2fY0HV3Q3Ioa/ByvQdaSM0A==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@libsql/darwin-x64@0.5.29':
+    resolution: {integrity: sha512-OtT+KFHsKFy1R5FVadr8FJ2Bb1mghtXTyJkxv0trocq7NuHntSki1eUbxpO5ezJesDvBlqFjnWaYYY516QNLhQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@libsql/linux-arm-gnueabihf@0.5.29':
+    resolution: {integrity: sha512-CD4n4zj7SJTHso4nf5cuMoWoMSS7asn5hHygsDuhRl8jjjCTT3yE+xdUvI4J7zsyb53VO5ISh4cwwOtf6k2UhQ==}
+    cpu: [arm]
+    os: [linux]
+
+  '@libsql/linux-arm-musleabihf@0.5.29':
+    resolution: {integrity: sha512-2Z9qBVpEJV7OeflzIR3+l5yAd4uTOLxklScYTwpZnkm2vDSGlC1PRlueLaufc4EFITkLKXK2MWBpexuNJfMVcg==}
+    cpu: [arm]
+    os: [linux]
+
+  '@libsql/linux-arm64-gnu@0.5.29':
+    resolution: {integrity: sha512-gURBqaiXIGGwFNEaUj8Ldk7Hps4STtG+31aEidCk5evMMdtsdfL3HPCpvys+ZF/tkOs2MWlRWoSq7SOuCE9k3w==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@libsql/linux-arm64-musl@0.5.29':
+    resolution: {integrity: sha512-fwgYZ0H8mUkyVqXZHF3mT/92iIh1N94Owi/f66cPVNsk9BdGKq5gVpoKO+7UxaNzuEH1roJp2QEwsCZMvBLpqg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@libsql/linux-x64-gnu@0.5.29':
+    resolution: {integrity: sha512-y14V0vY0nmMC6G0pHeJcEarcnGU2H6cm21ZceRkacWHvQAEhAG0latQkCtoS2njFOXiYIg+JYPfAoWKbi82rkg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@libsql/linux-x64-musl@0.5.29':
+    resolution: {integrity: sha512-gquqwA/39tH4pFl+J9n3SOMSymjX+6kZ3kWgY3b94nXFTwac9bnFNMffIomgvlFaC4ArVqMnOZD3nuJ3H3VO1w==}
+    cpu: [x64]
+    os: [linux]
+
+  '@libsql/win32-x64-msvc@0.5.29':
+    resolution: {integrity: sha512-4/0CvEdhi6+KjMxMaVbFM2n2Z44escBRoEYpR+gZg64DdetzGnYm8mcNLcoySaDJZNaBd6wz5DNdgRmcI4hXcg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@neon-rs/load@0.0.4':
+    resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
+
+  '@puppeteer/browsers@3.0.6':
+    resolution: {integrity: sha512-B/gKoqlFkzhvzsI6jo9K1cZz9o5ypviVv/xu8CwA4grZzyVwN+XfkT+tu8T1zrauuEXv6VhS2oGX+6NL95WcKA==}
+    engines: {node: '>=22.12.0'}
+    hasBin: true
+    peerDependencies:
+      proxy-agent: '>=8.0.1'
+      yauzl: ^2.10.0 || ^3.4.0
+    peerDependenciesMeta:
+      proxy-agent:
+        optional: true
+      yauzl:
+        optional: true
+
+  '@univerjs-pro/doc-typst-native-binding-darwin-arm64@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-XBTkAcZuEJS+x5KJpr7rbHcCOY0b04msalbA0HfKDEBBXPahCwRBu7cUHIwMZ/lBdnIZc690WZE6Cz9yWA4YTQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@univerjs-pro/doc-typst-native-binding-darwin-x64@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-kgavMpYB2Bojv9xRtjUsgUNE41UXPSoFXJlhiWtVMMxA5l8sthixNcciMLlk6w7diSQ6NxLYb3GL8TrJuJ8mNA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@univerjs-pro/doc-typst-native-binding-linux-arm64-gnu@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-4GzQ8Ks0VhJGGtGr31IZoFO7PKuRzY1+3OCZREZ7Tn21fDqt1Q+hcQeq/viz8cf78J7DOQGXB8OBt4ifzYnyog==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@univerjs-pro/doc-typst-native-binding-linux-x64-gnu@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-9QUyUQ05RUotx5IWKsvBmAKYaqCiF1EpXZqZx8sB+ZDmaPXibWY57L/lpouoCkTgPbpBRyd8HWHgOFoT5Ceepg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@univerjs-pro/doc-typst-native-binding-win32-x64-msvc@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-rmfaPnS3o8feL9aTcd6xCxPQPrngbksR3aJe6MVIchJihndJJMlF0kl3QTKEYR9BSbev1dotIXtnlvzg+606XQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@univerjs-pro/doc-typst-native-binding@1.0.0-insiders.20260710-effe993':
+    resolution: {integrity: sha512-bagBAC7n50CW+0uuTWHGbQ8TIqVHdMSRgWb2MPQCgz5+rkVKW2kl24s0Sp0nSAvlM9ckBUpUJB+8VqMtU4srLQ==}
+
+  '@univerjs-pro/engine-formula-rust-binding-darwin-arm64@1.0.0-insiders.20260703-c9ab378':
+    resolution: {integrity: sha512-M31A5FMcwlOCBzaGX+yTA/Fe2RFTYOqJ2lxz90PqI7UGBc5pt9RwkvIqfBNyaKPzRKMie4Wfuq+Gne6PTOIz3w==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@univerjs-pro/engine-formula-rust-binding-linux-arm64-gnu@1.0.0-insiders.20260703-c9ab378':
+    resolution: {integrity: sha512-M/RON9xhqum/Iq6lkLKBE3yRX4cvFMEx87bI/8IXUkDDtPHKQ4OUeSUQXDvAa58FZURKx8F52U+TKa3QKaJeOg==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@univerjs-pro/engine-formula-rust-binding-linux-x64-gnu@1.0.0-insiders.20260703-c9ab378':
+    resolution: {integrity: sha512-zL/JwQSMxBP4fQ3S/2iOFEA8Pqv5VUQnay2WogaSluvSKj7K9l4xJhP1QOnQ171UY74jFevUFvXxoOXAiZ7BGA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@univerjs-pro/engine-formula-rust-binding-win32-x64-msvc@1.0.0-insiders.20260703-c9ab378':
+    resolution: {integrity: sha512-WoPwWocRz9ogFDh73eL2zQxpmErwgIq0ZfCEcxXwZY9wKNeH/m2xS9ajc6UL5zSsBDwgRndApERbbfjtj48wDg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@univerjs-pro/engine-formula-rust-binding@1.0.0-insiders.20260703-c9ab378':
+    resolution: {integrity: sha512-UnsA4Oq6DwssVB+PWT1JaVE5ECpKdlpaa6ZYX2nweZsdH1rOU55vuhQFJyraXe/mHadqp4qHuermHTWHGgpCJg==}
+
+  '@univerjs-pro/uexcli-darwin-arm64@0.2.0-alpha.3':
+    resolution: {integrity: sha512-exy2oraUk4H3jp0KTzWwkjp4hNNjSW2kywtRWlzWMR690LnDC/93AR3fAD7yIl2TubQ67KRtMVZtCzazGsk/0Q==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@univerjs-pro/uexcli-linux-arm64@0.2.0-alpha.3':
+    resolution: {integrity: sha512-qRMafw6toxfUKjpV5V1JFWbkSRI/Z2kqXkIDEYQeEpzRXtp9NAOTV9yjaNfhGKd05pxdKmPEjzwq6baOxBmOwA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@univerjs-pro/uexcli-linux-x64@0.2.0-alpha.3':
+    resolution: {integrity: sha512-zeIq8VfiZBtIcvQA/etTSpmwx97L2yXrJ0cWS6H0ouc+sDWN8VI2vesQUmfuoAIGViNaxs6mx/ta0EBwy7etPA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@univerjs-pro/uexcli-windows-x64@0.2.0-alpha.3':
+    resolution: {integrity: sha512-XkYdV1ITQdPAiev7dz95cln7jxO0EnKdTHMtnYr8LvbuossIwddmh5bpemj5/jUBBQpR0L3tygVQzJS/x80P1Q==}
+    cpu: [x64]
+    os: [win32]
+
+  '@univerjs-pro/uexcli@0.2.0-alpha.3':
+    resolution: {integrity: sha512-G6/G+PdgqD6MmVtBCGETrsCYtqmpASuTpU7ouCN2dPscSHUvZMl7IKr7wa7x1MAEXmghMp5w9i/PfWyeHygiAQ==}
+    engines: {node: '>=16'}
+    hasBin: true
+
+  ansi-regex@6.2.2:
+    resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
+    engines: {node: '>=12'}
+
+  ansi-styles@6.2.3:
+    resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
+    engines: {node: '>=12'}
+
+  chromium-bidi@16.0.1:
+    resolution: {integrity: sha512-J63PGu/9PpeCwLIcKYyzWP6yaVL5pxuBc0shlYCYM8BaAkmlwiQboXO1iNbOgSDbVklEyYFfNEcHD8oOAWacUA==}
+    engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0'}
+    peerDependencies:
+      devtools-protocol: '*'
+
+  cliui@9.0.1:
+    resolution: {integrity: sha512-k7ndgKhwoQveBL+/1tqGJYNz097I7WOvwbmmU2AR5+magtbjPWQTS1C5vzGkBC8Ym8UWRzfKUzUUqFLypY4Q+w==}
+    engines: {node: '>=20'}
+
+  detect-libc@2.0.2:
+    resolution: {integrity: sha512-UX6sGumvvqSaXgdKGUsgZWqcUyIXZ/vZTrlRT/iobiKhGL0zL4d3osHj3uqllWJK+i+sixDS/3COVEOFbupFyw==}
+    engines: {node: '>=8'}
+
+  devtools-protocol@0.0.1638949:
+    resolution: {integrity: sha512-mXwg4Fqnv0WR4iuAT/gYUmctNkjILwXFHyZ+m7Ty1dfr0ezZt2U3gnrrJTfRobJTHoXf+IbuFvFITzLrLFjwJA==}
+
+  emoji-regex@10.6.0:
+    resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
+
+  escalade@3.2.0:
+    resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
+    engines: {node: '>=6'}
+
+  get-caller-file@2.0.5:
+    resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
+    engines: {node: 6.* || 8.* || >= 10.*}
+
+  get-east-asian-width@1.6.0:
+    resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
+    engines: {node: '>=18'}
+
+  libsql@0.5.29:
+    resolution: {integrity: sha512-8lMP8iMgiBzzoNbAPQ59qdVcj6UaE/Vnm+fiwX4doX4Narook0a4GPKWBEv+CR8a1OwbfkgL18uBfBjWdF0Fzg==}
+    cpu: [x64, arm64, wasm32, arm]
+    os: [darwin, linux, win32]
+
+  mitt@3.0.1:
+    resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
+
+  modern-tar@0.7.6:
+    resolution: {integrity: sha512-sweCIVXzx1aIGTCdzcMlSZt1h8k5Tmk08VNAuRk3IU28XamGiOH5ypi11g6De2CH7PhYqSSnGy2A/EFhbWnVKg==}
+    engines: {node: '>=18.0.0'}
+
+  puppeteer-core@25.3.0:
+    resolution: {integrity: sha512-fm+wpUr2oigH1PXZvwgATrM2tYWHMDG8ASzTEe9uukCye4X5Ldx1K5BTHPFKITrIWvQQAQ256d1NpbEveBcKjA==}
+    engines: {node: '>=22.12.0'}
+
+  string-width@7.2.0:
+    resolution: {integrity: sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ==}
+    engines: {node: '>=18'}
+
+  strip-ansi@7.2.0:
+    resolution: {integrity: sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==}
+    engines: {node: '>=12'}
+
+  typed-query-selector@2.12.2:
+    resolution: {integrity: sha512-EOPFbyIub4ngnEdqi2yOcNeDLaX/0jcE1JoAXQDDMIthap7FoN795lc/SHfIq2d416VufXpM8z/lD+WRm2gfOQ==}
+
+  univer-cli@0.3.1:
+    resolution: {integrity: sha512-ZZa0rjnImYuHcJCRYN+nNwPUbTFxUPLqjFfZDpbLWgjxww+eXFlF4uFcxFzuP5bzDklngOCX2xDGOiDC0+JwLg==}
+    hasBin: true
+
+  webdriver-bidi-protocol@0.4.2:
+    resolution: {integrity: sha512-VSV+fzfChirL3e7jay2yUC7B4HQCGtEWEg/MSSQbK+qWbqeGlRLlXTzPpYr3XGUvbpDHumWZBJxgesg4N7dbtA==}
+
+  wrap-ansi@9.0.2:
+    resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
+    engines: {node: '>=18'}
+
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
+  y18n@5.0.8:
+    resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
+    engines: {node: '>=10'}
+
+  yargs-parser@22.0.0:
+    resolution: {integrity: sha512-rwu/ClNdSMpkSrUb+d6BRsSkLUq1fmfsY6TOpYzTwvwkg1/NRG85KBy3kq++A8LKQwX6lsu+aWad+2khvuXrqw==}
+    engines: {node: ^20.19.0 || ^22.12.0 || >=23}
+
+  yargs@18.0.0:
+    resolution: {integrity: sha512-4UEqdc2RYGHZc7Doyqkrqiln3p9X2DZVxaGbwhn2pi7MrRagKaOcIKe8L3OxYcbhXLgLFUS3zAYuQjKBQgmuNg==}
+    engines: {node: ^20.19.0 || ^22.12.0 || >=23}
+
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
+snapshots:
+
+  '@libsql/darwin-arm64@0.5.29':
+    optional: true
+
+  '@libsql/darwin-x64@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm-gnueabihf@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm-musleabihf@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm64-gnu@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm64-musl@0.5.29':
+    optional: true
+
+  '@libsql/linux-x64-gnu@0.5.29':
+    optional: true
+
+  '@libsql/linux-x64-musl@0.5.29':
+    optional: true
+
+  '@libsql/win32-x64-msvc@0.5.29':
+    optional: true
+
+  '@neon-rs/load@0.0.4': {}
+
+  '@puppeteer/browsers@3.0.6':
+    dependencies:
+      modern-tar: 0.7.6
+      yargs: 18.0.0
+
+  '@univerjs-pro/doc-typst-native-binding-darwin-arm64@1.0.0-insiders.20260710-effe993':
+    optional: true
+
+  '@univerjs-pro/doc-typst-native-binding-darwin-x64@1.0.0-insiders.20260710-effe993':
+    optional: true
+
+  '@univerjs-pro/doc-typst-native-binding-linux-arm64-gnu@1.0.0-insiders.20260710-effe993':
+    optional: true
+
+  '@univerjs-pro/doc-typst-native-binding-linux-x64-gnu@1.0.0-insiders.20260710-effe993':
+    optional: true
+
+  '@univerjs-pro/doc-typst-native-binding-win32-x64-msvc@1.0.0-insiders.20260710-effe993':
+    optional: true
+
+  '@univerjs-pro/doc-typst-native-binding@1.0.0-insiders.20260710-effe993':
+    optionalDependencies:
+      '@univerjs-pro/doc-typst-native-binding-darwin-arm64': 1.0.0-insiders.20260710-effe993
+      '@univerjs-pro/doc-typst-native-binding-darwin-x64': 1.0.0-insiders.20260710-effe993
+      '@univerjs-pro/doc-typst-native-binding-linux-arm64-gnu': 1.0.0-insiders.20260710-effe993
+      '@univerjs-pro/doc-typst-native-binding-linux-x64-gnu': 1.0.0-insiders.20260710-effe993
+      '@univerjs-pro/doc-typst-native-binding-win32-x64-msvc': 1.0.0-insiders.20260710-effe993
+
+  '@univerjs-pro/engine-formula-rust-binding-darwin-arm64@1.0.0-insiders.20260703-c9ab378':
+    optional: true
+
+  '@univerjs-pro/engine-formula-rust-binding-linux-arm64-gnu@1.0.0-insiders.20260703-c9ab378':
+    optional: true
+
+  '@univerjs-pro/engine-formula-rust-binding-linux-x64-gnu@1.0.0-insiders.20260703-c9ab378':
+    optional: true
+
+  '@univerjs-pro/engine-formula-rust-binding-win32-x64-msvc@1.0.0-insiders.20260703-c9ab378':
+    optional: true
+
+  '@univerjs-pro/engine-formula-rust-binding@1.0.0-insiders.20260703-c9ab378':
+    optionalDependencies:
+      '@univerjs-pro/engine-formula-rust-binding-darwin-arm64': 1.0.0-insiders.20260703-c9ab378
+      '@univerjs-pro/engine-formula-rust-binding-linux-arm64-gnu': 1.0.0-insiders.20260703-c9ab378
+      '@univerjs-pro/engine-formula-rust-binding-linux-x64-gnu': 1.0.0-insiders.20260703-c9ab378
+      '@univerjs-pro/engine-formula-rust-binding-win32-x64-msvc': 1.0.0-insiders.20260703-c9ab378
+
+  '@univerjs-pro/uexcli-darwin-arm64@0.2.0-alpha.3':
+    optional: true
+
+  '@univerjs-pro/uexcli-linux-arm64@0.2.0-alpha.3':
+    optional: true
+
+  '@univerjs-pro/uexcli-linux-x64@0.2.0-alpha.3':
+    optional: true
+
+  '@univerjs-pro/uexcli-windows-x64@0.2.0-alpha.3':
+    optional: true
+
+  '@univerjs-pro/uexcli@0.2.0-alpha.3':
+    optionalDependencies:
+      '@univerjs-pro/uexcli-darwin-arm64': 0.2.0-alpha.3
+      '@univerjs-pro/uexcli-linux-arm64': 0.2.0-alpha.3
+      '@univerjs-pro/uexcli-linux-x64': 0.2.0-alpha.3
+      '@univerjs-pro/uexcli-windows-x64': 0.2.0-alpha.3
+
+  ansi-regex@6.2.2: {}
+
+  ansi-styles@6.2.3: {}
+
+  chromium-bidi@16.0.1(devtools-protocol@0.0.1638949):
+    dependencies:
+      devtools-protocol: 0.0.1638949
+      mitt: 3.0.1
+      zod: 3.25.76
+
+  cliui@9.0.1:
+    dependencies:
+      string-width: 7.2.0
+      strip-ansi: 7.2.0
+      wrap-ansi: 9.0.2
+
+  detect-libc@2.0.2: {}
+
+  devtools-protocol@0.0.1638949: {}
+
+  emoji-regex@10.6.0: {}
+
+  escalade@3.2.0: {}
+
+  get-caller-file@2.0.5: {}
+
+  get-east-asian-width@1.6.0: {}
+
+  libsql@0.5.29:
+    dependencies:
+      '@neon-rs/load': 0.0.4
+      detect-libc: 2.0.2
+    optionalDependencies:
+      '@libsql/darwin-arm64': 0.5.29
+      '@libsql/darwin-x64': 0.5.29
+      '@libsql/linux-arm-gnueabihf': 0.5.29
+      '@libsql/linux-arm-musleabihf': 0.5.29
+      '@libsql/linux-arm64-gnu': 0.5.29
+      '@libsql/linux-arm64-musl': 0.5.29
+      '@libsql/linux-x64-gnu': 0.5.29
+      '@libsql/linux-x64-musl': 0.5.29
+      '@libsql/win32-x64-msvc': 0.5.29
+
+  mitt@3.0.1: {}
+
+  modern-tar@0.7.6: {}
+
+  puppeteer-core@25.3.0:
+    dependencies:
+      '@puppeteer/browsers': 3.0.6
+      chromium-bidi: 16.0.1(devtools-protocol@0.0.1638949)
+      devtools-protocol: 0.0.1638949
+      typed-query-selector: 2.12.2
+      webdriver-bidi-protocol: 0.4.2
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - proxy-agent
+      - utf-8-validate
+      - yauzl
+
+  string-width@7.2.0:
+    dependencies:
+      emoji-regex: 10.6.0
+      get-east-asian-width: 1.6.0
+      strip-ansi: 7.2.0
+
+  strip-ansi@7.2.0:
+    dependencies:
+      ansi-regex: 6.2.2
+
+  typed-query-selector@2.12.2: {}
+
+  univer-cli@0.3.1:
+    dependencies:
+      '@puppeteer/browsers': 3.0.6
+      '@univerjs-pro/doc-typst-native-binding': 1.0.0-insiders.20260710-effe993
+      '@univerjs-pro/engine-formula-rust-binding': 1.0.0-insiders.20260703-c9ab378
+      '@univerjs-pro/uexcli': 0.2.0-alpha.3
+      libsql: 0.5.29
+      puppeteer-core: 25.3.0
+    transitivePeerDependencies:
+      - bufferutil
+      - proxy-agent
+      - utf-8-validate
+      - yauzl
+
+  webdriver-bidi-protocol@0.4.2: {}
+
+  wrap-ansi@9.0.2:
+    dependencies:
+      ansi-styles: 6.2.3
+      string-width: 7.2.0
+      strip-ansi: 7.2.0
+
+  ws@8.21.0: {}
+
+  y18n@5.0.8: {}
+
+  yargs-parser@22.0.0: {}
+
+  yargs@18.0.0:
+    dependencies:
+      cliui: 9.0.1
+      escalade: 3.2.0
+      get-caller-file: 2.0.5
+      string-width: 7.2.0
+      y18n: 5.0.8
+      yargs-parser: 22.0.0
+
+  zod@3.25.76: {}

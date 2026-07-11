@@ -18,6 +18,7 @@ const CSV_BASENAME = `host-contracts-${RUN_SUFFIX}.csv`;
 const RELATIVE_UNIVER_PATH = `artifacts/${UNIVER_BASENAME}`;
 const RELATIVE_CSV_PATH = `artifacts/${CSV_BASENAME}`;
 const UNIVER_EXECUTABLE = process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "univer";
+const EVAL_WORKSPACE_DIR = process.env.OPENWORK_EVAL_WORKSPACE_DIR?.trim() || "";
 const EVAL_UNIVER_HOME = join("/private/tmp", `openwork-univer-host-contracts-home-${RUN_SUFFIX}`);
 
 let evalWorkspaceRoot = "";
@@ -87,6 +88,15 @@ async function ensureSessionAndSidePanel(ctx) {
 
   const route = await ctx.eval("window.__openworkControl.snapshot().route");
   if (typeof route !== "string" || !/\/session\/[^/?#]+/.test(route)) {
+    await ctx.waitFor(`(() => {
+      const bodyText = document.body.innerText || "";
+      return bodyText.includes("Select or create a session to get started.")
+        && !bodyText.includes("Loading tasks...")
+        && !bodyText.includes("Switching session...");
+    })()`, {
+      timeoutMs: 180_000,
+      label: "cold OpenCode session list ready",
+    });
     await ctx.control("session.create_task");
     await ctx.waitFor(SELECTED_SESSION_ROUTE_EXPR, {
       timeoutMs: 60_000,
@@ -95,11 +105,14 @@ async function ensureSessionAndSidePanel(ctx) {
   }
 
   await closeBlockingDialogs(ctx);
-  await ensureArtifactControls(ctx);
 }
 
 async function prepareCurrentWorkspace(ctx) {
   await ensureSessionAndSidePanel(ctx);
+  if (EVAL_WORKSPACE_DIR) {
+    evalWorkspaceRoot = await realpath(EVAL_WORKSPACE_DIR);
+    return;
+  }
   await ctx.waitFor(
     "window.__openworkControl.listActions().some((action) => action.id === 'eval.workspace.info' && !action.disabled)",
     { timeoutMs: 30_000, label: "workspace info action enabled" },
@@ -152,8 +165,8 @@ async function ensureArtifactControls(ctx) {
 
 export default {
   id: "univer-host-contracts-discovery-open-surface",
-  title: "Visible Univerfile discovery and open surface stay intact",
-  spec: "openspec/changes/extract-univer-cowork-host-contracts/specs/univer-cowork-host-contracts/spec.md",
+  title: "Packaged Univerfile discovery and native open surface stay intact",
+  spec: "openspec/changes/adopt-published-univer-distribution/specs/univer-distribution/spec.md",
   precondition: async () => {
     try {
       await execFileAsync(UNIVER_EXECUTABLE, ["--version"], { timeout: 15_000 });
@@ -194,12 +207,28 @@ export default {
       run: async (ctx) => {
         await ctx.prove("Opening the discovered .univer file mounts the native Cowork Content Viewer", {
           action: async () => {
-            await ensureArtifactControls(ctx);
-            const seeded = await ctx.control("eval.artifact_tabs.seed_univer", {
-              path: RELATIVE_UNIVER_PATH,
-              size: createdFileSize,
-            });
-            ctx.assert(seeded?.activeTabId === `file:${RELATIVE_UNIVER_PATH}`, `Unexpected active tab: ${seeded?.activeTabId}`);
+            const hasSeedAction = await ctx.eval(
+              "window.__openworkControl.listActions().some((action) => action.id === 'eval.artifact_tabs.seed_univer' && !action.disabled)",
+            );
+            if (hasSeedAction) {
+              const seeded = await ctx.control("eval.artifact_tabs.seed_univer", {
+                path: RELATIVE_UNIVER_PATH,
+                size: createdFileSize,
+              });
+              ctx.assert(seeded?.activeTabId === `file:${RELATIVE_UNIVER_PATH}`, `Unexpected active tab: ${seeded?.activeTabId}`);
+            } else {
+              const absolutePath = join(evalWorkspaceRoot, RELATIVE_UNIVER_PATH);
+              const clicked = await ctx.eval(`(() => {
+                const rows = Array.from(document.querySelectorAll('button[data-sidebar="univerfile-row"]'));
+                const row = rows.find((candidate) =>
+                  candidate.getAttribute("title") === ${JSON.stringify(absolutePath)} ||
+                  candidate.textContent?.includes(${JSON.stringify(UNIVER_BASENAME)})
+                );
+                row?.click();
+                return Boolean(row);
+              })()`);
+              ctx.assert(clicked === true, "Could not click the discovered Univerfile sidebar row.");
+            }
             await ctx.waitFor(`(() => {
               const header = document.querySelector('[data-testid="univer-artifact-header"]');
               const nativeViewer = document.querySelector('[data-testid="univer-artifact-native-viewer"]');
@@ -210,11 +239,14 @@ export default {
               return Boolean(header)
                 && header.textContent.includes(${JSON.stringify(UNIVER_DISPLAY_NAME)})
                 && Boolean(nativeViewer)
+                && nativeViewer.getAttribute("data-viewer-status") === "ready"
                 && Boolean(viewerMount)
                 && !oldIframe
                 && rect.width > 300
                 && rect.height > 200
                 && !bodyText.includes("Failed to open Univer")
+                && !bodyText.includes("Failed to fetch dynamically imported module")
+                && !bodyText.includes("TypeError:")
                 && !bodyText.includes("Setup incomplete")
                 && !bodyText.includes("Application error");
             })()`, {
@@ -231,15 +263,17 @@ export default {
               return {
                 headerText: header?.textContent || "",
                 hasNativeViewer: Boolean(nativeViewer),
+                viewerStatus: nativeViewer?.getAttribute("data-viewer-status") || "missing",
                 hasCoworkViewer: Boolean(viewerMount),
                 hasOldIframe: Boolean(document.querySelector('iframe[data-testid="univer-collab-surface"]')),
                 width: Math.round(rect?.width ?? 0),
                 height: Math.round(rect?.height ?? 0),
-                errorVisible: /Failed to open Univer|Setup incomplete|Application error/i.test(document.body.innerText || ""),
+                errorVisible: /Failed to open Univer|Failed to fetch dynamically imported module|TypeError:|Setup incomplete|Application error/i.test(document.body.innerText || ""),
               };
             })()`);
             ctx.assert(result.headerText.includes(UNIVER_DISPLAY_NAME), `Header did not show the opened Univerfile: ${result.headerText}`);
             ctx.assert(result.hasNativeViewer, "Native Univer viewer is missing.");
+            ctx.assert(result.viewerStatus === "ready", `Cowork Content Viewer did not become ready: ${result.viewerStatus}`);
             ctx.assert(result.hasCoworkViewer, "Cowork Content Viewer mount is missing.");
             ctx.assert(!result.hasOldIframe, "The old iframe fallback is still present.");
             ctx.assert(result.width > 300 && result.height > 200, `Viewer is not visibly mounted: ${result.width}x${result.height}`);
@@ -254,7 +288,13 @@ export default {
           screenshot: {
             name: "native-univer-open-surface",
             requireText: [UNIVER_BASENAME],
-            rejectText: ["Failed to open Univer", "Setup incomplete", "Application error"],
+            rejectText: [
+              "Failed to open Univer",
+              "Failed to fetch dynamically imported module",
+              "TypeError:",
+              "Setup incomplete",
+              "Application error",
+            ],
           },
         });
       },

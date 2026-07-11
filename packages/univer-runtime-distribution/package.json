@@ -1,0 +1,11 @@
+{
+  "name": "@openwork/univer-runtime-distribution",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned production dependency closure for OpenWork's offline Univer runtime.",
+  "type": "module",
+  "dependencies": {
+    "univer-cli": "0.3.1"
+  },
+  "packageManager": "pnpm@11.4.0"
+}
