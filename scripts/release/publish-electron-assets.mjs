@@ -165,7 +165,7 @@ function mergeManifests(name, paths) {
 function validateManifest(name, manifest) {
   const urls = manifest.files.map((file) => String(file.url || ""));
   if (name === "latest-mac.yml") {
-    for (const arch of ["mac-arm64", "mac-x64"]) {
+    for (const arch of ["mac-arm64"]) {
       if (!urls.some((url) => url.includes(arch))) {
         throw new Error(`${name} is missing ${arch} artifacts.`);
       }

@@ -21,6 +21,9 @@ _worktrees/
 # Desktop sidecars
 apps/desktop/resources/sidecars/
 apps/desktop/server/
+apps/desktop/univer-distribution/
+apps/desktop/.cache/univer-cli-source/
+apps/desktop/.cache/univer-runtime-deploy-workspace/
 
 # Env
 .env

@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { type CoworkController, type CoworkSelection } from "@univer/cowork";
-import { useCoworkSnapshot } from "@univer/cowork/react";
+import { type CoworkController, type CoworkSelection } from "@univerjs-pro/cowork";
+import { useCoworkSnapshot } from "@univerjs-pro/cowork/react";
 import {
   AlertTriangle,
   Check,

@@ -293,11 +293,6 @@ jobs:
             artifact: electron-macos-arm64
             electron_args: "--mac --arm64"
             target_triple: aarch64-apple-darwin
-          - platform: macos-14
-            os_type: macos
-            artifact: electron-macos-x64
-            electron_args: "--mac --x64"
-            target_triple: x86_64-apple-darwin
           - platform: ubuntu-22.04
             os_type: linux
             artifact: electron-linux-x64
@@ -401,9 +396,9 @@ jobs:
       - name: Build Electron app
         shell: bash
         env:
-          # TARGET tells prepare-sidecar.mjs which architecture's sidecars
-          # to download (critical for cross-arch builds like x64 on arm64 mac).
+          # TARGET tells prepare-sidecar.mjs which architecture's sidecars to download.
           TARGET: ${{ matrix.target_triple }}
+          UNIVER_CLI_SOURCE_TOKEN: ${{ secrets.UNIVER_CLI_SOURCE_TOKEN }}
         run: pnpm --filter @openwork/desktop build:electron
 
       - name: Package Electron (macOS, signed + notarized)

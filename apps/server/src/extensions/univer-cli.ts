@@ -1,23 +1,21 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { access, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { cp, readFile, realpath, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
-  checkUniverCoworkBundleHealth,
+  checkUniverRuntimeDistributionHealth,
   ensureUniverDaemonRunning,
   parseUniverOpenHandoff,
-  resolveUniverCoworkBundle,
+  resolveUniverRuntimeDistribution,
   writeUniverExecutableShim,
   writeUniverExecutableShimSync,
   UniverOpenHandoffError,
-  type UniverCoworkBundle,
-  type UniverCoworkBundleHealth,
-} from "@univer/cowork/node";
+  type UniverRuntimeDistribution,
+  type UniverRuntimeDistributionHealth,
+} from "../univer-runtime/index.js";
 
 import { ApiError } from "../errors.js";
-import { installHubSkill } from "../skill-hub.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { exists } from "../utils.js";
 import { projectSkillsDir } from "../workspace-files.js";
@@ -26,13 +24,16 @@ import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 export const UNIVER_CLI_EXTENSION_ID = "univer-cli";
 
 const UNIVER_SKILL_NAME = "univer-cli";
-const UNIVER_SKILL_REPO = { owner: "dream-num", repo: "skills", ref: "main" };
+const UNIVER_SKILL_REPO = {
+  owner: "dream-num",
+  repo: "univer-cli",
+  ref: "e9066dc0f266a9ba7a109b21008c146b9473f616",
+};
 const UNIVER_NPM_PACKAGE = "univer-cli";
 const UNIVER_BIN_NAME = process.platform === "win32" ? "univer.cmd" : "univer";
 const INSTALL_METADATA_FILE = ".openwork-univer-cli.json";
 const COMMAND_TIMEOUT_MS = 20_000;
 const OPEN_SURFACE_TIMEOUT_MS = 60_000;
-const NPM_INSTALL_TIMEOUT_MS = 120_000;
 const OPENWORK_UNIVER_NODE_RUNTIME_ENV = "OPENWORK_UNIVER_NODE_RUNTIME";
 const OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON_ENV = "OPENWORK_UNIVER_NODE_RUNTIME_ELECTRON";
 
@@ -40,15 +41,12 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   {
     extensionId: UNIVER_CLI_EXTENSION_ID,
     action: "setup_status",
-    title: "Univer bundle status",
-    description: "Check whether the bundled Univer executable, skill package, and health checks are ready.",
+    title: "Univer distribution status",
+    description: "Check the installed OpenWork Univer compatibility set and health probes.",
     inputSchema: {
       type: "object",
       properties: {
         workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
-        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
-        checkForUpdates: { type: "boolean", description: "Legacy managed installs only: checks the npm registry for the latest managed univer-cli version." },
-        autoUpdate: { type: "boolean", description: "Legacy managed installs only: updates the managed executable if the registry check finds a newer version." },
       },
       additionalProperties: false,
     },
@@ -56,13 +54,12 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   {
     extensionId: UNIVER_CLI_EXTENSION_ID,
     action: "setup_install",
-    title: "Prepare Univer bundle",
-    description: "Prepare the built-in Univer bundle by repairing the local executable shim when needed.",
+    title: "Prepare Univer distribution",
+    description: "Materialize the offline canonical skill and repair the local executable shim when needed.",
     inputSchema: {
       type: "object",
       properties: {
         workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
-        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
       },
       additionalProperties: false,
     },
@@ -76,7 +73,6 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
       type: "object",
       properties: {
         workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
-        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
       },
       additionalProperties: false,
     },
@@ -84,27 +80,12 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   {
     extensionId: UNIVER_CLI_EXTENSION_ID,
     action: "setup_repair",
-    title: "Repair Univer bundle",
-    description: "Repair the local shim/cache for the built-in Univer bundle and re-run setup checks.",
+    title: "Repair Univer distribution",
+    description: "Repair the local shim and workspace skill projection from packaged offline resources.",
     inputSchema: {
       type: "object",
       properties: {
         workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
-        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    extensionId: UNIVER_CLI_EXTENSION_ID,
-    action: "setup_update",
-    title: "Update legacy managed Univer CLI",
-    description: "Legacy managed installs only: update the OpenWork-managed univer-cli executable from the npm registry.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        workspaceId: { type: "string", description: "Optional OpenWork workspace id. Defaults to the active context workspace." },
-        checkForUpdates: { type: "boolean", description: "When true, checks the npm registry after updating." },
       },
       additionalProperties: false,
     },
@@ -121,7 +102,6 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
         path: { type: "string", description: "Workspace-relative path to the .univer file." },
         worktreeId: { type: "string", description: "Optional Univer worktree id to open." },
         unitId: { type: "string", description: "Optional Univer unit id to select." },
-        executablePath: { type: "string", description: "Optional development override for an existing univer executable." },
       },
       required: ["path"],
       additionalProperties: false,
@@ -129,10 +109,10 @@ export const UNIVER_CLI_EXTENSION_ACTIONS = [
   },
 ];
 
-type SetupAction = "setup_status" | "setup_install" | "setup_retry" | "setup_repair" | "setup_update";
+type SetupAction = "setup_status" | "setup_install" | "setup_retry" | "setup_repair";
 type SurfaceAction = "open_surface";
 type ProbeStatus = "ok" | "missing" | "failed" | "skipped";
-type ExecutableSource = "bundled" | "managed" | "override" | "system" | "unresolved";
+type ExecutableSource = "bundled" | "override" | "unresolved";
 type RegistryCheckStatus = "not_checked" | "ok" | "failed" | "skipped";
 
 type CommandResult = {
@@ -177,7 +157,7 @@ type SkillStatus = {
 };
 
 type BundleStatus = {
-  status: UniverCoworkBundleHealth["status"] | "unavailable";
+  status: UniverRuntimeDistributionHealth["status"] | "unavailable";
   reason: string | null;
   manifest: {
     bundleVersion: string;
@@ -279,11 +259,6 @@ function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
   return typeof field === "string" ? field.trim() : "";
-}
-
-function readBooleanField(value: unknown, key: string): boolean {
-  if (!isRecord(value)) return false;
-  return value[key] === true;
 }
 
 function emptyExecutableVersionStatus(): ExecutableVersionStatus {
@@ -421,21 +396,13 @@ export function univerCliManagedExecutablePath(config: ServerConfig): string {
   return join(univerCliManagedBinDir(config), UNIVER_BIN_NAME);
 }
 
-function managedNpmInstallRoot(config: ServerConfig): string {
-  return join(univerCliRoot(config), "npm");
-}
-
-function packageBinPath(config: ServerConfig): string {
-  return join(managedNpmInstallRoot(config), "node_modules", ".bin", UNIVER_BIN_NAME);
-}
-
 function bundledExecutableShimPath(config: ServerConfig): string {
   return univerCliManagedExecutablePath(config);
 }
 
-function tryResolveBundledCoworkBundle(): UniverCoworkBundle | null {
+function tryResolveBundledDistribution(): UniverRuntimeDistribution | null {
   try {
-    return resolveUniverCoworkBundle();
+    return resolveUniverRuntimeDistribution();
   } catch {
     return null;
   }
@@ -466,7 +433,7 @@ function executableShimOptions(shimPath: string, targetBinPath: string) {
   };
 }
 
-function ensureBundledExecutableShimSync(config: ServerConfig, bundle: UniverCoworkBundle): string | null {
+function ensureBundledExecutableShimSync(config: ServerConfig, bundle: UniverRuntimeDistribution): string | null {
   if (config.readOnly) return null;
   const binPath = bundledExecutableShimPath(config);
   try {
@@ -476,7 +443,7 @@ function ensureBundledExecutableShimSync(config: ServerConfig, bundle: UniverCow
   }
 }
 
-async function ensureBundledExecutableShim(config: ServerConfig, bundle: UniverCoworkBundle): Promise<string> {
+async function ensureBundledExecutableShim(config: ServerConfig, bundle: UniverRuntimeDistribution): Promise<string> {
   if (config.readOnly) {
     throw new ApiError(403, "read_only", "OpenWork is running read-only; the bundled Univer runtime shim cannot be repaired.");
   }
@@ -485,7 +452,7 @@ async function ensureBundledExecutableShim(config: ServerConfig, bundle: UniverC
 }
 
 export function univerCliManagedRuntimeEnv(config: ServerConfig): Record<string, string> {
-  const bundle = tryResolveBundledCoworkBundle();
+  const bundle = tryResolveBundledDistribution();
   if (bundle) {
     ensureBundledExecutableShimSync(config, bundle);
   }
@@ -541,7 +508,7 @@ export async function inspectUniverSkillPackage(workspaceRoot: string): Promise<
   };
 }
 
-async function inspectBundledSkillPackage(bundle: UniverCoworkBundle | null): Promise<SkillStatus | null> {
+async function inspectBundledSkillPackage(bundle: UniverRuntimeDistribution | null): Promise<SkillStatus | null> {
   if (!bundle) return null;
   const path = bundle.skillsRoot;
   const skillFile = await exists(join(path, "SKILL.md"));
@@ -554,7 +521,7 @@ async function inspectBundledSkillPackage(bundle: UniverCoworkBundle | null): Pr
     complete,
     sourceVerified: complete,
     path,
-    source: `bundled:dream-num/skills@${bundle.manifest.skillsRevision}`,
+    source: `bundled:${bundle.manifest.source.repository}@${bundle.manifest.source.commit}`,
     checks: {
       skillFile,
       references,
@@ -572,29 +539,14 @@ async function writeSkillInstallMetadata(path: string): Promise<void> {
   await writeFile(join(path, INSTALL_METADATA_FILE), content, "utf8");
 }
 
-function executableOverride(args: Record<string, unknown>): string {
-  return readStringField(args, "executablePath") || process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "";
+function executableOverride(): string {
+  return process.env.OPENWORK_UNIVER_EXECUTABLE?.trim() || "";
 }
 
-async function executableOnPath(): Promise<string | null> {
-  const pathEnv = process.env.PATH ?? "";
-  for (const dir of pathEnv.split(delimiter)) {
-    if (!dir.trim()) continue;
-    const candidate = resolve(dir, UNIVER_BIN_NAME);
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next PATH segment.
-    }
-  }
-  return null;
-}
-
-async function resolveExecutable(config: ServerConfig, args: Record<string, unknown>, bundle: UniverCoworkBundle | null): Promise<ExecutableStatus> {
-  const override = executableOverride(args);
+async function resolveExecutable(config: ServerConfig, bundle: UniverRuntimeDistribution | null): Promise<ExecutableStatus> {
+  const override = executableOverride();
   const managedBinPath = univerCliManagedExecutablePath(config);
-  const installRoot = managedNpmInstallRoot(config);
+  const installRoot = bundle?.root ?? univerCliRoot(config);
   if (override) {
     const resolvedOverride = resolve(override);
     return {
@@ -614,32 +566,6 @@ async function resolveExecutable(config: ServerConfig, args: Record<string, unkn
       resolved: await exists(shimPath),
       source: "bundled",
       path: shimPath,
-      managedBinPath,
-      packageName: UNIVER_NPM_PACKAGE,
-      installRoot,
-      version: emptyExecutableVersionStatus(),
-    };
-  }
-
-  const managedExists = await exists(managedBinPath);
-  if (managedExists) {
-    return {
-      resolved: true,
-      source: "managed",
-      path: managedBinPath,
-      managedBinPath,
-      packageName: UNIVER_NPM_PACKAGE,
-      installRoot,
-      version: emptyExecutableVersionStatus(),
-    };
-  }
-
-  const systemBinPath = await executableOnPath();
-  if (systemBinPath) {
-    return {
-      resolved: true,
-      source: "system",
-      path: systemBinPath,
       managedBinPath,
       packageName: UNIVER_NPM_PACKAGE,
       installRoot,
@@ -785,110 +711,45 @@ async function healthStatus(workspace: WorkspaceInfo, executable: ExecutableStat
   };
 }
 
-async function readManagedPackageVersion(config: ServerConfig): Promise<string | null> {
-  const packageJsonPath = join(managedNpmInstallRoot(config), "node_modules", UNIVER_NPM_PACKAGE, "package.json");
-  const raw = await readFile(packageJsonPath, "utf8").catch(() => "");
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-    const version = parsed.version;
-    return typeof version === "string" && version.trim() ? version.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-function parseNpmVersion(stdout: string): string | null {
-  const trimmed = stdout.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
-  } catch {
-    // Fall through to plain npm output parsing.
-  }
-  return parseVersionText(trimmed);
-}
-
-async function checkRegistryLatestVersion(workspace: WorkspaceInfo): Promise<Pick<
-  ExecutableVersionStatus,
-  "latestVersion" | "checkedAt" | "registryStatus" | "registryDetail"
->> {
-  const checkedAt = new Date().toISOString();
-  const result = await runCommand("npm", ["view", UNIVER_NPM_PACKAGE, "version", "--json"], workspace.path);
-  if (!result.ok) {
-    const detail = result.error ?? (result.stderr.trim() || result.stdout.trim() || `Exit ${result.exitCode ?? "unknown"}`);
-    return {
-      latestVersion: null,
-      checkedAt,
-      registryStatus: "failed",
-      registryDetail: detail,
-    };
-  }
-  const latestVersion = parseNpmVersion(result.stdout);
-  return {
-    latestVersion,
-    checkedAt,
-    registryStatus: latestVersion ? "ok" : "failed",
-    registryDetail: latestVersion ? null : "npm registry response did not include a version.",
-  };
-}
-
-async function executableVersionStatus(
-  config: ServerConfig,
-  workspace: WorkspaceInfo,
+function executableVersionStatus(
   executable: ExecutableStatus,
   health: HealthStatus,
-  checkForUpdates: boolean,
-): Promise<ExecutableVersionStatus> {
+  bundle: UniverRuntimeDistribution | null,
+): ExecutableVersionStatus {
   const commandOutput = health.executable.stdout?.trim() || null;
-  const packageVersion = await readManagedPackageVersion(config);
   const commandVersion = commandOutput ? parseVersionText(commandOutput) : null;
-  const checked = checkForUpdates
-    ? await checkRegistryLatestVersion(workspace)
-    : {
-        latestVersion: null,
-        checkedAt: null,
-        registryStatus: "not_checked" as const,
-        registryDetail: null,
-      };
-  const currentManagedVersion = executable.source === "managed" ? packageVersion ?? commandVersion : null;
-  const updateAvailable = checked.latestVersion && currentManagedVersion
-    ? checked.latestVersion !== currentManagedVersion
-    : null;
   return {
     commandVersion,
     commandOutput,
-    packageVersion,
-    latestVersion: checked.latestVersion,
-    updateAvailable,
-    checkedAt: checked.checkedAt,
-    registryStatus: checked.registryStatus,
-    registryDetail: checked.registryDetail,
+    packageVersion: executable.source === "bundled" ? bundle?.manifest.cli.version ?? null : null,
+    latestVersion: null,
+    updateAvailable: null,
+    checkedAt: null,
+    registryStatus: "not_checked",
+    registryDetail: null,
   };
 }
 
-function bundleStatusFromHealth(health: UniverCoworkBundleHealth | null): BundleStatus {
+function bundleStatusFromHealth(health: UniverRuntimeDistributionHealth | null): BundleStatus {
   if (!health) {
     return {
       status: "unavailable",
-      reason: "The @univer/cowork bundle could not be resolved.",
+      reason: "The Offline-Ready Univer Distribution could not be resolved.",
       manifest: null,
       paths: null,
     };
   }
-  const bundle = health.status === "fatal" ? health.bundle : health.bundle;
+  const bundle = health.status === "fatal" ? health.distribution : health.distribution;
   return {
     status: health.status,
     reason: health.status === "healthy" ? null : health.reason,
     manifest: bundle
       ? {
-          bundleVersion: bundle.manifest.bundleVersion,
-          coworkVersion: bundle.manifest.coworkVersion,
-          univerCliVersion: bundle.manifest.univerCliVersion,
-          skillsRevision: bundle.manifest.skillsRevision,
-          protocolVersion: bundle.manifest.protocolVersion,
+          bundleVersion: bundle.manifest.identity,
+          coworkVersion: bundle.manifest.cowork.version,
+          univerCliVersion: bundle.manifest.cli.version,
+          skillsRevision: bundle.manifest.source.commit,
+          protocolVersion: bundle.manifest.schemaVersion,
         }
       : null,
     paths: bundle
@@ -901,18 +762,18 @@ function bundleStatusFromHealth(health: UniverCoworkBundleHealth | null): Bundle
   };
 }
 
-async function readBundleHealth(config: ServerConfig): Promise<UniverCoworkBundleHealth | null> {
+async function readBundleHealth(config: ServerConfig): Promise<UniverRuntimeDistributionHealth | null> {
   try {
-    const bundle = tryResolveBundledCoworkBundle();
+    const bundle = tryResolveBundledDistribution();
     if (!bundle) return null;
     const runtimeExecutablePath = config.readOnly
       ? bundle.univerExecutablePath
       : ensureBundledExecutableShimSync(config, bundle) ?? bundledExecutableShimPath(config);
-    return await checkUniverCoworkBundleHealth({
-      packageRoot: bundle.packageRoot,
+    return await checkUniverRuntimeDistributionHealth({
+      root: bundle.root,
       runtimeExecutablePath,
       versionProbeExecutablePath: runtimeExecutablePath,
-      versionProbeCwd: bundle.packageRoot,
+      versionProbeCwd: bundle.root,
     });
   } catch {
     return null;
@@ -924,7 +785,7 @@ function setupIssues(skill: SkillStatus, executable: ExecutableStatus, bundle: B
   if (bundle.status === "fatal") issues.push(`The bundled Univer components are inconsistent: ${bundle.reason ?? "unknown error"}`);
   if (bundle.status === "repairable") issues.push(`The bundled Univer runtime needs local repair: ${bundle.reason ?? "repair required"}`);
   if (!skill.complete) issues.push("The univer-cli skill package is incomplete.");
-  if (!skill.sourceVerified) issues.push("The univer-cli skill package source is not verified as dream-num/skills.");
+  if (!skill.sourceVerified) issues.push("The univer-cli skill package source is not verified as dream-num/univer-cli.");
   if (!executable.resolved) issues.push("No usable univer executable is resolved.");
   if (health.executable.status !== "ok") issues.push("The univer executable version/help probe failed.");
   if (health.inspectTools.status !== "ok") issues.push("The managed inspect tools probe failed.");
@@ -936,25 +797,18 @@ export async function univerCliSetupStatus(config: ServerConfig, args: Record<st
   const workspace = workspaceForSetup(config, args, context);
   const bundleHealth = await readBundleHealth(config);
   const bundleStatus = bundleStatusFromHealth(bundleHealth);
-  const bundle = bundleHealth && bundleHealth.status !== "fatal" ? bundleHealth.bundle : bundleHealth?.bundle ?? tryResolveBundledCoworkBundle();
+  const bundle = bundleHealth && bundleHealth.status !== "fatal"
+    ? bundleHealth.distribution
+    : bundleHealth?.distribution ?? tryResolveBundledDistribution();
   const bundledSkill = await inspectBundledSkillPackage(bundle);
   const skill = bundledSkill ?? await inspectUniverSkillPackage(workspace.path);
-  const executable = await resolveExecutable(config, args, bundle);
+  const executable = await resolveExecutable(config, bundle);
   const health = await healthStatus(workspace, executable);
-  const shouldCheckForUpdates =
-    executable.source !== "bundled" &&
-    (readBooleanField(args, "checkForUpdates") || readBooleanField(args, "autoUpdate"));
-  const version = await executableVersionStatus(
-    config,
-    workspace,
-    executable,
-    health,
-    shouldCheckForUpdates,
-  );
+  const version = executableVersionStatus(executable, health, bundle);
   const executableWithVersion: ExecutableStatus = {
     ...executable,
     version: executable.source === "bundled"
-      ? { ...version, packageVersion: bundle?.manifest.univerCliVersion ?? version.packageVersion }
+      ? { ...version, packageVersion: bundle?.manifest.cli.version ?? version.packageVersion }
       : version,
   };
   const issues = setupIssues(skill, executableWithVersion, bundleStatus, health);
@@ -972,18 +826,29 @@ export async function univerCliSetupStatus(config: ServerConfig, args: Record<st
   };
 }
 
-async function installUniverSkillPackage(workspaceRoot: string): Promise<InstallResult["skill"]> {
-  const result = await installHubSkill(workspaceRoot, {
-    name: UNIVER_SKILL_NAME,
-    overwrite: true,
-    repo: UNIVER_SKILL_REPO,
-  });
-  await writeSkillInstallMetadata(result.path);
+async function countFiles(root: string): Promise<number> {
+  let count = 0;
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) count += await countFiles(join(root, entry.name));
+    else if (entry.isFile()) count += 1;
+  }
+  return count;
+}
+
+async function materializeBundledSkillPackage(
+  workspaceRoot: string,
+  bundle: UniverRuntimeDistribution,
+): Promise<InstallResult["skill"]> {
+  const path = skillDir(workspaceRoot);
+  const existed = await exists(path);
+  await rm(path, { recursive: true, force: true });
+  await cp(bundle.skillsRoot, path, { recursive: true, errorOnExist: true });
+  await writeSkillInstallMetadata(path);
   return {
-    action: result.action,
-    written: result.written,
-    skipped: result.skipped,
-    path: result.path,
+    action: existed ? "updated" : "added",
+    written: await countFiles(path),
+    skipped: 0,
+    path,
   };
 }
 
@@ -992,59 +857,23 @@ async function writeExecutableShim(config: ServerConfig, targetBinPath: string):
   return writeUniverExecutableShim(executableShimOptions(binPath, targetBinPath));
 }
 
-async function installManagedExecutable(config: ServerConfig): Promise<InstallResult["executable"]> {
-  const installRoot = managedNpmInstallRoot(config);
-  await mkdir(installRoot, { recursive: true });
-  const packageSpec = `${UNIVER_NPM_PACKAGE}@latest`;
-  const npmResult = await runCommand("npm", ["install", "--prefix", installRoot, "--no-audit", "--no-fund", packageSpec], installRoot, NPM_INSTALL_TIMEOUT_MS);
-  if (!npmResult.ok) {
-    throw new ApiError(502, "univer_npm_install_failed", "Failed to install univer-cli with npm.", {
-      stdout: npmResult.stdout,
-      stderr: npmResult.stderr,
-      error: npmResult.error,
-      exitCode: npmResult.exitCode,
-    });
-  }
-
-  const binPath = packageBinPath(config);
-  if (!(await exists(binPath))) {
-    throw new ApiError(502, "univer_bin_not_found", "npm install completed but the univer bin was not found.", {
-      binPath,
-      packageName: UNIVER_NPM_PACKAGE,
-    });
-  }
-  const shimPath = await writeExecutableShim(config, binPath);
-  return {
-    packageName: UNIVER_NPM_PACKAGE,
-    installRoot,
-    binPath: shimPath,
-    skipped: false,
-  };
-}
-
-async function installSetup(config: ServerConfig, workspace: WorkspaceInfo, args: Record<string, unknown>, repair: boolean): Promise<InstallResult> {
+async function installSetup(config: ServerConfig, workspace: WorkspaceInfo, repair: boolean): Promise<InstallResult> {
   if (config.readOnly) {
     throw new ApiError(403, "read_only", "OpenWork is running read-only; Univer CLI setup cannot install files.");
   }
   const bundleHealth = await readBundleHealth(config);
-  if (bundleHealth) {
-    if (bundleHealth.status === "fatal") {
-      throw new ApiError(409, "univer_bundle_inconsistent", "Bundled Univer components are inconsistent.", {
-        reason: bundleHealth.reason,
-      });
-    }
-    const binPath = await ensureBundledExecutableShim(config, bundleHealth.bundle);
-    return {
-      bundle: {
-        action: repair || bundleHealth.status === "repairable" ? "repaired" : "ready",
-        manifestPath: bundleHealth.bundle.manifestPath,
-        executablePath: binPath,
-        skillsRoot: bundleHealth.bundle.skillsRoot,
-      },
-    };
+  if (!bundleHealth) {
+    throw new ApiError(409, "univer_distribution_unavailable", "The Offline-Ready Univer Distribution is unavailable.");
   }
-  const skill = await installUniverSkillPackage(workspace.path);
-  const override = executableOverride(args);
+  if (bundleHealth.status === "fatal") {
+    throw new ApiError(409, "univer_distribution_inconsistent", "The Offline-Ready Univer Distribution is inconsistent.", {
+      reason: bundleHealth.reason,
+    });
+  }
+  const bundle = bundleHealth.distribution;
+  const skill = await materializeBundledSkillPackage(workspace.path, bundle);
+  const override = executableOverride();
+  let binPath: string;
   if (override) {
     const resolvedOverride = resolve(override);
     if (!(await exists(resolvedOverride))) {
@@ -1052,56 +881,23 @@ async function installSetup(config: ServerConfig, workspace: WorkspaceInfo, args
         path: resolvedOverride,
       });
     }
-    const binPath = await writeExecutableShim(config, resolvedOverride);
-    return {
-      skill,
-      executable: {
-        packageName: UNIVER_NPM_PACKAGE,
-        installRoot: managedNpmInstallRoot(config),
-        binPath,
-        skipped: true,
-      },
-    };
+    binPath = await writeExecutableShim(config, resolvedOverride);
+  } else {
+    binPath = await ensureBundledExecutableShim(config, bundle);
   }
-  const existingManagedBin = await exists(univerCliManagedExecutablePath(config));
-  const executable = repair || !existingManagedBin
-    ? await installManagedExecutable(config)
-    : {
-        packageName: UNIVER_NPM_PACKAGE,
-        installRoot: managedNpmInstallRoot(config),
-        binPath: univerCliManagedExecutablePath(config),
-        skipped: true,
-      };
-  return { skill, executable };
-}
-
-async function updateManagedSetup(config: ServerConfig): Promise<InstallResult> {
-  if (config.readOnly) {
-    throw new ApiError(403, "read_only", "OpenWork is running read-only; Univer CLI setup cannot update files.");
-  }
-  const bundleHealth = await readBundleHealth(config);
-  if (bundleHealth) {
-    if (bundleHealth.status === "fatal") {
-      throw new ApiError(409, "univer_bundle_inconsistent", "Bundled Univer components are inconsistent.", {
-        reason: bundleHealth.reason,
-      });
-    }
-    const binPath = await ensureBundledExecutableShim(config, bundleHealth.bundle);
-    return {
-      bundle: {
-        action: bundleHealth.status === "repairable" ? "repaired" : "ready",
-        manifestPath: bundleHealth.bundle.manifestPath,
-        executablePath: binPath,
-        skillsRoot: bundleHealth.bundle.skillsRoot,
-      },
-    };
-  }
-  const executable = await installManagedExecutable(config);
-  return { executable };
+  return {
+    bundle: {
+      action: repair || bundleHealth.status === "repairable" ? "repaired" : "ready",
+      manifestPath: bundle.manifestPath,
+      executablePath: binPath,
+      skillsRoot: bundle.skillsRoot,
+    },
+    skill,
+  };
 }
 
 function isSetupAction(action: string): action is SetupAction {
-  return action === "setup_status" || action === "setup_install" || action === "setup_retry" || action === "setup_repair" || action === "setup_update";
+  return action === "setup_status" || action === "setup_install" || action === "setup_retry" || action === "setup_repair";
 }
 
 function isSurfaceAction(action: string): action is SurfaceAction {
@@ -1115,6 +911,43 @@ function surfaceCommandEnv(config: ServerConfig, workspace: WorkspaceInfo): Node
     UNIVER_HOME: workspaceDaemonHome(config, workspace),
     UNIVER_COLLAB_GATEWAY_ALLOWED_ROOT: workspace.path,
   };
+}
+
+function isRecoverableDaemonStartFailure(result: CommandResult): boolean {
+  const text = `${result.stdout}\n${result.stderr}\n${result.error ?? ""}`;
+  return result.signal === "SIGTERM"
+    || /Daemon RPC timeout/i.test(text)
+    || /Timed out waiting for daemon startup/i.test(text);
+}
+
+function mergeDaemonRecoveryFailure(first: CommandResult, stopped: CommandResult, second: CommandResult): CommandResult {
+  return {
+    ok: false,
+    stdout: [first.stdout, stopped.stdout, second.stdout].filter(Boolean).join("\n"),
+    stderr: [first.stderr, stopped.stderr, second.stderr].filter(Boolean).join("\n"),
+    exitCode: second.exitCode,
+    signal: second.signal,
+    error: second.error ?? stopped.error ?? first.error,
+  };
+}
+
+async function ensureOpenSurfaceDaemonRunning(options: {
+  command: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs: number;
+}): Promise<CommandResult> {
+  const first = await ensureUniverDaemonRunning(options);
+  if (first.ok || !isRecoverableDaemonStartFailure(first)) {
+    return first;
+  }
+
+  const stopped = await runCommand(options.command, ["daemon", "stop"], options.cwd, COMMAND_TIMEOUT_MS, options.env);
+  const second = await ensureUniverDaemonRunning({ ...options, dedupe: false });
+  if (second.ok) {
+    return second;
+  }
+  return mergeDaemonRecoveryFailure(first, stopped, second);
 }
 
 function parseOpenSurface(stdout: string, workspace: WorkspaceInfo, target: { absolutePath: string; relativePath: string }): UniverOpenSurface {
@@ -1160,7 +993,7 @@ async function openUniverSurface(config: ServerConfig, args: Record<string, unkn
   const target = await resolveUniverfilePath(workspace, args);
   const localWorkspace = { ...workspace, path: await realpathIfPresent(workspace.path) };
   const env = surfaceCommandEnv(config, localWorkspace);
-  const daemon = await ensureUniverDaemonRunning({
+  const daemon = await ensureOpenSurfaceDaemonRunning({
     command: setup.executable.path,
     cwd: localWorkspace.path,
     env,
@@ -1210,21 +1043,9 @@ export async function callUniverCliExtensionAction(
   const workspace = workspaceForSetup(config, args, context);
   let install: InstallResult | undefined;
   if (action === "setup_install" || action === "setup_repair") {
-    install = await installSetup(config, workspace, args, action === "setup_repair");
-  } else if (action === "setup_update") {
-    install = await updateManagedSetup(config);
+    install = await installSetup(config, workspace, action === "setup_repair");
   }
-  const statusArgs = action === "setup_update" ? { ...args, checkForUpdates: true } : args;
-  let result = await univerCliSetupStatus(config, statusArgs, { ...context, workspaceId: workspace.id });
-  if (
-    action === "setup_status" &&
-    readBooleanField(args, "autoUpdate") &&
-    result.executable.source === "managed" &&
-    result.executable.version.updateAvailable === true
-  ) {
-    install = await updateManagedSetup(config);
-    result = await univerCliSetupStatus(config, { ...args, checkForUpdates: true, autoUpdate: false }, { ...context, workspaceId: workspace.id });
-  }
+  const result = await univerCliSetupStatus(config, args, { ...context, workspaceId: workspace.id });
   return {
     ok: true,
     extensionId: UNIVER_CLI_EXTENSION_ID,

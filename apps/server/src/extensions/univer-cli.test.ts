@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -16,15 +17,121 @@ import { createManagedOpencodeServer } from "../managed-opencode.js";
 import type { ServerConfig } from "../types.js";
 
 const roots: string[] = [];
+const originalDistributionRoot = process.env.OPENWORK_TEST_UNIVER_DISTRIBUTION_ROOT;
+const originalExecutableOverride = process.env.OPENWORK_UNIVER_EXECUTABLE;
+
+beforeEach(async () => {
+  const root = await tempRoot();
+  process.env.OPENWORK_TEST_UNIVER_DISTRIBUTION_ROOT = await writeTestDistribution(root);
+});
 
 afterEach(async () => {
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  while (roots.length) {
+    const root = roots.pop();
+    if (root) await rm(root, { recursive: true, force: true });
+  }
+  if (originalDistributionRoot === undefined) delete process.env.OPENWORK_TEST_UNIVER_DISTRIBUTION_ROOT;
+  else process.env.OPENWORK_TEST_UNIVER_DISTRIBUTION_ROOT = originalDistributionRoot;
+  if (originalExecutableOverride === undefined) delete process.env.OPENWORK_UNIVER_EXECUTABLE;
+  else process.env.OPENWORK_UNIVER_EXECUTABLE = originalExecutableOverride;
 });
 
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "openwork-univer-cli-"));
   roots.push(root);
   return root;
+}
+
+async function treeDigest(root: string): Promise<{ digest: string; files: number }> {
+  const files: string[] = [];
+  async function visit(directory: string, prefix: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path, relativePath);
+      else if (entry.isFile()) files.push(relativePath);
+    }
+  }
+  await visit(root, "");
+  files.sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
+  const digest = createHash("sha256");
+  for (const relativePath of files) {
+    const contentDigest = createHash("sha256").update(await readFile(join(root, ...relativePath.split("/")))).digest("hex");
+    digest.update(relativePath);
+    digest.update("\0");
+    digest.update(contentDigest);
+    digest.update("\n");
+  }
+  return { digest: digest.digest("hex"), files: files.length };
+}
+
+async function writeTestDistribution(root: string): Promise<string> {
+  const distributionRoot = join(root, "univer-distribution");
+  const cliRoot = join(distributionRoot, "runtime", "node_modules", "univer-cli");
+  const executablePath = join(cliRoot, "bin", "univer.js");
+  const skillRoot = join(distributionRoot, "skill", "univer-cli");
+  await mkdir(join(cliRoot, "bin"), { recursive: true });
+  await mkdir(join(skillRoot, "references"), { recursive: true });
+  await mkdir(join(skillRoot, "inspect-tools"), { recursive: true });
+  await writeFile(executablePath, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "univer 0.3.1"
+  exit 0
+fi
+if [ "$1" = "inspect" ] && [ "$2" = "tools" ] && [ "$3" = "list" ] && [ "$4" = "--json" ]; then
+  echo '{"tools":[]}'
+  exit 0
+fi
+if [ "$1" = "sac" ] && [ "$2" = "migration" ] && [ "$3" = "templates" ] && [ "$4" = "--json" ]; then
+  echo '{"templates":[]}'
+  exit 0
+fi
+exit 2
+`, "utf8");
+  await chmod(executablePath, 0o755);
+  await writeFile(join(cliRoot, "package.json"), '{"name":"univer-cli","version":"0.3.1"}\n', "utf8");
+  await writeFile(join(skillRoot, "SKILL.md"), "---\nname: univer-cli\n---\n# Univer CLI\n", "utf8");
+  await writeFile(join(skillRoot, "references", "evidence-tools.md"), "# Evidence tools\n", "utf8");
+  await writeFile(join(skillRoot, "inspect-tools", "tools.manifest.json"), '{"tools":[]}\n', "utf8");
+  const skill = await treeDigest(skillRoot);
+  const identity = "cowork-0.1.0__cli-0.3.1__test";
+  const sourceCommit = "e9066dc0f266a9ba7a109b21008c146b9473f616";
+  const target = `${process.platform}-${process.arch}`;
+  await writeFile(join(distributionRoot, "compatibility.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    identity,
+    cowork: { package: "@univerjs-pro/cowork", version: "0.1.0", integrity: "test-integrity" },
+    sdk: { cohortVersion: "1.0.0-test" },
+    cli: { package: "univer-cli", version: "0.3.1", integrity: "test-integrity" },
+    source: {
+      repository: "dream-num/univer-cli",
+      tag: "v0.3.1",
+      commit: sourceCommit,
+      archiveUrl: "https://example.invalid/univer-cli.tar.gz",
+      skillPath: "packages/skills/skills/univer-cli",
+      skillDigestAlgorithm: "sha256(path\\0sha256(content)\\n; UTF-8 bytewise sorted paths)",
+      skillDigest: skill.digest,
+    },
+    distribution: {
+      univerExecutable: "runtime/node_modules/univer-cli/bin/univer.js",
+      skillsRoot: "skill/univer-cli",
+      provenance: "provenance.json",
+    },
+    supportedTargets: [target],
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(distributionRoot, "provenance.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    compatibilityIdentity: identity,
+    target,
+    cliVersion: "0.3.1",
+    sourceCommit,
+    skillDigest: skill.digest,
+    skillFiles: skill.files,
+    generatedAt: new Date().toISOString(),
+  }, null, 2)}\n`, "utf8");
+  return distributionRoot;
 }
 
 function serverConfig(root: string): ServerConfig {
@@ -55,7 +162,7 @@ async function writeCompleteSkillPackage(root: string): Promise<void> {
   await writeFile(join(skillDir, "references", "evidence-tools.md"), "# Evidence tools\n", "utf8");
   await writeFile(join(skillDir, "inspect-tools", "tools.manifest.json"), "{\"tools\":[]}\n", "utf8");
   await writeFile(join(skillDir, ".openwork-univer-cli.json"), JSON.stringify({
-    source: { owner: "dream-num", repo: "skills", ref: "main" },
+    source: { owner: "dream-num", repo: "univer-cli", ref: "e9066dc0f266a9ba7a109b21008c146b9473f616" },
     skill: "univer-cli",
   }) + "\n", "utf8");
 }
@@ -88,6 +195,13 @@ if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then
   count_file="$0.start-count"
   count="$(cat "$count_file" 2>/dev/null || echo 0)"
   echo $((count + 1)) > "$count_file"
+  timeout_marker="$0.timeout-once"
+  if [ -f "$timeout_marker" ]; then
+    rm -f "$timeout_marker"
+    echo "ERROR CLI_ERROR" >&2
+    echo "Timed out waiting for daemon startup after 15000ms; last health error: Daemon RPC timeout for daemon.health" >&2
+    exit 1
+  fi
   if [ -f "$0.slow-start" ]; then
     sleep 1
   fi
@@ -95,6 +209,9 @@ if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then
   exit 0
 fi
 if [ "$1" = "daemon" ] && [ "$2" = "stop" ]; then
+  stop_count_file="$0.stop-count"
+  stop_count="$(cat "$stop_count_file" 2>/dev/null || echo 0)"
+  echo $((stop_count + 1)) > "$stop_count_file"
   echo "univer daemon: stopped"
   exit 0
 fi
@@ -116,16 +233,17 @@ if [ "$1" = "open" ]; then
     shift
   done
   if [ -n "$worktree" ] && [ -n "$unit" ]; then
-    printf '{"ok":true,"origin":"http://127.0.0.1:5180","univerfile":"%s","worktreeId":"%s","unitId":"%s"}\n' "$source" "$worktree" "$unit"
+    printf '{"ok":true,"openUrl":"http://127.0.0.1:5180/?file=%s&worktree=%s&unit=%s","target":{"type":"local-univerfile","path":"%s"}}\n' "$source" "$worktree" "$unit" "$source"
     exit 0
   fi
-  printf '{"ok":true,"origin":"http://127.0.0.1:5180","univerfile":"%s"}\n' "$source"
+  printf '{"ok":true,"openUrl":"http://127.0.0.1:5180/?file=%s","target":{"type":"local-univerfile","path":"%s"}}\n' "$source" "$source"
   exit 0
 fi
 echo "unsupported $*" >&2
 exit 2
 `, "utf8");
   await chmod(bin, 0o755);
+  process.env.OPENWORK_UNIVER_EXECUTABLE = bin;
   return bin;
 }
 
@@ -139,7 +257,7 @@ if [ ! -f "$target" ]; then
   exit 2
 fi
 if [ "$1" = "--version" ]; then
-  echo "univer 0.0.0"
+  echo "univer 0.3.1"
   exit 0
 fi
 if [ "$1" = "inspect" ] && [ "$2" = "tools" ] && [ "$3" = "list" ] && [ "$4" = "--json" ]; then
@@ -263,7 +381,7 @@ describe("Univer CLI extension", () => {
 
   test("exposes installer and embedded surface actions", () => {
     const actions = listExperimentalExtensionActions(UNIVER_CLI_EXTENSION_ID).map((action) => action.action).sort();
-    expect(actions).toEqual(["open_surface", "setup_install", "setup_repair", "setup_retry", "setup_status", "setup_update"]);
+    expect(actions).toEqual(["open_surface", "setup_install", "setup_repair", "setup_retry", "setup_status"]);
     expect(actions).not.toContain("import");
     expect(actions).not.toContain("export");
     expect(actions).not.toContain("inspect");
@@ -292,9 +410,9 @@ describe("Univer CLI extension", () => {
   test("reports ready only when skill, executable, and health probes pass", async () => {
     const root = await tempRoot();
     await writeCompleteSkillPackage(root);
-    const executablePath = await writeFakeUniver(root);
+    await writeFakeUniver(root);
 
-    const status = await univerCliSetupStatus(serverConfig(root), { executablePath }, { directory: root });
+    const status = await univerCliSetupStatus(serverConfig(root), {}, { directory: root });
     expect(status.ready).toBe(true);
     expect(status.skill.complete).toBe(true);
     expect(status.skill.sourceVerified).toBe(true);
@@ -308,26 +426,26 @@ describe("Univer CLI extension", () => {
 
   test("uses the bundled skill package when the workspace has no installed skill", async () => {
     const root = await tempRoot();
-    const executablePath = await writeFakeUniver(root);
+    await writeFakeUniver(root);
 
-    const status = await univerCliSetupStatus(serverConfig(root), { executablePath }, { directory: root });
+    const status = await univerCliSetupStatus(serverConfig(root), {}, { directory: root });
     expect(status.ready).toBe(true);
     expect(status.skill.complete).toBe(true);
-    expect(status.skill.source).toContain("bundled:dream-num/skills@");
+    expect(status.skill.source).toContain("bundled:dream-num/univer-cli@");
     expect(status.bundle.status).toBe("healthy");
     expect(status.health.inspectTools.status).toBe("ok");
     expect(status.issues).toEqual([]);
   });
 
-  test("prepares the built-in bundle through the setup action without installing workspace skills", async () => {
+  test("prepares the offline distribution and materializes its canonical workspace skill", async () => {
     const root = await tempRoot();
     const config = serverConfig(root);
-    const executablePath = await writeFakeUniver(root);
+    await writeFakeUniver(root);
 
     const result = await callUniverCliExtensionAction(
       config,
       "setup_install",
-      { executablePath },
+      {},
       { directory: root },
     );
     if (!result || result.action !== "setup_install") throw new Error("Expected Univer setup action result");
@@ -335,9 +453,9 @@ describe("Univer CLI extension", () => {
     expect(result.result.ready).toBe(true);
     expect(result.result.bundle.status).toBe("healthy");
     expect(result.install?.bundle?.action).toBe("ready");
-    expect(result.install?.skill).toBeUndefined();
+    expect(result.install?.skill?.action).toBe("added");
     expect(result.install?.executable).toBeUndefined();
-    expect((await inspectUniverSkillPackage(root)).installed).toBe(false);
+    expect((await inspectUniverSkillPackage(root)).installed).toBe(true);
     await stat(univerCliManagedExecutablePath(config));
 
     const managed = await createManagedOpencodeServer({
@@ -364,8 +482,8 @@ describe("Univer CLI extension", () => {
 
     expect(result.result.ready).toBe(true);
     expect(result.result.executable.source).toBe("bundled");
-    expect(result.result.executable.version.commandVersion).toBe("0.0.0");
-    expect(result.result.executable.version.packageVersion).toBe("0.0.0");
+    expect(result.result.executable.version.commandVersion).toBe("0.3.1");
+    expect(result.result.executable.version.packageVersion).toBe("0.3.1");
     expect(result.install?.bundle?.executablePath).toBe(univerCliManagedExecutablePath(config));
     expect(result.result.health.executable.status).toBe("ok");
     expect(result.result.health.inspectTools.status).toBe("ok");
@@ -426,7 +544,7 @@ describe("Univer CLI extension", () => {
       if (!result || result.action !== "setup_status") throw new Error("Expected Univer setup status result");
 
       expect(result.result.executable.source).toBe("bundled");
-      expect(result.result.executable.version.packageVersion).toBe("0.0.0");
+      expect(result.result.executable.version.packageVersion).toBe("0.3.1");
       expect(result.result.executable.version.latestVersion).toBeNull();
       expect(result.result.executable.version.updateAvailable).toBeNull();
       expect(result.result.executable.version.registryStatus).toBe("not_checked");
@@ -436,7 +554,7 @@ describe("Univer CLI extension", () => {
     }
   });
 
-  test("setup_update repairs the built-in bundle instead of updating from npm", async () => {
+  test("does not expose an independently updatable Univer action", async () => {
     const root = await tempRoot();
     await writeCompleteSkillPackage(root);
     const config = serverConfig(root);
@@ -446,13 +564,7 @@ describe("Univer CLI extension", () => {
 
     try {
       const result = await callUniverCliExtensionAction(config, "setup_update", {}, { directory: root });
-      if (!result || result.action !== "setup_update") throw new Error("Expected Univer setup update result");
-
-      expect(result.result.ready).toBe(true);
-      expect(result.result.executable.source).toBe("bundled");
-      expect(result.install?.bundle?.action).toBe("ready");
-      expect(result.install?.executable).toBeUndefined();
-      expect(result.result.executable.version.latestVersion).toBeNull();
+      expect(result).toBeNull();
     } finally {
       process.env.PATH = originalPath;
     }
@@ -490,7 +602,7 @@ describe("Univer CLI extension", () => {
     await writeCompleteSkillPackage(root);
     await mkdir(join(root, "reports"), { recursive: true });
     await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
-    const executablePath = await writeFakeUniver(root);
+    await writeFakeUniver(root);
 
     const result = await callUniverCliExtensionAction(
       serverConfig(root),
@@ -498,7 +610,6 @@ describe("Univer CLI extension", () => {
       {
         workspaceId: "ws_1",
         path: "reports/budget.univer",
-        executablePath,
         worktreeId: "wt_1",
         unitId: "unit_1",
       },
@@ -528,7 +639,6 @@ describe("Univer CLI extension", () => {
       {
         workspaceId: "ws_1",
         path: "reports/budget.univer",
-        executablePath,
       },
       { workspaceId: "ws_1" },
     );
@@ -555,7 +665,6 @@ describe("Univer CLI extension", () => {
       {
         workspaceId: "ws_1",
         path: "reports/budget.univer",
-        executablePath,
       },
       { workspaceId: "ws_1" },
     );
@@ -563,6 +672,33 @@ describe("Univer CLI extension", () => {
     if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
     expect(result.result.origin).toBe("http://127.0.0.1:5180");
     expect(result.result.univerfile.endsWith("/reports/budget.univer")).toBe(true);
+  });
+
+  test("restarts the Univer daemon when startup health checks time out", async () => {
+    const root = await tempRoot();
+    await writeCompleteSkillPackage(root);
+    await mkdir(join(root, "reports"), { recursive: true });
+    await writeFile(join(root, "reports", "budget.univer"), "fake sqlite payload", "utf8");
+    const executablePath = await writeFakeUniver(root);
+    await writeFile(`${executablePath}.timeout-once`, "hung\n", "utf8");
+
+    const result = await callUniverCliExtensionAction(
+      serverConfig(root),
+      "open_surface",
+      {
+        workspaceId: "ws_1",
+        path: "reports/budget.univer",
+      },
+      { workspaceId: "ws_1" },
+    );
+
+    if (!result || result.action !== "open_surface") throw new Error("Expected Univer open_surface result");
+    expect(result.result.origin).toBe("http://127.0.0.1:5180");
+    expect(result.result.univerfile.endsWith("/reports/budget.univer")).toBe(true);
+    const startCountText = await readFile(`${executablePath}.start-count`, "utf8");
+    const stopCountText = await readFile(`${executablePath}.stop-count`, "utf8");
+    expect(Number.parseInt(startCountText, 10)).toBe(2);
+    expect(Number.parseInt(stopCountText, 10)).toBe(1);
   });
 
   test("serializes concurrent Univer daemon starts for the same runtime", async () => {
@@ -580,7 +716,6 @@ describe("Univer CLI extension", () => {
         {
           workspaceId: "ws_1",
           path: "reports/budget.univer",
-          executablePath,
         },
         { workspaceId: "ws_1" },
       );

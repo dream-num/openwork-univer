@@ -1,9 +1,11 @@
 /**
- * Univer CLI built-in bundle is discoverable and exposes local repair controls.
+ * The published Cowork + CLI compatibility set is available offline and can
+ * only be repaired as one OpenWork-owned distribution.
  */
 export default {
   id: "univer-cli-extension-setup",
-  title: "Univer CLI built-in bundle exposes setup controls",
+  title: "Offline-ready Univer distribution exposes atomic setup controls",
+  spec: "openspec/changes/adopt-published-univer-distribution/specs/univer-distribution/spec.md",
   steps: [
     {
       name: "App booted",
@@ -38,7 +40,7 @@ export default {
       },
     },
     {
-      name: "Univer CLI built-in bundle is visible",
+      name: "Offline-ready Univer distribution is visible",
       run: async (ctx) => {
         await ctx.expectText("Univer CLI", { timeoutMs: 30_000 });
         await ctx.waitFor(`
@@ -51,7 +53,7 @@ export default {
           timeoutMs: 30_000,
           label: "Univer CLI built-in bundle connected card",
         });
-        await ctx.prove("Univer CLI appears as a connected built-in bundle without an install step", {
+        await ctx.prove("Univer CLI appears as a connected offline-ready distribution without an install step", {
           action: async () => {
             const hash = await ctx.eval("window.location.hash");
             ctx.assert(typeof hash === "string" && hash.includes("/settings/extensions/mcp"), "Expected settings extensions route.");
@@ -65,13 +67,13 @@ export default {
               typeof cardText === "string" &&
                 cardText.includes("Connected") &&
                 cardText.includes("View details") &&
-                cardText.includes("Built-in Univer cowork bundle") &&
+                cardText.includes("Offline-ready Univer compatibility set") &&
                 !cardText.includes("Tap to connect"),
               `Unexpected Univer CLI card text: ${JSON.stringify(cardText)}.`,
             );
           },
           screenshot: {
-            name: "univer-cli-built-in",
+            name: "univer-offline-distribution-card",
             requireText: ["AVAILABLE APPS", "Univer CLI", "Connected", "View details"],
             rejectText: ["Something went wrong"],
             hashIncludes: "/settings/extensions/mcp",
@@ -80,32 +82,34 @@ export default {
       },
     },
     {
-      name: "Setup panel exposes bundle actions",
+      name: "Setup panel exposes atomic distribution actions",
       run: async (ctx) => {
         await ctx.clickText("Univer CLI", { timeoutMs: 15_000 });
-        await ctx.expectText("Univer built-in bundle", { timeoutMs: 15_000 });
-        await ctx.prove("Univer CLI detail exposes built-in bundle status and local repair controls", {
+        await ctx.expectText("Offline-Ready Univer Distribution", { timeoutMs: 15_000 });
+        await ctx.prove("Univer CLI detail exposes one atomic offline distribution and local repair controls", {
           action: async () => {
-            await ctx.expectText("Univer built-in bundle");
+            await ctx.expectText("Offline-Ready Univer Distribution");
           },
           assert: async () => {
             await ctx.expectText("Ready");
             await ctx.expectText("Univer bundle is ready for this workspace.");
             await ctx.expectText("Built into OpenWork");
+            await ctx.expectText("Atomic with OpenWork");
             await ctx.expectText("Version");
             await ctx.expectText("Source");
             await ctx.expectText("Command");
-            await ctx.expectText("Bundle");
+            await ctx.expectText("CLI package");
             await ctx.expectText("Executable");
             await ctx.expectText("Check setup");
-            await ctx.expectText("Repair bundle");
+            await ctx.expectText("Repair distribution");
             await ctx.expectNoText("Install");
             await ctx.expectNoText("Auto-update managed CLI");
+            await ctx.expectNoText("Update available");
           },
           screenshot: {
-            name: "univer-cli-setup-panel",
-            requireText: ["Univer built-in bundle", "Ready", "Built into OpenWork", "Version", "Source", "Command", "Bundle", "Executable", "Check setup", "Repair bundle"],
-            rejectText: ["Something went wrong", "Install", "Auto-update managed CLI"],
+            name: "univer-offline-distribution-setup-panel",
+            requireText: ["Offline-Ready Univer Distribution", "Ready", "Built into OpenWork", "Atomic with OpenWork", "Version", "Source", "Command", "CLI package", "Executable", "Check setup", "Repair distribution"],
+            rejectText: ["Something went wrong", "Install", "Auto-update managed CLI", "Update available"],
           },
         });
       },

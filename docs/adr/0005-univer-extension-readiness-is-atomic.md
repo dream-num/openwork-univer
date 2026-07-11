@@ -1,6 +1,6 @@
 # Univer extension readiness is atomic
 
-The Univer CLI Extension is ready only when the complete `univer-cli` skill package is installed from `dream-num/skills`, the OpenWork-managed npm `univer` executable is resolved, and required health checks pass for the active workspace/runtime. Partial success is reported as detailed setup status, but it must not enable the extension as ready because users need the full agent skill plus executable runtime to complete Univer work.
+The Univer CLI Extension is ready only when the complete canonical `univer-cli` skill package from the locked source revision is available, the OpenWork-managed `univer` executable is resolved, and required health checks pass for the active workspace/runtime. Partial success is reported as detailed setup status, but it must not enable the extension as ready because users need the full agent skill plus executable runtime to complete Univer work.
 
 **Consequences**
 

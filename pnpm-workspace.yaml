@@ -3,6 +3,7 @@ minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   - "@univerjs/*"
   - "@univerjs-pro/*"
+  - "univer-cli"
 
 packages:
   - "apps/*"
@@ -29,3 +30,4 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  univer-cli: false

@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0021
+---
+
 # Extract only Cowork host contracts
 
 OpenWork will move only reusable Univer runtime contracts into `@univer/cowork`, such as visible Univerfile discovery, `univer open` handoff parsing, bundle health/shim preparation, and daemon startup retry behavior. OpenWork keeps session binding, artifact target derivation, sidebar hierarchy, settings UI, and Univer Artifact Header policy because those decisions belong to the OpenWork product model rather than the Univer cowork runtime.

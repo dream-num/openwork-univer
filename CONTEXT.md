@@ -174,32 +174,60 @@ The default OpenWork presentation mode for the Collab Gateway Univer Surface: an
 _Avoid_: External-browser default, static screenshot preview.
 
 **Cowork Content Viewer**:
-A reusable `@univer/cowork` content component extracted from `collab-client` embedded mode that renders a `CoworkContentViewerRequest` directly inside the host app using the same Univer collaboration-client and merge-preview behavior as the gateway-served page.
+A reusable `@univerjs-pro/cowork` content component extracted from `collab-client` embedded mode that renders a `CoworkContentViewerRequest` directly inside the host app using the same Univer collaboration-client and merge-preview behavior as the gateway-served page.
 _Avoid_: Rebuilt OpenWork editor, iframe wrapper, standalone collab-client shell.
 
-**Cowork Host Contract**:
-A host-facing `@univer/cowork` interface that exposes reusable Univer runtime facts such as visible Univerfile discovery, `univer open` handoff parsing, bundle health, and daemon startup behavior without OpenWork session, sidebar, artifact, or settings policy.
-_Avoid_: OpenWork integration, sidebar model, artifact model, generic command wrapper.
+**Published Cowork SDK**:
+The version-pinned `@univerjs-pro/cowork` npm package that exposes browser-safe cowork controllers, gateway adapters, React bindings, and viewer APIs to OpenWork. It does not own filesystem discovery, daemon lifecycle, executable shims, CLI installation, or skill distribution.
+_Avoid_: Cowork bundle, Cowork Host Contract when referring to OpenWork's Node/runtime responsibilities.
+
+**Published Univer CLI Runtime**:
+The version-pinned `univer-cli` npm package that supplies OpenWork's distributable `univer` executable independently of the Published Cowork SDK.
+_Avoid_: Cowork-bundled CLI, local `univer-cli` checkout, floating latest CLI.
+
+**Univer Compatibility Set**:
+The OpenWork-owned release lock that binds one Published Cowork SDK version, its Univer SDK Peer Cohort, one Published Univer CLI Runtime version, and one canonical `univer-cli` skill source revision and tree digest. The set is validated and upgraded atomically.
+_Avoid_: Independent component update, registry `latest`, package-lock-only compatibility claim.
+
+**Univer SDK Peer Cohort**:
+The exact, single-instance set of `@univerjs/*` and `@univerjs-pro/*` peer versions required by the Published Cowork SDK for one OpenWork release.
+_Avoid_: Auto-installed peer mixture, duplicate SDK cohort, partially upgraded Univer packages.
+
+**Offline-Ready Univer Distribution**:
+The desktop release payload assembled from one Univer Compatibility Set, ready for required health checks without network access on first use.
+_Avoid_: First-use npm install, Cowork bundle, system `PATH` dependency.
+
+**Supported Univer Desktop Platform**:
+A desktop operating-system and architecture target for which the Univer Compatibility Set contains a complete native dependency closure and the Offline-Ready Univer Distribution passes its release validation. macOS x64 is excluded from the supported and published matrix.
+_Avoid_: Partially supported desktop build, runtime-only platform claim.
 
 **Univer Open Handoff**:
 The structured JSON result from `univer open --json` that identifies a local gateway origin, a Univerfile path, and optional worktree/unit route fields for a host to open a Univer Surface.
 _Avoid_: Viewer URL, browser fallback URL, OpenWork artifact target.
 
 **Univer CLI Adapter**:
-The OpenWork module responsible for invoking the `univer` executable and translating its results into OpenWork extension actions and artifacts.
+The OpenWork-owned host module responsible for Univerfile discovery, executable resolution and shims, daemon lifecycle, invoking the `univer` executable, and translating results into OpenWork extension actions and artifacts.
 _Avoid_: Reimplemented workbook engine, generic shell wrapper.
 
 **Managed Univer Executable**:
 The `univer` executable installed and versioned by OpenWork for a workspace/runtime so agents can use Univer without relying on user shell configuration.
 _Avoid_: Global npm install when referring to the default setup path.
 
+**Development Univer Executable Override**:
+An explicitly configured `OPENWORK_UNIVER_EXECUTABLE` path used to test an unreleased local CLI outside the Univer Compatibility Set. It is reported as development-only and is never selected through implicit `PATH` discovery.
+_Avoid_: System fallback, adjacent checkout detection, release runtime source.
+
 **Managed npm Install**:
-The v1 provisioning strategy where OpenWork installs the `univer-cli` npm package into an OpenWork-managed directory, resolves the package `univer` bin, and exposes that bin to managed agent runtimes.
-_Avoid_: Bundled binary when referring to the first implementation slice.
+A fallback or explicit repair strategy for standalone OpenWork runtimes that do not contain an Offline-Ready Univer Distribution. It installs the OpenWork-pinned `univer-cli` version into an OpenWork-managed directory rather than resolving a floating registry `latest` version.
+_Avoid_: Default desktop setup, first-use requirement, automatic latest update.
 
 **Canonical Univer Skill Package**:
-The `univer-cli` skill package published from `dream-num/skills`, including its entrypoint, references, and managed inspect tool resources.
-_Avoid_: Skill copies from local `univer-cli/packages/skills` or generic OpenWork hub mirrors when referring to the user-facing install source.
+The source-owned `univer-cli` skill tree under `dream-num/univer-cli`, including its entrypoint, references, and managed inspect tool resources. OpenWork extracts it from the source revision locked by the Univer Compatibility Set.
+_Avoid_: `dream-num/skills` mirror, unrelated local checkout, generic OpenWork hub mirror when referring to the source of truth.
+
+**Published Univer Skill Mirror**:
+The release-synchronized copy of source-owned Univer skills in `dream-num/skills`, intended for downstream skill consumers after a `univer-cli` release.
+_Avoid_: Canonical Univer Skill Package source, OpenWork build input.
 
 **Ready Univer Installation**:
 An extension state where the Canonical Univer Skill Package is installed, the Managed Univer Executable is resolved, and required Univer health checks pass for the active workspace/runtime.

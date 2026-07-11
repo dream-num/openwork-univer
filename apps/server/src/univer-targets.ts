@@ -1,4 +1,4 @@
-import { discoverLocalUniverfiles } from "@univer/cowork/node";
+import { discoverLocalUniverfiles } from "./univer-runtime/index.js";
 import { relative, resolve } from "node:path";
 
 export type UniverTargetSummary = {

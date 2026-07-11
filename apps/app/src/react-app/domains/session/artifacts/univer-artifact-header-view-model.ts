@@ -6,7 +6,7 @@ import type {
   CoworkContentViewState,
   CoworkReviewUnitStatus,
   CoworkSnapshot,
-} from "@univer/cowork";
+} from "@univerjs-pro/cowork";
 
 import type { OpenTarget } from "./open-target";
 

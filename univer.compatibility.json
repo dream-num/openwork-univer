@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "identity": "cowork-0.1.0__cli-0.3.1__sdk-1.0.0-insiders.20260710-c16bf68",
+  "cowork": {
+    "package": "@univerjs-pro/cowork",
+    "version": "0.1.0",
+    "integrity": "sha512-8RakEsa86MVhFjK2MiTbabJE8Qv4v6ZvozQ8f70wAhWDaTCaVEO13TWghNbpwO95RqaETqgWx0DhldmXLI49dg=="
+  },
+  "sdk": {
+    "cohortVersion": "1.0.0-insiders.20260710-c16bf68"
+  },
+  "cli": {
+    "package": "univer-cli",
+    "version": "0.3.1",
+    "integrity": "sha512-ZZa0rjnImYuHcJCRYN+nNwPUbTFxUPLqjFfZDpbLWgjxww+eXFlF4uFcxFzuP5bzDklngOCX2xDGOiDC0+JwLg=="
+  },
+  "source": {
+    "repository": "dream-num/univer-cli",
+    "tag": "v0.3.1",
+    "commit": "e9066dc0f266a9ba7a109b21008c146b9473f616",
+    "archiveUrl": "https://api.github.com/repos/dream-num/univer-cli/tarball/e9066dc0f266a9ba7a109b21008c146b9473f616",
+    "skillPath": "packages/skills/skills/univer-cli",
+    "skillDigestAlgorithm": "sha256(path\\0sha256(content)\\n; UTF-8 bytewise sorted paths)",
+    "skillDigest": "b47631d0dce8895af694c82117a247b026b67c417adf7322bcb4a1fa3deede02"
+  },
+  "distribution": {
+    "univerExecutable": "runtime/node_modules/univer-cli/bin/univer.js",
+    "skillsRoot": "skill/univer-cli",
+    "provenance": "provenance.json"
+  },
+  "supportedTargets": [
+    "darwin-arm64",
+    "linux-x64",
+    "linux-arm64",
+    "win32-x64"
+  ]
+}
